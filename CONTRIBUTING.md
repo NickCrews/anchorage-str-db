@@ -59,6 +59,15 @@ automatic `GITHUB_TOKEN`.
   the area, not just ones free on specific nights. Nightly availability is
   a separate, per-listing concern (the calendar), not something to encode
   into the search itself.
+- **Calendar days before the scrape's own date are dropped.** Airbnb's
+  calendar endpoint always returns the *whole* current month starting on
+  the 1st, so a scrape on the 15th still gets days 1–14 back marked
+  `available: false` — not because anyone booked them, just because the
+  past can't be booked. `fetch_calendars(min_date=...)` filters those out;
+  without it every day before a given run looks like 100% occupancy, which
+  is a UI artifact, not a real signal. Caught by eyeballing the first real
+  run's output, not by a test — if you touch calendar parsing, sanity-check
+  a few days' worth of output against the live site before trusting it.
 - **The bbox is derived, not eyeballed** — see the docstring in
   `config.py`. If Girdwood's tax-district boundary is ever redrawn, or you
   want tighter/looser padding, recompute it from `anchorage-property`

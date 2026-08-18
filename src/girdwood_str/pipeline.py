@@ -39,7 +39,7 @@ def run_daily(db_path: Path, scrape_date: date | None = None) -> bool:
         retired = store.retire_stale_listings(con, scrape_date, config.RETIREMENT_GRACE_DAYS)
 
         room_ids = [str(p.listing_id) for p in parsed]
-        calendar_results = airbnb_client.fetch_calendars(room_ids)
+        calendar_results = airbnb_client.fetch_calendars(room_ids, min_date=scrape_date.isoformat())
         calendar_stats = store.merge_calendar(con, scrape_date, calendar_results)
 
         store.log_run(
