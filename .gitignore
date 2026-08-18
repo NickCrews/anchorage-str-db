@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local database working copy (published as a GitHub release asset, not committed)
+data/
+*.duckdb
+*.duckdb.wal
+
+.env
+.ruff_cache/
+.pytest_cache/

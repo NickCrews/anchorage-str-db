@@ -1,0 +1,37 @@
+[project]
+name = "girdwood-str"
+version = "0.1.0"
+description = "Daily scraper of Girdwood, AK short-term rental listings and availability into a DuckDB database with history, for GBOS housing-policy analysis"
+readme = "README.md"
+authors = [
+    { name = "Nick Crews", email = "nicholas.b.crews@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pyairbnb>=0.9.0",
+    "duckdb>=1.3.0",
+]
+
+[project.scripts]
+girdwood-str = "girdwood_str.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.1,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# C408: dict(...) with kwargs reads better than a literal for the wide,
+# all-keyword call shapes here (log_run's run dict, test fixtures).
+# DTZ001: timestamps in this project are naive UTC by convention (matches
+# anchorage-property) — tzinfo-aware datetimes would be inconsistent with
+# what's actually stored in DuckDB TIMESTAMP columns.
+ignore = ["C408", "DTZ001"]

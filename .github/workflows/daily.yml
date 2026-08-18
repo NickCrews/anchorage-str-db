@@ -1,0 +1,71 @@
+name: Daily Girdwood STR scrape
+
+on:
+  schedule:
+    # 12:00 UTC = 04:00 Anchorage (AKDT) / 03:00 (AKST) — quiet hours, and
+    # well clear of the anchorage-property refresh at 14:00 UTC in case
+    # anyone ever wants to correlate run times.
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+# Never let two runs write to the database at once.
+concurrency:
+  group: str-scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # to upload the updated database as a release asset
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DB_PATH: data/girdwood_str.duckdb
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.12"
+
+      - run: uv sync --frozen
+
+      # The runner starts clean every time, so pull yesterday's database
+      # back down from the release asset before scraping — otherwise every
+      # run would look like day one and the whole point (history) is lost.
+      - name: Restore previous database
+        run: |
+          mkdir -p data
+          if gh release download latest-data --repo "$GITHUB_REPOSITORY" \
+               --pattern 'girdwood_str.duckdb' --output "$DB_PATH" 2>/dev/null; then
+            echo "restored previous database"
+          else
+            echo "no previous release found — starting fresh"
+          fi
+
+      - name: Scrape + merge + quality gate
+        run: uv run girdwood-str --db "$DB_PATH" --verbose daily
+
+      # Only reached if the quality gate passed (daily exits non-zero on
+      # any error-severity check, which fails the step above first).
+      - name: Publish updated database
+        run: |
+          tag=latest-data
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" \
+              --title "Latest data" \
+              --notes "Always the most recent successful daily scrape. Superseded on every run — see scrape_runs in the database for history, and git history of this workflow for the pipeline that produced it."
+          fi
+
+      - name: Weekly dated backup
+        if: github.event.schedule == '0 12 * * 0' || github.event_name == 'workflow_dispatch'
+        run: |
+          tag="backup-$(date -u +%Y-%m-%d)"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" \
+              --title "Backup $(date -u +%Y-%m-%d)" \
+              --notes "Dated snapshot, kept indefinitely (unlike latest-data, which is overwritten daily)."
+          fi
