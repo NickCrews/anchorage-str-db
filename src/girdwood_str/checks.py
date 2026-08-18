@@ -111,6 +111,21 @@ def run_checks(con: duckdb.DuckDBPyConnection, scrape_date: date) -> list[CheckR
         f"{freshness} listing_observations rows for {scrape_date}",
     )
 
+    # A row's night_date should never be earlier than the scrape_date
+    # (valid_from) that first observed it — if it is, that's the
+    # elapsed-current-month artifact described in airbnb_client.py, not a
+    # real calendar entry. Catches a regression of that fix, or any other
+    # bug producing backdated rows.
+    backdated = con.execute(
+        "SELECT count(*) FROM calendar_status WHERE night_date < valid_from"
+    ).fetchone()[0]
+    check(
+        "no_backdated_calendar_rows",
+        "error",
+        backdated == 0,
+        f"{backdated} calendar_status rows with night_date before their own valid_from",
+    )
+
     return results
 
 

@@ -2,31 +2,9 @@ from datetime import date, datetime, timedelta
 
 from girdwood_str import store
 from girdwood_str.airbnb_client import CalendarNight, CalendarResult
-from girdwood_str.parse import ParsedListing
 
 
-def make_listing(id, name, bedrooms=1, lat=60.95, badges=None):
-    return ParsedListing(
-        listing_id=id,
-        name=name,
-        property_title="Tiny home",
-        bedrooms=bedrooms,
-        beds=1,
-        bathrooms=1.0,
-        guest_capacity=2,
-        lat=lat,
-        lng=-149.1,
-        url=f"https://airbnb.com/rooms/{id}",
-        attr_hash=f"h-{name}-{bedrooms}-{lat}",
-        rating_value=4.9,
-        review_count=10,
-        badges=badges or [],
-        price_hint_per_night=150.0,
-        price_qualifier="for 5 nights",
-    )
-
-
-def test_merge_listings_new_and_unchanged(tmp_path):
+def test_merge_listings_new_and_unchanged(tmp_path, make_listing):
     con = store.connect(tmp_path / "t.duckdb")
     day1 = [make_listing(1, "Cabin A"), make_listing(2, "Cabin B")]
     stats = store.merge_listings(con, date(2026, 8, 1), day1)
@@ -40,7 +18,7 @@ def test_merge_listings_new_and_unchanged(tmp_path):
     assert current == 2
 
 
-def test_merge_listings_detects_attribute_change(tmp_path):
+def test_merge_listings_detects_attribute_change(tmp_path, make_listing):
     con = store.connect(tmp_path / "t.duckdb")
     store.merge_listings(con, date(2026, 8, 1), [make_listing(1, "Cabin A")])
     stats = store.merge_listings(con, date(2026, 8, 2), [make_listing(1, "Cabin A Renamed")])
@@ -57,7 +35,7 @@ def test_merge_listings_detects_attribute_change(tmp_path):
     ]
 
 
-def test_retirement_has_grace_period(tmp_path):
+def test_retirement_has_grace_period(tmp_path, make_listing):
     con = store.connect(tmp_path / "t.duckdb")
     start = date(2026, 8, 1)
     grace = 5
@@ -127,7 +105,7 @@ def test_merge_calendar_failed_fetch_is_excluded(tmp_path):
     assert count == 0
 
 
-def test_insert_observations_is_idempotent_per_day(tmp_path):
+def test_insert_observations_is_idempotent_per_day(tmp_path, make_listing):
     con = store.connect(tmp_path / "t.duckdb")
     listings = [make_listing(1, "A"), make_listing(2, "B")]
     store.insert_observations(con, date(2026, 8, 1), listings)
