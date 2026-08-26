@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# npm
+npm-debug.log*
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+
+# the data snapshot copied in for local dev — never commit STR-level scrape data
+public/*.duckdb
