@@ -9,21 +9,44 @@ uv sync
 ## Running it
 
 ```sh
-uv run girdwood-str --db data/girdwood_str.duckdb daily
+uv run anchorage-str-db --db data/anchorage_str.duckdb daily
 ```
 
-That's the entire pipeline: search the Girdwood bbox, fetch every listing's
+That's the entire pipeline: search the Anchorage bbox, fetch every listing's
 calendar, SCD2-merge both into the database, run the data-quality gate.
 Non-zero exit means an error-severity check failed — see the log for which
 one. `--verbose` logs every check's pass/fail, not just failures.
 
-A run against a fresh (empty) database creates the schema automatically —
-there's no separate migration step.
+A run against a fresh (empty) database creates the schema automatically.
+Columns added to an already-published table need an explicit `ALTER` in
+`store.MIGRATIONS_SQL`, since `CREATE TABLE IF NOT EXISTS` is a no-op on an
+existing file and the daily job carries yesterday's file forward rather
+than rebuilding it.
+
+### The listing-page pass (`--pages`)
+
+```sh
+uv run anchorage-str-db --db data/anchorage_str.duckdb daily --pages
+```
+
+Adds a second per-listing pass that fetches each listing's own page for two
+things the search endpoint doesn't carry: Airbnb's `isExactLocation` flag —
+which says whether the `(location_lat, location_lng)` we store is the
+listing's real position or its privacy jitter — and the municipal STR
+registration number. Results
+land on `listings` itself, in the same SCD2 version as the search fields
+they describe — a run that doesn't fetch pages (or whose fetch fails for a
+given listing) carries the previous version's values forward rather than
+blanking them, so `--pages` can be run on whatever cadence suits without
+churning the history. It's opt-in because it roughly doubles the run's
+request count; see
+[`docs/research/airbnb-pdp-location-payload.md`](docs/research/airbnb-pdp-location-payload.md)
+for what it measured and why it's worth the requests.
 
 ## Inspecting the database
 
 ```sh
-duckdb data/girdwood_str.duckdb
+duckdb data/anchorage_str.duckdb
 ```
 
 or run anything in [`queries/policy_questions.sql`](queries/policy_questions.sql).
@@ -31,7 +54,7 @@ or run anything in [`queries/policy_questions.sql`](queries/policy_questions.sql
 ## How CI runs this
 
 [`.github/workflows/daily.yml`](.github/workflows/daily.yml) runs the exact
-same `uv run girdwood-str daily` command once a day. Since GitHub Actions
+same `uv run anchorage-str-db daily` command once a day. Since GitHub Actions
 runners are ephemeral, each run downloads the previous day's database from
 the `latest-data` release (that's the persistence mechanism — there's no
 separate cloud database), scrapes, merges, and re-uploads it if the quality
@@ -54,7 +77,7 @@ automatic `GITHUB_TOKEN`.
   is not perfectly reliable) doesn't get spuriously retired. Retirement
   only fires after `RETIREMENT_GRACE_DAYS` (5) consecutive misses — see
   `config.py`.
-- **Undated search.** `search_girdwood()` passes no check-in/check-out —
+- **Undated search.** `search_anchorage()` passes no check-in/check-out —
   Airbnb's map search without dates returns every listing it will show for
   the area, not just ones free on specific nights. Nightly availability is
   a separate, per-listing concern (the calendar), not something to encode
@@ -68,8 +91,28 @@ automatic `GITHUB_TOKEN`.
   is a UI artifact, not a real signal. Caught by eyeballing the first real
   run's output, not by a test — if you touch calendar parsing, sanity-check
   a few days' worth of output against the live site before trusting it.
+- **Half the coordinates in `listings` are fake, and `location_is_exact`
+  says which half.** Airbnb jitters the map pin unless the host opted into
+  showing the exact spot. Any query that joins
+  `location_lat`/`location_lng` to parcels,
+  addresses, or anything else spatial should filter on that column first —
+  otherwise it's matching Airbnb's random offset to whatever parcel is
+  nearby and reporting it as an address. The flag lives on `listings`
+  rather than in a table of its own precisely so that filter is one column
+  away from the coordinate instead of one join away. The jitter is stable
+  per listing (verified by repeated fetching), so no amount of re-scraping
+  averages it out.
+- **The listing-page parse is layered on purpose, and the layers are
+  recorded.** `listing_page.py` extracts the same facts three independent
+  ways — schema.org JSON-LD, a shape-search over the embedded GraphQL
+  state, and regexes over the raw HTML — because none of it is a documented
+  API. Each page records which layers actually contributed
+  (`ListingPage.location_source`, in memory, not a database column), and
+  the `extraction_layer_*_alive` checks fail when one stops, so a silent
+  degradation shows up in the quality gate instead of as quietly missing
+  data. Don't "simplify" it to a single path.
 - **The bbox is derived, not eyeballed** — see the docstring in
-  `config.py`. If Girdwood's tax-district boundary is ever redrawn, or you
+  `config.py`. If Anchorage's boundaries or parcel coverage change, or you
   want tighter/looser padding, recompute it from `anchorage-property`
   rather than hand-editing the coordinates.
 
@@ -95,11 +138,14 @@ its own investigation into what's scrapeable and how. If you pick this up:
 uv run pytest
 ```
 
+`tests/test_listing_page.py` parses synthetic copies of Airbnb's embedded
+PDP JSON — it can't tell you Airbnb hasn't changed that shape (only a live
+fetch can), but it will fail if someone flattens the path-walking.
 `tests/test_store.py` exercises the SCD2 merge logic (listings, calendar,
 retirement) against a real in-memory-ish DuckDB file with synthetic data —
 no network access needed. There's currently no test that hits the live
 Airbnb API (by design — CI shouldn't depend on it being reachable/unblocked
 to pass); `airbnb_client.py` and `parse.py` are the modules most likely to
 break silently when Airbnb changes something, so if you're debugging a
-production failure, start by re-running `search_girdwood()` and
+production failure, start by re-running `search_anchorage()` and
 `fetch_calendars()` interactively against a couple of known room IDs.

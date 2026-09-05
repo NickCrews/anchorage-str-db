@@ -40,7 +40,7 @@ export type RoomState = RoomShellSliceState &
 export const { roomStore, useRoomStore } = createRoomStore<RoomState>(
   persistSliceConfigs(
     {
-      name: 'girdwood-str-viewer-state-v2',
+      name: 'anchorage-str-db-viewer-state-v2',
       sliceConfigSchemas: {
         room: BaseRoomConfig,
         layout: LayoutConfig,
@@ -50,7 +50,7 @@ export const { roomStore, useRoomStore } = createRoomStore<RoomState>(
     (set, get, store) => ({
       ...createRoomShellSlice({
         config: {
-          title: 'Girdwood STR Lake',
+          title: 'Anchorage STR DB',
         },
         layout: {
           config: {

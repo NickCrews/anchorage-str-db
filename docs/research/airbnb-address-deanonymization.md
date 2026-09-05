@@ -3,7 +3,7 @@
 Research date: 2026-08-18. Scope: how others (researchers, cities, and
 compliance vendors) go from a public Airbnb listing — with its
 deliberately fuzzed map pin — to a real street address or parcel, in
-order to inform `girdwood-str-lake`'s eventual goal of cross-referencing
+order to inform `anchorage-str-db`'s eventual goal of cross-referencing
 scraped listings against Girdwood's municipal STR permit registry.
 
 Bottom line up front: the dominant real-world method is **not** technical
@@ -314,7 +314,7 @@ platform itself rather than the city.
   business license number), which is closer to Girdwood's own "does the
   listing show a registration number" question than to geolocation
   attack. This is the closest civic-tech analog to
-  `girdwood-str-lake`'s stated goal that I found. Source:
+  `anchorage-str-db`'s stated goal that I found. Source:
   https://github.com/CodeForBc/airbnb-regulation.
 - **Apify "Airbnb Address Finder"** — a commercial Apify actor claiming to
   resolve Airbnb listing addresses; I did not fetch/verify its internals
@@ -365,7 +365,7 @@ platform itself rather than the city.
   circle shown to browsing guests is deliberately larger/coarser** than
   the **raw jittered coordinate Airbnb returns in its API/search
   responses** (which is what `pyairbnb` and this project actually
-  capture). This distinction matters for `girdwood-str-lake`: the
+  capture). This distinction matters for `anchorage-str-db`: the
   lat/lng this scraper stores comes from the API response object, not
   a rendered map pin, so the applicable jitter bound is closer to the
   150–200m (or larger, rural) figure than to the 0.5–0.7 mile visual
@@ -423,7 +423,7 @@ will actually mean in practice:
   directly) or an NYC/New-Orleans-style platform-verification-before-booking
   requirement. Alaska has no comparable state law found in this research.
 
-## Recommendation for girdwood-str-lake
+## Recommendation for anchorage-str-db
 
 Given the realistic constraints — a hobby/civic-tech project with no
 subpoena power, no data-sharing agreement with Airbnb, and (per §6) no

@@ -6,12 +6,12 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from girdwood_str import config
-from girdwood_str.pipeline import run_daily
+from anchorage_str_db import config
+from anchorage_str_db.pipeline import run_daily
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="girdwood-str")
+    parser = argparse.ArgumentParser(prog="anchorage-str-db")
     parser.add_argument(
         "--db",
         type=Path,
@@ -26,7 +26,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("daily", help="search Girdwood, fetch calendars, merge, run quality checks")
+    daily = sub.add_parser(
+        "daily", help="search Anchorage, fetch calendars, merge, run quality checks"
+    )
+    daily.add_argument(
+        "--pages",
+        action="store_true",
+        help=(
+            "also fetch each listing's own page for its location payload "
+            "(Airbnb's isExactLocation flag) and municipal STR registration "
+            "number; roughly doubles the run's request count"
+        ),
+    )
 
     args = parser.parse_args(argv)
     logging.basicConfig(
@@ -37,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     args.db.parent.mkdir(parents=True, exist_ok=True)
 
     if args.command == "daily":
-        ok = run_daily(args.db, scrape_date=args.date)
+        ok = run_daily(args.db, scrape_date=args.date, fetch_pages=args.pages)
         return 0 if ok else 1
 
     return 2

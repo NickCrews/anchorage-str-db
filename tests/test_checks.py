@@ -1,7 +1,7 @@
 from datetime import date, datetime
 
-from girdwood_str import checks, config, store
-from girdwood_str.airbnb_client import CalendarNight, CalendarResult
+from anchorage_str_db import checks, config, store
+from anchorage_str_db.airbnb_client import CalendarNight, CalendarResult
 
 
 def _seed_minimal(con, scrape_date, make_listing):

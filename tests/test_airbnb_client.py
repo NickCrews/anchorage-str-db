@@ -1,4 +1,4 @@
-from girdwood_str import airbnb_client
+from anchorage_str_db import airbnb_client
 
 
 def test_fetch_one_calendar_drops_days_before_min_date(monkeypatch):

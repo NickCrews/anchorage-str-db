@@ -1,6 +1,6 @@
 import pytest
 
-from girdwood_str.parse import ParsedListing
+from anchorage_str_db.parse import ParsedListing
 
 
 @pytest.fixture

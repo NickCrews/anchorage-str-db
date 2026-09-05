@@ -1,11 +1,11 @@
-"""Thin wrapper around pyairbnb: search Girdwood, fetch per-listing calendars.
+"""Thin wrapper around pyairbnb: search Anchorage, fetch per-listing calendars.
 
 pyairbnb (https://github.com/johnbalvin/pyairbnb) intercepts Airbnb's
 internal StaysSearch / PdpAvailabilityCalendar GraphQL endpoints — the same
 ones the website's map search and listing pages use — rather than scraping
 rendered HTML. That makes it resilient to markup changes but means it's
 riding on Airbnb's *unofficial* API surface, which can change without
-notice; `search_girdwood()` and `fetch_calendar()` are the only two calls
+notice; `search_anchorage()` and `fetch_calendar()` are the only two calls
 into it, kept narrow on purpose so a breakage is easy to localize.
 """
 
@@ -19,13 +19,13 @@ from dataclasses import dataclass
 
 import pyairbnb
 
-from girdwood_str import config
+from anchorage_str_db import config
 
 log = logging.getLogger(__name__)
 
 
-def search_girdwood() -> list[dict]:
-    """One bbox search over Girdwood, paginated to completion by pyairbnb.
+def search_anchorage() -> list[dict]:
+    """One bbox search over Anchorage, paginated to completion by pyairbnb.
 
     No check-in/check-out dates are passed — an undated map search returns
     every listing Airbnb will show for the area, not just ones free on
@@ -46,7 +46,7 @@ def search_girdwood() -> list[dict]:
         language=config.LANGUAGE,
         proxy_url="",
     )
-    log.info("search_girdwood: %d raw results", len(results))
+    log.info("search_anchorage: %d raw results", len(results))
     return results
 
 

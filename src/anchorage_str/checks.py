@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from datetime import date
 
 import duckdb
-
-from girdwood_str import config
+from anchorage_str import config
+from anchorage_str.store import PageFetchStats
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +24,14 @@ class CheckResult:
     detail: str
 
 
-def run_checks(con: duckdb.DuckDBPyConnection, scrape_date: date) -> list[CheckResult]:
+def run_checks(
+    con: duckdb.DuckDBPyConnection,
+    scrape_date: date,
+    page_stats: PageFetchStats | None = None,
+) -> list[CheckResult]:
+    """`page_stats` is this run's listing-page pass, when `--pages` ran —
+    parse provenance isn't persisted, so its health checks read the run's
+    in-memory stats rather than the database."""
     results: list[CheckResult] = []
 
     def check(name, severity, passed, detail):
@@ -67,7 +74,8 @@ def run_checks(con: duckdb.DuckDBPyConnection, scrape_date: date) -> list[CheckR
     bbox = config.BBOX
     out_of_bbox = con.execute(
         "SELECT count(*) FROM listings WHERE is_current AND "
-        "(lat IS NULL OR lng IS NULL OR lat < ? OR lat > ? OR lng < ? OR lng > ?)",
+        "(location_lat IS NULL OR location_lng IS NULL OR location_lat < ? "
+        "OR location_lat > ? OR location_lng < ? OR location_lng > ?)",
         [
             bbox["sw_lat"] - 0.05,
             bbox["ne_lat"] + 0.05,
@@ -79,7 +87,7 @@ def run_checks(con: duckdb.DuckDBPyConnection, scrape_date: date) -> list[CheckR
         "coords_within_bbox",
         "warn",
         out_of_bbox == 0,
-        f"{out_of_bbox} current listings outside the Girdwood bbox (+buffer)",
+        f"{out_of_bbox} current listings outside the Anchorage bbox (+buffer)",
     )
 
     run = con.execute(
@@ -110,6 +118,72 @@ def run_checks(con: duckdb.DuckDBPyConnection, scrape_date: date) -> list[CheckR
         freshness > 0,
         f"{freshness} listing_observations rows for {scrape_date}",
     )
+
+    # The listing-page pass is opt-in (`daily --pages`), so only gate on it
+    # when this run actually attempted it.
+    if page_stats and page_stats.attempted:
+        rate = page_stats.failed / page_stats.attempted
+        check(
+            "listing_page_failure_rate",
+            "error",
+            rate <= config.MAX_PAGE_FAILURE_RATE,
+            f"{page_stats.failed}/{page_stats.attempted} listing-page fetches failed ({rate:.0%})",
+        )
+
+    fetched = page_stats.attempted - page_stats.failed if page_stats else 0
+    if page_stats and fetched:
+        # `isExactLocation` is the whole point of the listing-page pass, and
+        # it comes from the one layer that reads Airbnb's private JSON. If a
+        # run reads pages but none of them yield the flag, that layer has
+        # broken and the parse is degrading silently to the coordinate-only
+        # fallback.
+        check(
+            "exact_location_flag_present",
+            "error",
+            page_stats.with_exact_flag > 0,
+            f"{page_stats.with_exact_flag}/{fetched} pages read this run carried isExactLocation",
+        )
+
+        # Which extraction layers are still working. `state` is the only
+        # one that can produce the flag, so losing it is the failure above;
+        # losing `json-ld` is a quieter warning that the standards-based
+        # cross-check on the coordinate is gone. See listing_page.py.
+        for layer in ("json-ld", "state"):
+            live = page_stats.layer_used.get(layer, 0)
+            check(
+                f"extraction_layer_{layer.replace('-', '_')}_alive",
+                "warn",
+                live > 0,
+                f"{live}/{fetched} pages read this run used the {layer} layer",
+            )
+
+    # Cross-check the flag against an independent signal: Airbnb emits an
+    # exact coordinate rounded to 4 decimal places and a jittered one at 5+
+    # (41/41 when measured — see docs/research/airbnb-pdp-location-payload.md).
+    # That's an undocumented artifact, so a mismatch doesn't mean the flag
+    # is wrong — it means one of the two stopped meaning what it did, which
+    # is worth a look either way.
+    mismatched = con.execute(
+        """
+        SELECT count(*) FROM listings
+        WHERE is_current AND location_is_exact IS NOT NULL AND location_lat IS NOT NULL
+          AND location_is_exact != (
+              length(split_part(abs(location_lat)::VARCHAR, '.', 2)) <= 4
+              AND length(split_part(abs(location_lng)::VARCHAR, '.', 2)) <= 4
+          )
+        """
+    ).fetchone()[0]
+    located = con.execute(
+        "SELECT count(*) FROM listings WHERE is_current AND location_is_exact IS NOT NULL"
+    ).fetchone()[0]
+    if located:
+        check(
+            "exact_flag_matches_coordinate_precision",
+            "warn",
+            mismatched / located <= 0.05,
+            f"{mismatched}/{located} listings where isExactLocation disagrees with "
+            "the 4-vs-5-decimal-place signal",
+        )
 
     # A row's night_date should never be earlier than the scrape_date
     # (valid_from) that first observed it — if it is, that's the

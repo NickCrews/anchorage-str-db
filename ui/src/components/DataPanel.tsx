@@ -1,10 +1,10 @@
-import {FileDropzone} from '@sqlrooms/dropzone';
-import {RoomPanel} from '@sqlrooms/room-shell';
-import {SchemaExplorer} from '@sqlrooms/sql-editor';
-import {toast} from '@sqlrooms/ui';
-import {convertToValidColumnOrTableName} from '@sqlrooms/utils';
-import type {FC} from 'react';
-import {useRoomStore} from '../store';
+import { FileDropzone } from '@sqlrooms/dropzone';
+import { RoomPanel } from '@sqlrooms/room-shell';
+import { SchemaExplorer } from '@sqlrooms/sql-editor';
+import { toast } from '@sqlrooms/ui';
+import { convertToValidColumnOrTableName } from '@sqlrooms/utils';
+import type { FC } from 'react';
+import { useRoomStore } from '../store';
 
 export const DataPanel: FC = () => {
   const status = useRoomStore((s) => s.dataInit.status);
@@ -18,11 +18,11 @@ export const DataPanel: FC = () => {
     <RoomPanel>
       <div className="px-1 pb-3 text-xs">
         {status === 'loading' && (
-          <p className="text-muted-foreground">Attaching girdwood_str.duckdb…</p>
+          <p className="text-muted-foreground">Attaching anchorage_str.duckdb…</p>
         )}
         {status === 'error' && (
           <p className="text-destructive whitespace-pre-wrap">
-            Failed to load the lake: {error}
+            Failed to load the database: {error}
           </p>
         )}
         {status === 'ready' && (
@@ -31,7 +31,7 @@ export const DataPanel: FC = () => {
             <span className="font-medium">listing_observations</span>,{' '}
             <span className="font-medium">calendar_status</span> and{' '}
             <span className="font-medium">scrape_runs</span> are views over
-            the attached, read-only <code>girdwood_str.duckdb</code> snapshot
+            the attached, read-only <code>anchorage_str.duckdb</code> snapshot
             — see the README for the SCD2 shape and the "available" caveat.
           </p>
         )}

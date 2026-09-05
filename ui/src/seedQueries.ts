@@ -1,9 +1,9 @@
-import type {SqlEditorQuery} from '@sqlrooms/sql-editor';
+import type { SqlEditorQuery } from '@sqlrooms/sql-editor';
 
 /**
  * Ready-made queries for the SQL tab, adapted from
  * `queries/policy_questions.sql` in the main repo — the questions this
- * lake was actually built to answer.
+ * database was actually built to answer.
  */
 export const SEED_QUERIES: SqlEditorQuery[] = [
   {
@@ -43,7 +43,7 @@ ORDER BY night_date;
   {
     id: 'distinct-strs-last-year',
     name: 'Distinct STRs, last year',
-    query: `-- How many distinct houses in Girdwood operated as an STR in the last year?
+    query: `-- How many distinct homes in Anchorage operated as an STR in the last year?
 SELECT count(DISTINCT listing_id) AS distinct_strs_last_365_days
 FROM listing_observations
 WHERE scrape_date >= CURRENT_DATE - INTERVAL 365 DAY;
@@ -73,7 +73,7 @@ ORDER BY scrape_date;
   {
     id: 'bedroom-mix',
     name: 'Bedroom-size mix',
-    query: `-- Bedroom-size mix of Girdwood's STR inventory right now — a proxy for
+    query: `-- Bedroom-size mix of Anchorage's STR inventory right now — a proxy for
 -- how much housing stock (studios vs. family-sized homes) is tied up.
 SELECT
     coalesce(bedrooms::VARCHAR, 'studio/unknown') AS bedrooms,
@@ -99,7 +99,7 @@ SELECT * FROM listings WHERE listing_id = 123456 ORDER BY valid_from;
   {
     id: 'parcel-cross-reference',
     name: 'Parcel cross-reference (needs attach)',
-    query: `-- Cross-reference with the parcel lake: which specific parcels are running
+    query: `-- Cross-reference with the parcel database: which specific parcels are running
 -- STRs, and are any of them claiming the owner's-primary-residence
 -- exemption while also operating full-time as a short-term rental?
 -- Nearest-centroid match, not exact — check match_m before trusting a row.
@@ -112,12 +112,12 @@ SELECT * FROM listings WHERE listing_id = 123456 ORDER BY valid_from;
 --         l.listing_id, l.name, l.url,
 --         p.parcel_id, p.parcel_address, p.owner_name, p.exemption_6_type,
 --         ST_Distance(
---             ST_Transform(ST_Point(l.lng, l.lat), 'EPSG:4326', 'EPSG:3338', always_xy := true),
+--             ST_Transform(ST_Point(l.location_lng, l.location_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true),
 --             ST_Transform(ST_Point(p.centroid_lon, p.centroid_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true)
 --         ) AS match_m,
 --         row_number() OVER (PARTITION BY l.listing_id ORDER BY
 --             ST_Distance(
---                 ST_Transform(ST_Point(l.lng, l.lat), 'EPSG:4326', 'EPSG:3338', always_xy := true),
+--                 ST_Transform(ST_Point(l.location_lng, l.location_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true),
 --                 ST_Transform(ST_Point(p.centroid_lon, p.centroid_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true)
 --             )) AS rn
 --     FROM listings l

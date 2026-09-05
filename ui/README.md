@@ -1,7 +1,7 @@
-# Girdwood STR Lake — viewer
+# Anchorage STR DB — viewer
 
-A [SQLRooms](https://sqlrooms.org) app for browsing the `girdwood_str.duckdb`
-lake produced by this repo: everything runs client-side against
+A [SQLRooms](https://sqlrooms.org) app for browsing the `anchorage_str.duckdb`
+database produced by this repo: everything runs client-side against
 [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview) in your browser —
 no server, no data leaves your machine.
 
@@ -10,7 +10,7 @@ no server, no data leaves your machine.
   monthly distinct-STR trend, bedroom-size mix).
 - **Listings** — a searchable, sortable table of the currently active
   listings with their latest rating/review/price snapshot.
-- **SQL** — a full SQL editor over the lake, seeded with the ready-made
+- **SQL** — a full SQL editor over the database, seeded with the ready-made
   questions from [`queries/policy_questions.sql`](../queries/policy_questions.sql).
   Save any result as a new table/view via "New table".
 - **Data** (left sidebar) — the schema tree for `listings`,
@@ -21,7 +21,7 @@ no server, no data leaves your machine.
 
 ```sh
 # from the repo root, refresh the snapshot the UI reads:
-cp data/girdwood_str.duckdb ui/public/girdwood_str.duckdb
+cp data/anchorage_str.duckdb ui/public/anchorage_str.duckdb
 
 cd ui
 npm install
@@ -33,7 +33,7 @@ work the same way for a production build.
 
 ## How data loading works
 
-`public/girdwood_str.duckdb` is a snapshot copied in from `../data/`
+`public/anchorage_str.duckdb` is a snapshot copied in from `../data/`
 (gitignored — see below). On startup, [`src/dataInitSlice.ts`](src/dataInitSlice.ts)
 fetches that file, registers its bytes with the in-browser DuckDB-WASM
 filesystem, `ATTACH`es it read-only, and creates `listings`,
@@ -45,9 +45,9 @@ there's no build step involved in refreshing the data.
 
 ## Private data — do not deploy publicly
 
-Per the root [README](../README.md#notes--caveats), this lake is
+Per the root [README](../README.md#privacy), this database is
 near-address-precision, listing-level scrape data and defaults to private.
-`public/girdwood_str.duckdb` is gitignored, and there's deliberately no
+`public/anchorage_str.duckdb` is gitignored, and there's deliberately no
 Netlify/Vercel config here — `npm run build` bundles the snapshot straight
 into `dist/`, so publishing that build anywhere public republishes the data.
 If you want to share this UI, deploy it somewhere access-controlled and
