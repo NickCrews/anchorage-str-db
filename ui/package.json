@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@sqlrooms/data-table": "0.29.0-rc.10",
+    "@sqlrooms/deck": "0.29.0-rc.10",
     "@sqlrooms/dropzone": "0.29.0-rc.10",
     "@sqlrooms/duckdb": "0.29.0-rc.10",
     "@sqlrooms/recharts": "0.29.0-rc.10",

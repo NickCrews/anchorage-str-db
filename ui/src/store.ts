@@ -6,15 +6,18 @@ import {
   persistSliceConfigs,
   RoomShellSliceState,
 } from '@sqlrooms/room-shell';
-import { LayoutDashboardIcon, ListIcon } from 'lucide-react';
+import { createWasmDuckDbConnector } from '@sqlrooms/duckdb';
+import { LayoutDashboardIcon, ListIcon, MapIcon } from 'lucide-react';
 import { z } from 'zod';
 import { ListingsView } from './components/ListingsView';
+import { MapView } from './components/MapView';
 import { OverviewView } from './components/OverviewView';
 import { createDataInitSlice, DataInitSliceState } from './dataInitSlice';
 
 export const RoomPanelTypes = z.enum([
   'overview',
   'listings',
+  'map',
 ] as const);
 export type RoomPanelTypes = z.infer<typeof RoomPanelTypes>;
 
@@ -30,7 +33,7 @@ export type RoomState = RoomShellSliceState &
 export const { roomStore, useRoomStore } = createRoomStore<RoomState>(
   persistSliceConfigs(
     {
-      name: 'anchorage-str-db-viewer-state-v2',
+      name: 'anchorage-str-db-viewer-state-v3',
       sliceConfigSchemas: {
         room: BaseRoomConfig,
         layout: LayoutConfig,
@@ -38,6 +41,13 @@ export const { roomStore, useRoomStore } = createRoomStore<RoomState>(
     },
     (set, get, store) => ({
       ...createRoomShellSlice({
+        // `MapView` turns the stored `location_lat`/`location_lng` pair into
+        // WKB points with `ST_Point`, so the spatial extension has to be
+        // loaded before any query runs. Naming the connector explicitly is
+        // the only way in — the default one takes no initialization query.
+        connector: createWasmDuckDbConnector({
+          initializationQuery: 'LOAD spatial;',
+        }),
         config: {
           title: 'Anchorage STR DB',
         },
@@ -47,6 +57,7 @@ export const { roomStore, useRoomStore } = createRoomStore<RoomState>(
             type: 'tabs',
             children: [
               RoomPanelTypes.enum.overview,
+              RoomPanelTypes.enum.map,
               RoomPanelTypes.enum.listings,
             ],
             activeTabIndex: 0,
@@ -57,6 +68,11 @@ export const { roomStore, useRoomStore } = createRoomStore<RoomState>(
               title: 'Overview',
               icon: LayoutDashboardIcon,
               component: OverviewView,
+            },
+            [RoomPanelTypes.enum.map]: {
+              title: 'Map',
+              icon: MapIcon,
+              component: MapView,
             },
             [RoomPanelTypes.enum.listings]: {
               title: 'Listings',
