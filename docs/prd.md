@@ -6,7 +6,7 @@ b. policy makers, such as girdwood board of supervisor members
 c. members of the public
 
 This will work for all of anchorage muni, even though I need it just for girdwood,
-we will need anchorage as a baseline.
+we will need anchorage as a baseline, to the same full depth as girdwood.
 
 This will help answer the basic questions
 - how are STRs affecting the girdwood housing market
@@ -19,7 +19,17 @@ Other repos/projects should be able to pull data easily from this programmatical
 
 ## DB Requirements
 
-What we publish as a duckdb file for an agent to query. Some subset shown in the web ui
+What we publish as a duckdb file for an agent to query. Some subset shown in the web ui.
+Aim to pull fresh data every day.
+
+### Join keys
+
+So downstream repos can pull this data and join it against other sources
+(property/parcel db, voterfile, etc) without talking to us first:
+- `host_id` — stable for the life of a host account.
+- `room_id` — stable for the life of a room, per Rooms #2.
+- location — `lat`/`lon` (flagging jittered vs exact, see Rooms #3), and street
+  address once we have one, as the spatial join key.
 
 ### Hosts
 
@@ -27,6 +37,7 @@ What we publish as a duckdb file for an agent to query. Some subset shown in the
   a. see if a room in girdwood is owned by a tycoon or an on-prem owner
   b. store name and bio so downstream users can try to link to voterfile/property db to see if they live in girdwood or anchorage.
   c. see year they started hosting (web ui shows "11 years hosting")
+  d. host_id, stable for the life of the host account
 
 ### Rooms
 
@@ -37,13 +48,25 @@ What we publish as a duckdb file for an agent to query. Some subset shown in the
 6. History of dates available, price, n beds, n baths, n guests, room type (whole house, room, etc)
   "Not available" does not always mean a guest booking; hosts can block nights
 
-## Non-goals and Limitaions
+## Non-goals and Limitations
 
 - In this repo we don't measure the rest of the housing market, the property ownership db, etc.
   Those may be handled separately.
 - Airbnb only (no Vrbo/Expedia yet)
 - History starts when you start collecting; no retroactive backfill
 - Some map points are intentionally blurred by Airbnb for privacy
+- No schema stability guarantee yet. This is alpha; the schema may change at
+  any time.
+- A host can delete a listing and relist the same physical unit under a new
+  room_id to shed bad reviews or dodge a registration requirement. We don't
+  currently detect this.
+
+## Follow-ups (not now)
+
+- Neighborhood/sub-area tagging (e.g. girdwood vs. rest of anchorage) beyond
+  raw lat/lon.
+- Trust/quality signal exposed to downstream consumers (scrape health,
+  staleness, gaps). Out of scope for now, deal with it later.
 
 ## Privacy
 
