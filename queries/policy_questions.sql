@@ -5,12 +5,17 @@
 -- ============================================================
 -- Q: How many houses are up (operating as an STR) on a given night?
 -- "Up" = had that night in its calendar at all, whether booked or open.
+-- Read `calendar_current`, not `calendar_status`: when a listing is retired
+-- we stop fetching its calendar, so its forward nights freeze in place and
+-- the raw table keeps reporting them as current for up to twelve months.
+-- The view drops those while keeping the nights a retired listing really
+-- was observed operating for.
 -- ============================================================
 SELECT
     night_date,
     count(DISTINCT listing_id) AS listings_operating
 FROM
-    calendar_status
+    calendar_current
 WHERE
     night_date BETWEEN CURRENT_DATE
     AND CURRENT_DATE + INTERVAL 90 DAY
@@ -50,9 +55,8 @@ SELECT
         1
     ) AS pct_booked
 FROM
-    calendar_status
-WHERE
-    is_current -- swap for a valid_from/valid_to filter to ask "as observed on date X"
+    calendar_current -- swap in calendar_status + a valid_from/valid_to filter
+    -- to ask "as observed on date X"
 GROUP BY
     ALL
 ORDER BY
@@ -95,8 +99,12 @@ ORDER BY
 -- ============================================================
 -- Q: What does a single listing's history look like — name/size changes,
 -- and a year of night-by-night status?
+-- `listings` is a view over `listing_observations`, which holds the raw
+-- row-per-day if you want the unversioned truth (including the days a
+-- listing was missing from search entirely).
 -- ============================================================
 -- SELECT * FROM listings WHERE listing_id = :id ORDER BY valid_from;
+-- SELECT * FROM listing_observations WHERE listing_id = :id ORDER BY scrape_date;
 -- SELECT night_date, available, valid_from FROM calendar_status
 --   WHERE listing_id = :id ORDER BY night_date;
 -- ============================================================
@@ -153,7 +161,8 @@ ORDER BY
 -- The parcel-matching query above is only trustworthy for the exact rows;
 -- for the fuzzed ones the nearest parcel is a coincidence, not an answer.
 -- `page_seen_date IS NULL` means we've never read that listing's page —
--- not that its location is unknown to Airbnb.
+-- not that its location is unknown to Airbnb. It is derived as the last
+-- scrape_date where `listing_observations.page_fetch_ok`.
 -- ============================================================
 SELECT
     location_is_exact,

@@ -181,13 +181,22 @@ listings *without* a number are the interesting rows — that query is in
 
 ## What this changes for the project
 
-These fields are stored on `listings` itself rather than in a side table:
-`location_is_exact` is a modifier on the `location_lat`/`location_lng`
-columns sitting next to it, and splitting them would mean no query could
-read a coordinate without remembering to join. They join `attr_hash`, so a
-host toggling their exact location on or adding a registration number opens
-a dated new version; `page_seen_date` is provenance and updates in place,
-so re-reading the page daily doesn't grow a version per day.
+These fields are stored on the same `listing_observations` row as the search
+fields rather than in a side table: `location_is_exact` is a modifier on the
+`location_lat`/`location_lng` columns sitting next to it, and splitting them
+would mean no query could read a coordinate without remembering to join.
+They are part of the version key, so a host toggling their exact location on
+or adding a registration number opens a dated new version in the `listings`
+view. When we looked is provenance rather than an attribute — it is derived
+as `page_seen_date`, the last scrape date where `page_fetch_ok` — so
+re-reading the page daily doesn't grow a version per day.
+
+The page fetch fails independently of the search, which is what
+`page_fetch_ok` is for: a day we couldn't read the page stores NULLs and
+`false`, and the view carries the last successful read forward. Carrying the
+whole tuple rather than each column keeps "we read the page and this host
+publishes no number" distinct from "we never got to look" — otherwise a
+failed fetch would resurrect a registration number the host had removed.
 
 1. **Roughly half of Girdwood's listings can be parcel-matched with
    confidence.** The nearest-centroid query in `policy_questions.sql`

@@ -8,9 +8,16 @@ import type { StateCreator } from 'zustand';
  * just reference them by name.
  */
 export const LAKE_TABLES = [
+  // `listing_observations` and `calendar_status` are the real tables; the
+  // rest are views the published database defines over them. `listings` is
+  // the SCD2 dimension rebuilt per-version, and `calendar_current` is the
+  // one to read for "operating tonight" — plain `calendar_status` keeps
+  // reporting a retired listing's frozen forward nights as current.
   'listings',
+  'listings_current',
   'listing_observations',
   'calendar_status',
+  'calendar_current',
   'scrape_runs',
 ] as const;
 
@@ -36,8 +43,8 @@ export type DataInitSliceState = {
  * Attaches the pre-built `anchorage_str.duckdb` snapshot (served from
  * `public/`) into the in-browser DuckDB-WASM instance and creates
  * convenience views for its tables in the main schema, so the rest of the
- * app (SQL editor, data table, charts) can just query `listings`,
- * `calendar_status`, etc. directly.
+ * app (data table, charts) can just query `listings`,
+ * `calendar_current`, etc. directly.
  */
 export function createDataInitSlice(): StateCreator<
   RoomShellSliceState & DataInitSliceState,

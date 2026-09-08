@@ -47,6 +47,10 @@ def run_checks(
         f"{current_count} current listings, expected [{lo}, {hi}]",
     )
 
+    # `listings` is a view now, so both this and the overlap check below are
+    # structurally impossible rather than merely unlikely — they are kept as
+    # cheap assertions on the view's SQL, which is where the SCD2 logic moved
+    # and therefore where it can now break.
     dupes = con.execute(
         "SELECT count(*) FROM (SELECT listing_id FROM listings WHERE is_current "
         "GROUP BY listing_id HAVING count(*) > 1)"

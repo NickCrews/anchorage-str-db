@@ -17,7 +17,6 @@ def make_listing():
             lat=lat,
             lng=-149.1,
             url=f"https://airbnb.com/rooms/{id}",
-            attr_hash=f"h-{name}-{bedrooms}-{lat}",
             rating_value=4.9,
             review_count=10,
             badges=badges or [],

@@ -1,20 +1,13 @@
-"""DuckDB schema and SCD2 merge logic.
+"""DuckDB schema and merge logic.
 
-Three tables:
+Two grains of observation, one run log, and a set of views that reconstruct
+the slowly-changing dimensions on top of them.
 
-- `listings` — SCD2 dimension, one row per *version* of a listing. A new
-  version is only opened when `attr_hash` changes (name, bed/bath counts,
-  coordinates, badges, whether the coordinate is Airbnb's real one or its
-  jitter, and the municipal STR registration number). `last_seen_date` bumps every run a listing is still
-  seen in search results, independent of attr_hash — that's what lets
-  `retire_stale_listings` distinguish "hasn't changed" from "hasn't been
-  seen," instead of closing a listing's version on the first pagination
-  hiccup that momentarily drops it from a search page.
 - `listing_observations` — append-only, one row per (listing, day) it was
-  seen active in search results: rating, review count, a rough nightly
-  price hint. This is what answers "how many distinct STRs operated over
-  the last year" (`count(distinct listing_id)` with a date filter) without
-  disturbing the slow-moving `listings` dimension.
+  seen in search results. Everything we learned about the listing that day:
+  the search fields, the listing-page fields, and the volatile stuff
+  (rating, review count, nightly price hint). This is the source of truth;
+  nothing else about a listing is stored.
 - `calendar_status` — SCD2 on (listing_id, night_date): whether that night
   was available, as observed. Once a night_date scrolls out of Airbnb's
   ~12-month forward calendar window, we simply stop observing it, so its
@@ -22,32 +15,66 @@ Three tables:
   booked/available call for a night once it's in the past. No special
   "close out old nights" logic is needed for that; see README for the
   caveat that "not available" conflates real bookings with host blocks.
+- `scrape_runs` — one row per run, for freshness and failure tracking.
 
-The listing-page fields (`location_is_exact`, `str_registration_id`, …)
-live on `listings` rather than in a table of their own, even though they
-come from a second endpoint on a slower cadence. They describe the listing,
-not an event, and `location_is_exact` in particular is a modifier on the
-`location_lat`/`location_lng` columns sitting right next to it — splitting
-them would mean no query could read a coordinate without a join, which is
-how you end up with analyses that quietly treat jittered pins as real
-addresses.
+Why `listings` is a view and `calendar_status` is a table
+--------------------------------------------------------
+Both used to be SCD2 tables, on the reasoning that a snapshot-per-day would
+be unaffordable. That reasoning is sound for the calendar and wrong for
+listings, by a factor of about 400:
 
-That the page fetch can fail independently is handled by carrying the
-previous version's values forward (see `_carried_locations`), not by
-storing them apart: a listing whose page we couldn't read this run keeps
-what we last knew about it, rather than flapping to NULL and back.
+- calendar: ~250 listings x ~365 forward nights = ~90k rows/day, ~33M/year.
+  Storing a row per night per day is genuinely infeasible, so it earns its
+  merge logic.
+- listings: ~250 rows/day, ~90k/year — and the most compressible data
+  imaginable, the same twenty columns repeating verbatim. Change-only
+  merging bought nothing here and cost a mutable, hand-maintained history.
+
+So `listings` is now derived: `listing_versions` runs gaps-and-islands over
+the daily rows to rebuild `valid_from`/`valid_to`, and `listing_activity`
+aggregates first/last/page-seen dates. Same column names as the old table,
+so `WHERE is_current` keeps working for every downstream query.
+
+Three things fall out of that which the table couldn't do:
+
+1. `first_seen_date` and `last_seen_date` stop being able to disagree with
+   the observations, because they *are* the observations. The old table
+   computed them with an UPDATE and a carry-forward join that both missed
+   the case of a listing retiring and later coming back, silently resetting
+   its first-seen date and blanking its registration number.
+2. History is recomputable. Runs mutate an append-only table, so a bug in
+   the version logic is fixed by editing a view, not by backfilling a
+   database that is itself the only copy (see CONTRIBUTING: the published
+   .duckdb file is downloaded, mutated, and re-uploaded each run).
+3. Freshness is answerable per field — `max(scrape_date) FILTER (WHERE
+   <field> IS NOT NULL)` — rather than only for the questions someone
+   thought to add a `*_seen_date` column for.
+
+The listing-page fields (`location_is_exact`, `str_registration_id`, ...)
+sit on the same row as the search fields rather than in a table of their
+own, even though they come from a second endpoint that fails independently.
+They describe the listing, not an event, and `location_is_exact` in
+particular is a modifier on the `location_lat`/`location_lng` columns
+sitting right next to it — splitting them would mean no query could read a
+coordinate without a join, which is how you end up with analyses that
+quietly treat jittered pins as real addresses.
+
+`page_fetch_ok` is what makes that safe to store per-day: a day we couldn't
+read the page records NULLs and `false`, and the *view* carries the last
+successful read forward. The raw row stays honest about what we actually
+saw, which the old carry-forward-on-write destroyed.
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 
 import duckdb
 
+from anchorage_str_db import config
 from anchorage_str_db.airbnb_client import CalendarResult
 from anchorage_str_db.listing_page import ListingPage
 from anchorage_str_db.parse import ParsedListing
@@ -55,47 +82,41 @@ from anchorage_str_db.parse import ParsedListing
 log = logging.getLogger(__name__)
 
 SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS listings (
+CREATE TABLE IF NOT EXISTS listing_observations (
     listing_id BIGINT NOT NULL,
+    scrape_date DATE NOT NULL,
+
+    -- From the search response; present for every observed listing.
     name VARCHAR,
     property_title VARCHAR,
     bedrooms INTEGER,
     beds INTEGER,
     bathrooms DOUBLE,
     guest_capacity INTEGER,
-    -- `location_lat`/`location_lng` come from search and exist for every
-    -- listing; the rest of the location_* columns come from the listing's
-    -- own page, and are NULL where that fetch failed.
-    -- `location_is_exact` says whether the coordinate is the listing's real
-    -- position or Airbnb's jitter.
     location_lat DOUBLE,
     location_lng DOUBLE,
     url VARCHAR,
     badges VARCHAR[],
+
+    -- Volatile: these move most days, which is why they are deliberately
+    -- *not* part of the version key. A new review is not a new listing.
+    rating_value DOUBLE,
+    review_count INTEGER,
+    price_hint_per_night DOUBLE,
+    price_qualifier VARCHAR,
+
+    -- From the listing's own page, a separate request that fails
+    -- independently. `page_fetch_ok` distinguishes "we read the page and
+    -- this host publishes no STR number" from "we never got to look" —
+    -- without it, both are five NULLs and carry-forward can't tell them
+    -- apart. Everything below it is NULL whenever it is false.
+    page_fetch_ok BOOLEAN NOT NULL,
     location_is_exact BOOLEAN,
     location_exact_address VARCHAR,
     location_subtitle VARCHAR,
     location_verified BOOLEAN,
     str_registration_id VARCHAR,
-    -- When we last read this listing's page: distinguishes "never fetched"
-    -- from "fetched, and this host publishes no STR number." Updates in
-    -- place like `last_seen_date`; not part of `attr_hash`.
-    page_seen_date DATE,
-    attr_hash VARCHAR NOT NULL,
-    first_seen_date DATE NOT NULL,
-    last_seen_date DATE NOT NULL,
-    valid_from DATE NOT NULL,
-    valid_to DATE,
-    is_current BOOLEAN NOT NULL
-);
 
-CREATE TABLE IF NOT EXISTS listing_observations (
-    listing_id BIGINT NOT NULL,
-    scrape_date DATE NOT NULL,
-    rating_value DOUBLE,
-    review_count INTEGER,
-    price_hint_per_night DOUBLE,
-    price_qualifier VARCHAR,
     PRIMARY KEY (listing_id, scrape_date)
 );
 
@@ -128,10 +149,251 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
 );
 """
 
+# Attributes whose change opens a new listing version. Volatile columns
+# (rating, review count, price hint) are excluded on purpose — they belong
+# to the day, not to the listing — and so is `url`, which is a function of
+# `listing_id`. Coordinates are rounded to 6dp so float noise in Airbnb's
+# response doesn't read as the listing having moved.
+_VERSION_KEY_SQL = """{
+    'name': name,
+    'property_title': property_title,
+    'bedrooms': bedrooms,
+    'beds': beds,
+    'bathrooms': bathrooms,
+    'guest_capacity': guest_capacity,
+    'lat': round(location_lat, 6),
+    'lng': round(location_lng, 6),
+    'badges': list_sort(badges),
+    'page': page_attrs
+}"""
+
+_PAGE_ATTRS_SQL = """{
+    'location_is_exact': location_is_exact,
+    'location_exact_address': location_exact_address,
+    'location_subtitle': location_subtitle,
+    'location_verified': location_verified,
+    'str_registration_id': str_registration_id
+}"""
+
+# `{grace}` is filled from config.RETIREMENT_GRACE_DAYS. The views are
+# CREATE OR REPLACE'd on every connect(), so changing that constant takes
+# effect on the next run rather than needing a rebuild.
+VIEWS_SQL = """
+-- The date retirement is measured back from: the most recent run that
+-- actually completed its write phase.
+--
+-- Not simply `max(scrape_date)` from the observations, because that stops
+-- advancing exactly when it matters — a run where every listing had
+-- vanished would write no rows, freeze the clock, and leave every dead
+-- listing reading as current forever. Not `max(scrape_date)` from
+-- `scrape_runs` either, because a *failed* run logs a row there with all
+-- counts NULL, and a run that scraped nothing must not retire anything.
+-- `listings_seen IS NOT NULL` is the marker for a run that got as far as
+-- writing, so the two sources together cover both holes.
+CREATE OR REPLACE VIEW latest_scrape_date AS
+SELECT max(scrape_date) AS scrape_date FROM (
+    SELECT max(scrape_date) AS scrape_date FROM listing_observations
+    UNION ALL
+    SELECT max(scrape_date) AS scrape_date FROM scrape_runs
+    WHERE listings_seen IS NOT NULL
+);
+
+-- Per-listing summary over its whole observed history: when we first and
+-- last saw it, when we last successfully read its page, and whether it is
+-- still live.
+--
+-- "Still live" is the retirement rule, and it lives here rather than in an
+-- UPDATE pass because it is a question about the observations, not a fact
+-- to be stored: a listing is current if we have seen it within
+-- RETIREMENT_GRACE_DAYS of the most recent scrape. The grace exists because
+-- Airbnb's map search paginates unreliably, and a listing blinking out for
+-- a day should not read as "this STR closed."
+CREATE OR REPLACE VIEW listing_activity AS
+SELECT
+    listing_id,
+    min(scrape_date) AS first_seen_date,
+    max(scrape_date) AS last_seen_date,
+    max(scrape_date) FILTER (WHERE page_fetch_ok) AS page_seen_date,
+    max(scrape_date) >= (
+        SELECT scrape_date FROM latest_scrape_date
+    ) - INTERVAL {grace} DAY AS is_current
+FROM listing_observations
+GROUP BY listing_id;
+
+-- SCD2, reconstructed. A version runs from the first day an attribute set
+-- was observed to the day before the next distinct set appeared.
+CREATE OR REPLACE VIEW listing_versions AS
+WITH observed AS (
+    SELECT
+        * EXCLUDE (
+            location_is_exact, location_exact_address, location_subtitle,
+            location_verified, str_registration_id
+        ),
+        -- NULL for a day whose page fetch failed, so the carry-forward
+        -- below skips it. Carrying the whole struct rather than each column
+        -- individually is what preserves "read the page, no registration
+        -- number" (a non-NULL struct holding a NULL) as distinct from "did
+        -- not read the page" (a NULL struct).
+        CASE WHEN page_fetch_ok THEN {page_attrs} END AS page_attrs
+    FROM listing_observations
+),
+carried AS (
+    SELECT * REPLACE (
+        last_value(page_attrs IGNORE NULLS) OVER (
+            PARTITION BY listing_id ORDER BY scrape_date
+        ) AS page_attrs
+    )
+    FROM observed
+),
+keyed AS (
+    SELECT *, {version_key} AS version_key FROM carried
+),
+marked AS (
+    SELECT *,
+        CASE WHEN version_key IS DISTINCT FROM lag(version_key) OVER w
+             THEN 1 ELSE 0 END AS opens_version
+    FROM keyed
+    WINDOW w AS (PARTITION BY listing_id ORDER BY scrape_date)
+),
+numbered AS (
+    SELECT *,
+        sum(opens_version) OVER (PARTITION BY listing_id ORDER BY scrape_date)
+            AS version_no
+    FROM marked
+),
+-- Every row in a group carries an identical version_key by construction, so
+-- any_value is a pick, not a guess.
+aggregated AS (
+    SELECT
+        listing_id,
+        version_no,
+        min(scrape_date) AS valid_from,
+        max(scrape_date) AS version_last_seen_date,
+        any_value(name) AS name,
+        any_value(property_title) AS property_title,
+        any_value(bedrooms) AS bedrooms,
+        any_value(beds) AS beds,
+        any_value(bathrooms) AS bathrooms,
+        any_value(guest_capacity) AS guest_capacity,
+        any_value(location_lat) AS location_lat,
+        any_value(location_lng) AS location_lng,
+        any_value(url) AS url,
+        any_value(badges) AS badges,
+        any_value(page_attrs) AS page_attrs
+    FROM numbered
+    GROUP BY listing_id, version_no
+)
+SELECT
+    * EXCLUDE (page_attrs),
+    page_attrs.location_is_exact AS location_is_exact,
+    page_attrs.location_exact_address AS location_exact_address,
+    page_attrs.location_subtitle AS location_subtitle,
+    page_attrs.location_verified AS location_verified,
+    page_attrs.str_registration_id AS str_registration_id,
+    lead(valid_from) OVER (PARTITION BY listing_id ORDER BY version_no) AS valid_to
+FROM aggregated;
+
+-- The dimension every downstream query reads. Same shape the SCD2 table
+-- had, so `WHERE is_current` still means what it always did.
+CREATE OR REPLACE VIEW listings AS
+SELECT
+    v.listing_id,
+    v.name,
+    v.property_title,
+    v.bedrooms,
+    v.beds,
+    v.bathrooms,
+    v.guest_capacity,
+    v.location_lat,
+    v.location_lng,
+    v.url,
+    v.badges,
+    v.location_is_exact,
+    v.location_exact_address,
+    v.location_subtitle,
+    v.location_verified,
+    v.str_registration_id,
+    a.page_seen_date,
+    a.first_seen_date,
+    a.last_seen_date,
+    v.version_no,
+    v.version_last_seen_date,
+    v.valid_from,
+    v.valid_to,
+    v.valid_to IS NULL AND a.is_current AS is_current
+FROM listing_versions v
+JOIN listing_activity a USING (listing_id);
+
+CREATE OR REPLACE VIEW listings_current AS
+SELECT * FROM listings WHERE is_current;
+
+-- Calendar rows worth believing.
+--
+-- When a listing is retired we stop fetching its calendar, so its forward
+-- nights freeze with is_current = true and stay that way for up to twelve
+-- months. Reading `calendar_status WHERE is_current` therefore counts long
+-- gone listings as operating on future nights. Nights up to the listing's
+-- last_seen_date are still real observations of a listing that was
+-- operating, and dropping those would erase genuine history — so the cut is
+-- by night, not by listing.
+CREATE OR REPLACE VIEW calendar_current AS
+SELECT c.*
+FROM calendar_status c
+JOIN listing_activity a USING (listing_id)
+WHERE c.is_current
+  AND (a.is_current OR c.night_date <= a.last_seen_date);
+"""
+
+
+def _views_sql() -> str:
+    return VIEWS_SQL.format(
+        grace=config.RETIREMENT_GRACE_DAYS,
+        page_attrs=_PAGE_ATTRS_SQL,
+        version_key=_VERSION_KEY_SQL,
+    )
+
+
+class LegacySchemaError(RuntimeError):
+    """Raised for a database written before `listings` became a view."""
+
+
+def _reject_legacy_schema(con: duckdb.DuckDBPyConnection) -> None:
+    """Fail loudly rather than half-adopting an old file.
+
+    There is no migration path on purpose (see the dropped migration
+    machinery in git history): the observations table is the source of
+    truth, and the old SCD2 table stored date *intervals*, so expanding it
+    back into daily rows would invent observations on days that may not have
+    had a run. Better to start the archive over than to publish fabricated
+    scrape dates.
+    """
+    if con.execute(
+        "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'listings'"
+    ).fetchone()[0]:
+        raise LegacySchemaError(
+            "this database has `listings` as a table, from the pre-view schema. "
+            "There is no migration: delete the file (and the `latest-data` release "
+            "asset, if you are the publisher) and let the next run rebuild it."
+        )
+    columns = {
+        row[0]
+        for row in con.execute(
+            "SELECT column_name FROM duckdb_columns() "
+            "WHERE table_name = 'listing_observations'"
+        ).fetchall()
+    }
+    if columns and "page_fetch_ok" not in columns:
+        raise LegacySchemaError(
+            "`listing_observations` predates the listing-page columns. "
+            "There is no migration: delete the file and let the next run rebuild it."
+        )
+
 
 def connect(db_path) -> duckdb.DuckDBPyConnection:
     con = duckdb.connect(str(db_path))
+    _reject_legacy_schema(con)
     con.execute(SCHEMA_SQL)
+    con.execute(_views_sql())
     return con
 
 
@@ -140,11 +402,9 @@ def transaction(con: duckdb.DuckDBPyConnection):
     """Group a run's writes into one all-or-nothing unit.
 
     DuckDB's Python client autocommits every statement, so without this each
-    of the ~8 statements a run issues is independently durable and a crash
-    part-way leaves a half-written scrape date on disk — listings merged but
-    no calendar, or (worse, inside `merge_listings`) versions closed with
-    their replacements never inserted, silently dropping listings out of
-    `is_current`.
+    statement a run issues is independently durable and a crash part-way
+    leaves a half-written scrape date on disk — listings recorded but no
+    calendar, or the reverse.
 
     A scrape date is the unit that carries meaning here: every table is keyed
     by it and the quality gate judges one. A partially written day isn't a
@@ -163,33 +423,42 @@ def transaction(con: duckdb.DuckDBPyConnection):
     con.execute("COMMIT")
 
 
-def listing_attr_hash(parsed: ParsedListing, location_attrs: tuple) -> str:
-    """The SCD2 change key: search attributes plus listing-page attributes.
-
-    `ParsedListing.attr_hash` covers only what search returns. Folding the
-    listing-page values in here is what makes a host toggling their exact
-    location on, or adding a registration number, open a dated new version
-    rather than silently overwriting the current one — which is the whole
-    reason those fields are worth storing over time.
-    """
-    return hashlib.md5(f"{parsed.attr_hash}|{location_attrs!r}".encode()).hexdigest()
-
-
 @dataclass
-class ListingMergeStats:
+class ObservationStats:
     seen: int = 0
     new: int = 0
     changed: int = 0
+    retired: int = 0
 
 
-# Listing-page attributes: things about the listing itself, so they go into
-# `attr_hash` and a change to any of them opens a dated new version.
-# `page_seen_date` is deliberately not here: it describes the *observation*,
-# not the listing, so it updates in place on the current version — exactly
-# like `last_seen_date`. Putting it in the hash would open a new version
-# every single day the pass runs, which is the snapshot-per-day
-# anti-pattern this schema exists to avoid.
-_LOCATION_ATTRS = (
+# Column order for the daily insert. Kept as one tuple so the INSERT, its
+# placeholders, and the row builder can't drift apart.
+_OBSERVATION_COLUMNS = (
+    "listing_id",
+    "scrape_date",
+    "name",
+    "property_title",
+    "bedrooms",
+    "beds",
+    "bathrooms",
+    "guest_capacity",
+    "location_lat",
+    "location_lng",
+    "url",
+    "badges",
+    "rating_value",
+    "review_count",
+    "price_hint_per_night",
+    "price_qualifier",
+    "page_fetch_ok",
+    "location_is_exact",
+    "location_exact_address",
+    "location_subtitle",
+    "location_verified",
+    "str_registration_id",
+)
+
+_PAGE_COLUMNS = (
     "location_is_exact",
     "location_exact_address",
     "location_subtitle",
@@ -198,174 +467,101 @@ _LOCATION_ATTRS = (
 )
 
 
-def _carried_locations(con: duckdb.DuckDBPyConnection, listing_ids: list[int]) -> dict[int, tuple]:
-    """Each listing's current listing-page values, to carry forward.
-
-    A run where a particular page fetch failed must not blank these out —
-    "we couldn't look today" is not the same fact as "this listing no longer
-    publishes a registration number," and letting them flap to NULL would
-    open a spurious SCD2 version every other day.
-    """
-    if not listing_ids:
-        return {}
-    rows = con.execute(
-        f"SELECT listing_id, {', '.join(_LOCATION_ATTRS)} FROM listings "
-        f"WHERE is_current AND listing_id = ANY(?)",
-        [listing_ids],
-    ).fetchall()
-    return {row[0]: tuple(row[1:]) for row in rows}
-
-
-def _location_attrs(page: ListingPage | None, carried: tuple | None) -> tuple:
-    if page is None or page.error:
-        return carried if carried is not None else (None,) * len(_LOCATION_ATTRS)
-    return tuple(getattr(page, attr) for attr in _LOCATION_ATTRS)
-
-
-def merge_listings(
+def record_observations(
     con: duckdb.DuckDBPyConnection,
     scrape_date: date,
     parsed: list[ParsedListing],
     pages: list[ListingPage] | None = None,
-) -> ListingMergeStats:
-    """SCD2-merge one run's listings, including their listing-page data.
+) -> ObservationStats:
+    """Write one day's listing observations and report what changed.
 
-    `pages` is whatever `listing_page.fetch_listing_pages` returned this run.
-    It stays optional for tests and for reading a database written before the
-    page pass existed; either way the merged row carries listing-page values
-    — fresh ones where we have them, yesterday's where a fetch failed — so
-    `attr_hash` stays comparable across runs.
+    Idempotent per scrape date: re-running a day replaces its rows rather
+    than adding a second set, which matters because a run that fails the
+    quality gate is expected to be re-run.
+
+    `pages` is whatever `listing_page.fetch_listing_pages` returned this run;
+    a listing whose page failed (or that had no page fetched at all) records
+    `page_fetch_ok = false` and NULL page columns. The view carries the last
+    good read forward, so this does not read as the host having removed
+    their registration number.
+
+    `changed` and `retired` are read back out of the views rather than
+    computed alongside the insert, so the run log can never disagree with
+    what a later query sees.
     """
-    stats = ListingMergeStats(seen=len(parsed))
     by_room = {int(p.room_id): p for p in (pages or []) if not p.error}
-    carried = _carried_locations(con, [p.listing_id for p in parsed])
 
-    con.execute(
-        "CREATE OR REPLACE TEMP TABLE stg_listings ("
-        "listing_id BIGINT, name VARCHAR, property_title VARCHAR, bedrooms INTEGER, "
-        "beds INTEGER, bathrooms DOUBLE, guest_capacity INTEGER, location_lat DOUBLE, "
-        "location_lng DOUBLE, url VARCHAR, badges VARCHAR[], location_is_exact BOOLEAN, "
-        "location_exact_address VARCHAR, location_subtitle VARCHAR, "
-        "location_verified BOOLEAN, str_registration_id VARCHAR, attr_hash VARCHAR)"
-    )
-    if parsed:
-        con.executemany(
-            "INSERT INTO stg_listings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    p.listing_id,
-                    p.name,
-                    p.property_title,
-                    p.bedrooms,
-                    p.beds,
-                    p.bathrooms,
-                    p.guest_capacity,
-                    p.lat,
-                    p.lng,
-                    p.url,
-                    p.badges,
-                    *(
-                        attrs := _location_attrs(
-                            by_room.get(p.listing_id), carried.get(p.listing_id)
-                        )
-                    ),
-                    listing_attr_hash(p, attrs),
-                )
-                for p in parsed
-            ],
-        )
-
-    # last_seen_date bumps for every currently-seen listing, changed or not.
-    con.execute(
-        "UPDATE listings SET last_seen_date = ? "
-        "WHERE is_current AND listing_id IN (SELECT listing_id FROM stg_listings)",
-        [scrape_date],
-    )
-
-    changed_ids = con.execute(
-        "SELECT s.listing_id FROM stg_listings s "
-        "LEFT JOIN listings l ON l.listing_id = s.listing_id AND l.is_current "
-        "WHERE l.listing_id IS NULL OR l.attr_hash != s.attr_hash"
-    ).fetchall()
-    changed_ids = [r[0] for r in changed_ids]
-    stats.changed = len(changed_ids)
-    stats.new = con.execute(
-        "SELECT count(*) FROM stg_listings s "
-        "LEFT JOIN listings l ON l.listing_id = s.listing_id "
-        "WHERE l.listing_id IS NULL"
-    ).fetchone()[0]
-
-    if changed_ids:
-        con.execute(
-            "UPDATE listings SET valid_to = ?, is_current = false "
-            "WHERE is_current AND listing_id = ANY(?)",
-            [scrape_date, changed_ids],
-        )
-        con.execute(
-            """
-            INSERT INTO listings
-                (listing_id, name, property_title, bedrooms, beds, bathrooms,
-                 guest_capacity, location_lat, location_lng, url, badges,
-                 location_is_exact, location_exact_address, location_subtitle,
-                 location_verified, str_registration_id, page_seen_date, attr_hash,
-                 first_seen_date, last_seen_date, valid_from, valid_to, is_current)
-            SELECT
-                s.listing_id, s.name, s.property_title, s.bedrooms, s.beds, s.bathrooms,
-                s.guest_capacity, s.location_lat, s.location_lng, s.url, s.badges,
-                s.location_is_exact, s.location_exact_address, s.location_subtitle,
-                s.location_verified, s.str_registration_id, prior.page_seen_date, s.attr_hash,
-                coalesce(prior.first_seen_date, ?), ?, ?, NULL, true
-            FROM stg_listings s
-            LEFT JOIN listings prior
-                ON prior.listing_id = s.listing_id AND prior.valid_to = ?
-            WHERE s.listing_id = ANY(?)
-            """,
-            [scrape_date, scrape_date, scrape_date, scrape_date, changed_ids],
-        )
-
-    # Stamp page_seen_date on the (possibly just-inserted) current version of
-    # every listing whose page we successfully read this run — an in-place
-    # update, exactly like last_seen_date above.
-    if by_room:
-        con.execute(
-            "UPDATE listings SET page_seen_date = ? WHERE is_current AND listing_id = ANY(?)",
-            [scrape_date, list(by_room.keys())],
-        )
-    return stats
-
-
-def retire_stale_listings(
-    con: duckdb.DuckDBPyConnection, scrape_date: date, grace_days: int
-) -> int:
-    cutoff = f"DATE '{scrape_date}' - INTERVAL {grace_days} DAY"
-    result = con.execute(
-        f"UPDATE listings SET valid_to = ?, is_current = false "
-        f"WHERE is_current AND last_seen_date < {cutoff}",
-        [scrape_date],
-    )
-    return result.fetchone()[0] if result.description else 0
-
-
-def insert_observations(
-    con: duckdb.DuckDBPyConnection, scrape_date: date, parsed: list[ParsedListing]
-) -> None:
     con.execute("DELETE FROM listing_observations WHERE scrape_date = ?", [scrape_date])
-    con.executemany(
-        "INSERT INTO listing_observations "
-        "(listing_id, scrape_date, rating_value, review_count, price_hint_per_night, price_qualifier) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [
+    # After the delete, so re-running a day doesn't count its own previous
+    # rows as prior history and report every listing as already known.
+    previously_seen = {
+        row[0]
+        for row in con.execute("SELECT DISTINCT listing_id FROM listing_observations").fetchall()
+    }
+
+    rows = []
+    for p in parsed:
+        page = by_room.get(p.listing_id)
+        rows.append(
             (
                 p.listing_id,
                 scrape_date,
+                p.name,
+                p.property_title,
+                p.bedrooms,
+                p.beds,
+                p.bathrooms,
+                p.guest_capacity,
+                p.lat,
+                p.lng,
+                p.url,
+                p.badges,
                 p.rating_value,
                 p.review_count,
                 p.price_hint_per_night,
                 p.price_qualifier,
+                page is not None,
+                *(getattr(page, attr) if page else None for attr in _PAGE_COLUMNS),
             )
-            for p in parsed
-        ],
+        )
+    if rows:
+        placeholders = ", ".join("?" * len(_OBSERVATION_COLUMNS))
+        con.executemany(
+            f"INSERT INTO listing_observations ({', '.join(_OBSERVATION_COLUMNS)}) "
+            f"VALUES ({placeholders})",
+            rows,
+        )
+
+    return ObservationStats(
+        seen=len(parsed),
+        new=sum(1 for p in parsed if p.listing_id not in previously_seen),
+        changed=con.execute(
+            "SELECT count(*) FROM listing_versions WHERE valid_from = ?", [scrape_date]
+        ).fetchone()[0],
+        retired=count_newly_retired(con, scrape_date, config.RETIREMENT_GRACE_DAYS),
     )
+
+
+def count_newly_retired(
+    con: duckdb.DuckDBPyConnection, scrape_date: date, grace_days: int
+) -> int:
+    """How many listings crossed the retirement threshold on this date.
+
+    Retirement is a view predicate now, so there is nothing to update — but
+    the run log still wants the number. A listing counts as retired *today*
+    if it was current yesterday and isn't today, which under
+    `last_seen >= scrape_date - grace` reduces to its last observation
+    falling exactly `grace + 1` days ago.
+
+    This is a per-run statistic, so like the old UPDATE it assumes runs
+    happen daily; a gap in runs shifts which day the transition is reported
+    on, without changing whether the listing is current.
+    """
+    return con.execute(
+        "SELECT count(*) FROM (SELECT listing_id FROM listing_observations "
+        "GROUP BY listing_id HAVING max(scrape_date) = ?)",
+        [scrape_date - timedelta(days=grace_days + 1)],
+    ).fetchone()[0]
 
 
 @dataclass
@@ -411,6 +607,9 @@ class CalendarMergeStats:
 def merge_calendar(
     con: duckdb.DuckDBPyConnection, scrape_date: date, results: list[CalendarResult]
 ) -> CalendarMergeStats:
+    """SCD2-merge one run's calendar. Still change-only, unlike listings:
+    a snapshot per night per day is ~33M rows/year, so the merge earns its
+    complexity here. See the module docstring."""
     stats = CalendarMergeStats(attempted=len(results), failed=sum(1 for r in results if r.error))
     rows = [
         (int(r.room_id), n.night_date, n.available, n.min_nights, n.price_amount)

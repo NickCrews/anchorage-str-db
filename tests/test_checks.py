@@ -9,8 +9,7 @@ def _seed_minimal(con, scrape_date, make_listing):
     each test below only has to reason about the one check it's exercising."""
     lo, _ = config.PLAUSIBLE_LISTING_COUNT
     listings = [make_listing(i, f"Cabin {i}") for i in range(lo)]
-    store.merge_listings(con, scrape_date, listings)
-    store.insert_observations(con, scrape_date, listings)
+    store.record_observations(con, scrape_date, listings)
     store.log_run(
         con,
         dict(

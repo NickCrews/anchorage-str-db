@@ -47,10 +47,20 @@ whole day into the database in one transaction and run the quality gate.
 
 ## Plain-Language Table Guide
 
-- `listings`: current and historical listing details
-- `listing_observations`: which listings were seen on each scrape date
-- `calendar_status`: nightly open/booked-like availability states
+Two tables hold everything; the rest are views over them.
+
+- `listing_observations`: one row per listing per scrape date — everything
+  we saw about it that day, including whether we managed to read its own
+  page (`page_fetch_ok`)
+- `calendar_status`: nightly open/booked-like availability states, stored
+  change-only with `valid_from`/`valid_to`
 - `scrape_runs`: run health, counts, and failures
+- `listings` *(view)*: current and historical listing details, one row per
+  version, rebuilt from the observations. `listings_current` is the same
+  thing filtered to `is_current`.
+- `calendar_current` *(view)*: the calendar rows worth believing — use this
+  rather than `calendar_status` for "how many are operating/booked",
+  otherwise retired listings keep reporting frozen future nights
 
 ## Goals and more info
 

@@ -36,10 +36,10 @@ alone, a run that died in the calendar pass (the longest phase, and the one
 that gets rate-limited) would leave today's listings and observations
 committed with no calendar rows, and nothing in the schema marks a scrape
 date as partial — so every query would read that day as complete. Worse,
-`merge_listings` closes old SCD2 versions and inserts their replacements as
-two separate statements, so a crash in between drops listings out of
-`is_current` with nothing taking their place, under a listing-count check
-whose band is wide enough not to notice.
+`record_observations` deletes a scrape date's rows before re-inserting them
+(so a re-run replaces a day rather than doubling it), and a crash in between
+would drop the day entirely, under a listing-count check whose band is wide
+enough not to notice.
 
 A scrape date is the unit that carries meaning here: every table is keyed by
 it, and the gate judges one. So a run either records a whole day or records
@@ -108,17 +108,52 @@ automatic `GITHUB_TOKEN`.
 
 ## Design choices worth knowing before changing things
 
-- **SCD2, not snapshot-per-day.** Both `listings` and `calendar_status` only
-  grow a new version when something changes (via `attr_hash` /
-  `status_hash`). A naive daily snapshot of ~250 listings × ~365 forward
-  nights would be ~90k rows/day, ~33M rows/year, almost all of it
-  unchanged nights re-written for no reason. Change-only merging keeps the
-  archive's size proportional to real market activity.
-- **`last_seen_date` is separate from SCD2 version validity**, specifically
-  so a listing that misses one day of search results (Airbnb's pagination
-  is not perfectly reliable) doesn't get spuriously retired. Retirement
-  only fires after `RETIREMENT_GRACE_DAYS` (5) consecutive misses — see
-  `config.py`.
+- **SCD2 for the calendar, snapshot-per-day for listings.** The two tables
+  differ by a factor of ~400 in how much a daily snapshot costs, so they
+  are stored differently:
+  - `calendar_status` is change-only (via `status_hash`). A snapshot of
+    ~250 listings × ~365 forward nights is ~90k rows/day, ~33M rows/year,
+    almost all of it unchanged nights re-written for no reason. The merge
+    logic earns its keep.
+  - `listing_observations` is one row per listing per day — ~250 rows/day,
+    ~90k rows/year of the most compressible data imaginable. Change-only
+    merging bought nothing here and cost a mutable, hand-maintained
+    history, so `listings` is now a **view**: `listing_versions` runs
+    gaps-and-islands over the daily rows to rebuild `valid_from`/`valid_to`
+    and `listing_activity` derives the first/last/page-seen dates. Column
+    names are unchanged, so `WHERE is_current` still means what it did.
+- **Don't add a column to `listings` — add it to `listing_observations`.**
+  The observations are the only stored facts about a listing; everything
+  else is derived. If the new column should open a new version when it
+  changes, add it to `_VERSION_KEY_SQL` in `store.py` too. If it moves
+  most days (a price, a review count), leave it out of the key so a new
+  review doesn't read as a new listing.
+- **Nothing about a listing is ever UPDATE'd.** `first_seen_date`,
+  `last_seen_date` and `page_seen_date` used to be mutable columns
+  maintained by hand alongside the observations that already implied them,
+  and they drifted: a listing that was retired and later relisted lost its
+  true first-seen date and had its registration number blanked, because the
+  carry-forward join only looked at versions closed on the current scrape
+  date. Derived, they cannot disagree — and because the published `.duckdb`
+  is downloaded, mutated and re-uploaded every run, a bug in the version
+  logic is now fixed by editing a view rather than by backfilling the only
+  copy of the archive.
+- **Retirement is a view predicate, not a write.** A listing is current if
+  it has been seen within `RETIREMENT_GRACE_DAYS` (5) of the latest
+  completed run. The grace exists because Airbnb's map search paginates
+  unreliably and a listing blinking out for a day shouldn't read as "this
+  STR closed." "Latest completed run" deliberately means the later of
+  `max(scrape_date)` in the observations and in `scrape_runs` where
+  `listings_seen IS NOT NULL`: the first alone would freeze the clock on
+  the day every listing vanished, and the second alone would let a *failed*
+  run (all counts NULL) retire the entire inventory.
+- **Read `calendar_current`, not `calendar_status`.** When a listing is
+  retired we stop fetching its calendar, so its forward nights freeze with
+  `is_current = true` and the raw table goes on reporting them as operating
+  for up to twelve months. `calendar_current` cuts by night rather than by
+  listing — a retired listing keeps the nights it was actually observed
+  operating for, which is genuine realized occupancy, and loses the
+  unconfirmed future.
 - **Undated search.** `search_anchorage()` passes no check-in/check-out —
   Airbnb's map search without dates returns every listing it will show for
   the area, not just ones free on specific nights. Nightly availability is
@@ -168,9 +203,11 @@ its own investigation into what's scrapeable and how. If you pick this up:
 
 - Give it its own `vrbo_client.py`, mirroring `airbnb_client.py`'s shape
   (a search function, a calendar function).
-- Add a `source` column to `listings` and `calendar_status` (defaulting
-  to `'airbnb'`) so the two sources coexist in one schema instead of
-  needing parallel tables.
+- Add a `source` column to `listing_observations` and `calendar_status`
+  (defaulting to `'airbnb'`) so the two sources coexist in one schema
+  instead of needing parallel tables. `listings` picks it up for free, but
+  the views' `PARTITION BY listing_id` clauses need to become
+  `PARTITION BY source, listing_id` — room ids are only unique per source.
 - The policy questions in `queries/policy_questions.sql` should mostly just
   need `GROUP BY source` added, not a rewrite.
 

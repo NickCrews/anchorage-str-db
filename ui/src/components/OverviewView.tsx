@@ -62,8 +62,8 @@ export const OverviewView: FC = () => {
         SELECT
           count(*)::INT AS operating_tonight,
           count(*) FILTER (WHERE NOT available)::INT AS booked_tonight
-        FROM calendar_status
-        WHERE is_current AND night_date = CURRENT_DATE
+        FROM calendar_current
+        WHERE night_date = CURRENT_DATE
       ),
       active AS (SELECT count(*)::INT AS n FROM listings WHERE is_current),
       last_year AS (
@@ -93,9 +93,8 @@ export const OverviewView: FC = () => {
         night_date AS "nightDate",
         count(*) FILTER (WHERE NOT available)::INT AS booked,
         count(*) FILTER (WHERE available)::INT AS vacant
-      FROM calendar_status
-      WHERE is_current
-        AND night_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL 90 DAY
+      FROM calendar_current
+      WHERE night_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL 90 DAY
       GROUP BY ALL
       ORDER BY night_date
     `,

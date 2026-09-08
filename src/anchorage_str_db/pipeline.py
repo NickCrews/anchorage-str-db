@@ -10,7 +10,7 @@ import logging
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from anchorage_str_db import airbnb_client, checks, config, listing_page, store
+from anchorage_str_db import airbnb_client, checks, listing_page, store
 from anchorage_str_db.parse import parse_listing
 
 log = logging.getLogger(__name__)
@@ -29,7 +29,9 @@ def run_daily(db_path: Path, scrape_date: date | None = None) -> bool:
     request per listing, but a run that skipped it would write rows whose
     `location_is_exact` and `str_registration_id` are carried-forward stale
     values rather than today's — a second, quieter kind of daily record that
-    nothing downstream can distinguish from the real one.
+    nothing downstream can distinguish from the real one. `page_fetch_ok`
+    makes a skipped or failed page visible in the row itself, but a run that
+    skipped the pass wholesale would still leave a day of them.
     """
     scrape_date = scrape_date or datetime.now(UTC).date()
     started = datetime.now(UTC)
@@ -69,12 +71,12 @@ def run_daily(db_path: Path, scrape_date: date | None = None) -> bool:
         )
 
         # ---- write phase ---------------------------------------------------
-        # Pages are merged in the same call as the search fields they
-        # describe, so both land in one SCD2 version.
+        # Pages are recorded on the same row as the search fields they
+        # describe, so a day is one row per listing and `listings` derives
+        # its versions from that. Retirement needs no write at all — it is a
+        # predicate on the observations, evaluated by the view.
         with store.transaction(con):
-            listing_stats = store.merge_listings(con, scrape_date, parsed, pages=pages)
-            store.insert_observations(con, scrape_date, parsed)
-            retired = store.retire_stale_listings(con, scrape_date, config.RETIREMENT_GRACE_DAYS)
+            listing_stats = store.record_observations(con, scrape_date, parsed, pages=pages)
             calendar_stats = store.merge_calendar(con, scrape_date, calendar_results)
             store.log_run(
                 con,
@@ -85,7 +87,7 @@ def run_daily(db_path: Path, scrape_date: date | None = None) -> bool:
                     listings_seen=listing_stats.seen,
                     listings_new=listing_stats.new,
                     listings_changed=listing_stats.changed,
-                    listings_retired=retired,
+                    listings_retired=listing_stats.retired,
                     calendar_fetch_attempted=calendar_stats.attempted,
                     calendar_fetch_failed=calendar_stats.failed,
                     calendar_nights_changed=calendar_stats.nights_changed,

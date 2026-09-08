@@ -10,7 +10,6 @@ robust to Airbnb wording changes.
 
 from __future__ import annotations
 
-import hashlib
 import re
 from dataclasses import dataclass
 
@@ -29,7 +28,6 @@ class ParsedListing:
     lat: float | None
     lng: float | None
     url: str
-    attr_hash: str
     rating_value: float | None
     review_count: int | None
     badges: list[str]
@@ -85,19 +83,6 @@ def parse_listing(raw: dict) -> ParsedListing | None:
     rating = raw.get("rating") or {}
     review_count = rating.get("reviewCount")
 
-    identity = (
-        raw.get("name"),
-        raw.get("title"),
-        counts["bedrooms"],
-        counts["beds"],
-        counts["bathrooms"],
-        counts["guest_capacity"],
-        round(lat, 6) if lat is not None else None,
-        round(lng, 6) if lng is not None else None,
-        tuple(sorted(raw.get("badges") or [])),
-    )
-    attr_hash = hashlib.md5(repr(identity).encode()).hexdigest()
-
     return ParsedListing(
         listing_id=int(room_id),
         name=raw.get("name"),
@@ -109,7 +94,6 @@ def parse_listing(raw: dict) -> ParsedListing | None:
         lat=lat,
         lng=lng,
         url=f"https://www.airbnb.com/rooms/{room_id}",
-        attr_hash=attr_hash,
         rating_value=rating.get("value"),
         review_count=int(review_count) if review_count is not None else None,
         badges=list(raw.get("badges") or []),
