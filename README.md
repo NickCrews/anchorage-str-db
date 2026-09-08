@@ -40,9 +40,10 @@ From the repo root:
 uv run anchorage-str-db --db data/anchorage_str.duckdb daily
 ```
 
-That is the whole run, and the only way to invoke it: search, each listing's
-calendar, each listing's own page (for details like whether the map
-coordinate is exact or privacy-shifted), merge, and the quality gate.
+That is the whole run, and the only way to invoke it: search the Anchorage
+bbox, fetch each listing's own page (for details like whether the map
+coordinate is exact or privacy-shifted) and its calendar, then merge the
+whole day into the database in one transaction and run the quality gate.
 
 ## Plain-Language Table Guide
 

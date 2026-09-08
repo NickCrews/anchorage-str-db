@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -169,6 +170,34 @@ def connect(db_path) -> duckdb.DuckDBPyConnection:
     con.execute(SCHEMA_SQL)
     _migrate(con)
     return con
+
+
+@contextmanager
+def transaction(con: duckdb.DuckDBPyConnection):
+    """Group a run's writes into one all-or-nothing unit.
+
+    DuckDB's Python client autocommits every statement, so without this each
+    of the ~8 statements a run issues is independently durable and a crash
+    part-way leaves a half-written scrape date on disk — listings merged but
+    no calendar, or (worse, inside `merge_listings`) versions closed with
+    their replacements never inserted, silently dropping listings out of
+    `is_current`.
+
+    A scrape date is the unit that carries meaning here: every table is keyed
+    by it and the quality gate judges one. A partially written day isn't a
+    smaller true thing, it's a false one, because nothing in the schema marks
+    it as partial.
+
+    Catches BaseException, not Exception, so a Ctrl-C mid-run rolls back too
+    — that's the failure this most often protects against in local use.
+    """
+    con.execute("BEGIN TRANSACTION")
+    try:
+        yield con
+    except BaseException:
+        con.execute("ROLLBACK")
+        raise
+    con.execute("COMMIT")
 
 
 def listing_attr_hash(parsed: ParsedListing, location_attrs: tuple) -> str:

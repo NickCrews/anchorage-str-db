@@ -256,3 +256,106 @@ def test_a_host_publishing_their_registration_number_opens_a_new_version(make_li
         (None, date(2026, 8, 26), date(2026, 8, 27), False),
         ("STR20260001", date(2026, 8, 27), None, True),
     ]
+
+
+def test_transaction_rolls_back_a_partial_run(tmp_path, make_listing):
+    """A crash part-way through the writes must leave the day absent, not
+    half-present. Without a transaction DuckDB autocommits each statement,
+    so `merge_listings` alone would survive a later failure and the day
+    would read as complete to every query."""
+    con = store.connect(tmp_path / "t.duckdb")
+    parsed = [make_listing(1, "Cabin A")]
+
+    try:
+        with store.transaction(con):
+            store.merge_listings(con, date(2026, 8, 26), parsed)
+            store.insert_observations(con, date(2026, 8, 26), parsed)
+            raise RuntimeError("calendar merge blew up")
+    except RuntimeError:
+        pass
+
+    assert con.execute("SELECT count(*) FROM listings").fetchone()[0] == 0
+    assert con.execute("SELECT count(*) FROM listing_observations").fetchone()[0] == 0
+
+
+def test_transaction_rollback_keeps_the_previous_version_current(tmp_path, make_listing):
+    """The nastiest partial write `merge_listings` can leave behind: it
+    closes a listing's current version and inserts the replacement as two
+    separate statements, so a failure in between drops the listing out of
+    `is_current` entirely — invisible to every check, since the listing
+    count band is wide."""
+    con = store.connect(tmp_path / "t.duckdb")
+    with store.transaction(con):
+        store.merge_listings(con, date(2026, 8, 26), [make_listing(1, "Cabin A")])
+
+    try:
+        with store.transaction(con):
+            store.merge_listings(con, date(2026, 8, 27), [make_listing(1, "Cabin A Renamed")])
+            raise RuntimeError("died after opening the new version")
+    except RuntimeError:
+        pass
+
+    rows = con.execute(
+        "SELECT name, valid_to, is_current FROM listings WHERE listing_id = 1"
+    ).fetchall()
+    assert rows == [("Cabin A", None, True)]
+
+
+def test_transaction_rolls_back_on_keyboard_interrupt(tmp_path, make_listing):
+    """Ctrl-C is the realistic local failure, and KeyboardInterrupt is a
+    BaseException — an `except Exception` would let it commit a partial day
+    on the way out."""
+    con = store.connect(tmp_path / "t.duckdb")
+    try:
+        with store.transaction(con):
+            store.merge_listings(con, date(2026, 8, 26), [make_listing(1, "Cabin A")])
+            raise KeyboardInterrupt
+    except KeyboardInterrupt:
+        pass
+
+    assert con.execute("SELECT count(*) FROM listings").fetchone()[0] == 0
+
+
+def test_transaction_commits_on_success(tmp_path, make_listing):
+    con = store.connect(tmp_path / "t.duckdb")
+    with store.transaction(con):
+        store.merge_listings(con, date(2026, 8, 26), [make_listing(1, "Cabin A")])
+    con.close()
+
+    reopened = store.connect(tmp_path / "t.duckdb")
+    assert reopened.execute("SELECT count(*) FROM listings WHERE is_current").fetchone()[0] == 1
+
+
+def test_log_run_survives_a_rolled_back_transaction(tmp_path, make_listing):
+    """The failed-run row is written after the rollback, on the same
+    connection. If the pipeline wrote it *inside* the transaction, the record
+    of the failure would roll back along with the run it records."""
+    con = store.connect(tmp_path / "t.duckdb")
+    try:
+        with store.transaction(con):
+            store.merge_listings(con, date(2026, 8, 26), [make_listing(1, "Cabin A")])
+            raise RuntimeError("boom")
+    except RuntimeError:
+        pass
+
+    store.log_run(
+        con,
+        dict(
+            scrape_date=date(2026, 8, 26),
+            run_started_at=datetime(2026, 8, 26, 12, 0),
+            run_finished_at=datetime(2026, 8, 26, 12, 5),
+            listings_seen=None,
+            listings_new=None,
+            listings_changed=None,
+            listings_retired=None,
+            calendar_fetch_attempted=None,
+            calendar_fetch_failed=None,
+            calendar_nights_changed=None,
+            error_summary="RuntimeError: boom",
+        ),
+    )
+
+    assert con.execute("SELECT count(*) FROM listings").fetchone()[0] == 0
+    assert con.execute(
+        "SELECT error_summary, listings_seen FROM scrape_runs"
+    ).fetchall() == [("RuntimeError: boom", None)]

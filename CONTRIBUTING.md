@@ -13,15 +13,46 @@ uv run anchorage-str-db --db data/anchorage_str.duckdb daily
 ```
 
 That's the entire pipeline: search the Anchorage bbox, fetch every listing's
-calendar, SCD2-merge both into the database, run the data-quality gate.
-Non-zero exit means an error-severity check failed — see the log for which
-one. `--verbose` logs every check's pass/fail, not just failures.
+page and calendar, SCD2-merge all of it into the database, run the
+data-quality gate. Non-zero exit means an error-severity check failed — see
+the log for which one. `--verbose` logs every check's pass/fail, not just
+failures.
 
 A run against a fresh (empty) database creates the schema automatically.
 Columns added to an already-published table need an explicit `ALTER` in
 `store.MIGRATIONS_SQL`, since `CREATE TABLE IF NOT EXISTS` is a no-op on an
 existing file and the daily job carries yesterday's file forward rather
 than rebuilding it.
+
+### Two phases: fetch everything, then write everything
+
+`run_daily` is deliberately split. All the network work happens first —
+search, then a page per listing, then a calendar per listing — and nothing
+touches the database until every fetch has returned. Then all the writes go
+in inside a single `store.transaction`.
+
+This matters because DuckDB's Python client autocommits every statement. Left
+alone, a run that died in the calendar pass (the longest phase, and the one
+that gets rate-limited) would leave today's listings and observations
+committed with no calendar rows, and nothing in the schema marks a scrape
+date as partial — so every query would read that day as complete. Worse,
+`merge_listings` closes old SCD2 versions and inserts their replacements as
+two separate statements, so a crash in between drops listings out of
+`is_current` with nothing taking their place, under a listing-count check
+whose band is wide enough not to notice.
+
+A scrape date is the unit that carries meaning here: every table is keyed by
+it, and the gate judges one. So a run either records a whole day or records
+none of it. The failed-run row in `scrape_runs` is written *after* the
+rollback, on purpose — inside the transaction it would roll back along with
+the run it documents.
+
+The network passes stay outside the transaction because they take minutes,
+and there is nothing to be gained by holding a write lock through them.
+Individual per-listing failures are tolerated rather than fatal — a failed
+page or calendar fetch comes back marked with an error and is judged in
+aggregate by the failure-rate checks. Tolerate per listing, judge per day,
+commit per day.
 
 ### The listing-page pass
 
@@ -35,13 +66,24 @@ describe; where a page fetch fails for a given listing, the previous
 version's values are carried forward rather than blanked, so a flaky fetch
 doesn't churn the history.
 
-It roughly doubles the run's request count, and it is deliberately not
-behind a flag. A run that skipped it would still write a full set of rows,
+It adds a request per listing, and it is deliberately not behind a flag. A
+run that skipped it would still write a full set of rows,
 whose location and registration fields were yesterday's carried forward —
 a second, quieter kind of daily record that nothing reading the database
 can tell apart from the real one. One invocation, one meaning. See
 [`docs/research/airbnb-pdp-location-payload.md`](docs/research/airbnb-pdp-location-payload.md)
 for what the pass measured and why it's worth the requests.
+
+### Request budget
+
+One run makes roughly `2N + 8` requests for N listings — a page and a
+calendar each, plus the search's paginated `StaysSearch` calls. Airbnb's web
+API key is scraped once per run and threaded through every calendar request
+(`airbnb_client.get_api_key`). Don't drop that argument: `pyairbnb`'s
+`get_calendar` silently fetches its own key when it isn't given one, and it
+does so *per call*, which means every listing re-downloads the ~600 KB
+homepage to re-extract the same constant. That alone was two thirds of the
+run's requests before it was hoisted.
 
 ## Inspecting the database
 
