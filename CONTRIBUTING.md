@@ -23,25 +23,25 @@ Columns added to an already-published table need an explicit `ALTER` in
 existing file and the daily job carries yesterday's file forward rather
 than rebuilding it.
 
-### The listing-page pass (`--pages`)
+### The listing-page pass
 
-```sh
-uv run anchorage-str-db --db data/anchorage_str.duckdb daily --pages
-```
+Every run makes a second per-listing pass that fetches each listing's own
+page for two things the search endpoint doesn't carry: Airbnb's
+`isExactLocation` flag — which says whether the `(location_lat,
+location_lng)` we store is the listing's real position or its privacy
+jitter — and the municipal STR registration number. Results land on
+`listings` itself, in the same SCD2 version as the search fields they
+describe; where a page fetch fails for a given listing, the previous
+version's values are carried forward rather than blanked, so a flaky fetch
+doesn't churn the history.
 
-Adds a second per-listing pass that fetches each listing's own page for two
-things the search endpoint doesn't carry: Airbnb's `isExactLocation` flag —
-which says whether the `(location_lat, location_lng)` we store is the
-listing's real position or its privacy jitter — and the municipal STR
-registration number. Results
-land on `listings` itself, in the same SCD2 version as the search fields
-they describe — a run that doesn't fetch pages (or whose fetch fails for a
-given listing) carries the previous version's values forward rather than
-blanking them, so `--pages` can be run on whatever cadence suits without
-churning the history. It's opt-in because it roughly doubles the run's
-request count; see
+It roughly doubles the run's request count, and it is deliberately not
+behind a flag. A run that skipped it would still write a full set of rows,
+whose location and registration fields were yesterday's carried forward —
+a second, quieter kind of daily record that nothing reading the database
+can tell apart from the real one. One invocation, one meaning. See
 [`docs/research/airbnb-pdp-location-payload.md`](docs/research/airbnb-pdp-location-payload.md)
-for what it measured and why it's worth the requests.
+for what the pass measured and why it's worth the requests.
 
 ## Inspecting the database
 

@@ -4,9 +4,8 @@ Three tables:
 
 - `listings` — SCD2 dimension, one row per *version* of a listing. A new
   version is only opened when `attr_hash` changes (name, bed/bath counts,
-  coordinates, badges, and — once the `--pages` pass has run — whether the
-  coordinate is Airbnb's real one or its jitter, plus the municipal STR
-  registration number). `last_seen_date` bumps every run a listing is still
+  coordinates, badges, whether the coordinate is Airbnb's real one or its
+  jitter, and the municipal STR registration number). `last_seen_date` bumps every run a listing is still
   seen in search results, independent of attr_hash — that's what lets
   `retire_stale_listings` distinguish "hasn't changed" from "hasn't been
   seen," instead of closing a listing's version on the first pagination
@@ -65,9 +64,9 @@ CREATE TABLE IF NOT EXISTS listings (
     guest_capacity INTEGER,
     -- `location_lat`/`location_lng` come from search and exist for every
     -- listing; the rest of the location_* columns come from the listing's
-    -- own page (`daily --pages`) and are NULL until that pass has run.
-    -- `location_is_exact` says whether the coordinate is the listing's real
-    -- position or Airbnb's jitter.
+    -- own page, and are NULL for rows written before that pass existed or
+    -- where the page fetch failed. `location_is_exact` says whether the
+    -- coordinate is the listing's real position or Airbnb's jitter.
     location_lat DOUBLE,
     location_lng DOUBLE,
     url VARCHAR,
@@ -210,11 +209,10 @@ _LOCATION_ATTRS = (
 def _carried_locations(con: duckdb.DuckDBPyConnection, listing_ids: list[int]) -> dict[int, tuple]:
     """Each listing's current listing-page values, to carry forward.
 
-    A run without `--pages`, or one where a particular page fetch failed,
-    must not blank these out — "we didn't look today" is not the same fact
-    as "this listing no longer publishes a registration number," and
-    letting them flap to NULL would open a spurious SCD2 version every
-    other day.
+    A run where a particular page fetch failed must not blank these out —
+    "we couldn't look today" is not the same fact as "this listing no longer
+    publishes a registration number," and letting them flap to NULL would
+    open a spurious SCD2 version every other day.
     """
     if not listing_ids:
         return {}
@@ -238,13 +236,13 @@ def merge_listings(
     parsed: list[ParsedListing],
     pages: list[ListingPage] | None = None,
 ) -> ListingMergeStats:
-    """SCD2-merge one run's listings, optionally including listing-page data.
+    """SCD2-merge one run's listings, including their listing-page data.
 
-    `pages` is whatever `listing_page.fetch_listing_pages` returned this
-    run, or None if the `--pages` pass didn't run. Either way the merged
-    row carries listing-page values — fresh ones where we have them,
-    yesterday's where we don't — so `attr_hash` stays comparable across
-    runs that did and didn't fetch pages.
+    `pages` is whatever `listing_page.fetch_listing_pages` returned this run.
+    It stays optional for tests and for reading a database written before the
+    page pass existed; either way the merged row carries listing-page values
+    — fresh ones where we have them, yesterday's where a fetch failed — so
+    `attr_hash` stays comparable across runs.
     """
     stats = ListingMergeStats(seen=len(parsed))
     by_room = {int(p.room_id): p for p in (pages or []) if not p.error}

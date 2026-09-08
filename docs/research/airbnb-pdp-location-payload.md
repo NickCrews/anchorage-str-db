@@ -187,7 +187,7 @@ columns sitting next to it, and splitting them would mean no query could
 read a coordinate without remembering to join. They join `attr_hash`, so a
 host toggling their exact location on or adding a registration number opens
 a dated new version; `page_seen_date` is provenance and updates in place,
-so re-running `--pages` daily doesn't grow a version per day.
+so re-reading the page daily doesn't grow a version per day.
 
 1. **Roughly half of Girdwood's listings can be parcel-matched with
    confidence.** The nearest-centroid query in `policy_questions.sql`
@@ -216,7 +216,7 @@ per the companion doc §3c, none should be.
 ## Reproducing
 
 ```sh
-uv run anchorage-str-db --db data/anchorage_str.duckdb daily --pages
+uv run anchorage-str-db --db data/anchorage_str.duckdb daily
 ```
 
 Then, to re-derive the table above:

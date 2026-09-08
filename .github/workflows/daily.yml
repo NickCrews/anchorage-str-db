@@ -16,7 +16,9 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Two full per-listing passes (calendar + listing page), both paced
+    # politely, so a run takes well over the single-pass 30 minutes.
+    timeout-minutes: 60
     permissions:
       contents: write # to upload the updated database as a release asset
     env:

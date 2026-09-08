@@ -38,7 +38,7 @@ def test_no_backdated_calendar_rows_passes_on_clean_data(tmp_path, make_listing)
         con, d, [CalendarResult(room_id="0", nights=[CalendarNight("2026-08-18", True, 1, 100.0)])]
     )
 
-    results = {r.name: r for r in checks.run_checks(con, d)}
+    results = {r.name: r for r in checks.run_checks(con, d, page_stats=store.PageFetchStats())}
     assert results["no_backdated_calendar_rows"].passed
 
 
@@ -52,7 +52,7 @@ def test_no_backdated_calendar_rows_catches_the_elapsed_month_artifact(tmp_path,
         con, d, [CalendarResult(room_id="0", nights=[CalendarNight("2026-08-01", False, 1, None)])]
     )
 
-    results = {r.name: r for r in checks.run_checks(con, d)}
+    results = {r.name: r for r in checks.run_checks(con, d, page_stats=store.PageFetchStats())}
     check = results["no_backdated_calendar_rows"]
     assert not check.passed
     assert check.severity == "error"

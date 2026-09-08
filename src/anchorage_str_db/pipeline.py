@@ -1,7 +1,7 @@
-"""The daily verb: search Anchorage, fetch every listing's calendar, merge
-both into the DuckDB store, log the run. One function, `run_daily`, is the
-entire pipeline — small enough that CLI, tests, and GitHub Actions all call
-the same thing.
+"""The daily verb: search Anchorage, fetch every listing's calendar and its
+own page, merge all three into the DuckDB store, log the run. One function,
+`run_daily`, is the entire pipeline — and there is exactly one way to invoke
+it, so the CLI, the tests, and GitHub Actions all produce the same run.
 """
 
 from __future__ import annotations
@@ -16,13 +16,16 @@ from anchorage_str_db.parse import parse_listing
 log = logging.getLogger(__name__)
 
 
-def run_daily(db_path: Path, scrape_date: date | None = None, fetch_pages: bool = False) -> bool:
+def run_daily(db_path: Path, scrape_date: date | None = None) -> bool:
     """Run one full daily scrape + merge + quality gate. Returns True iff it passed.
 
-    `fetch_pages` adds a second per-listing pass over each listing's own
-    page, for the location payload and STR registration number (see
-    `listing_page.py`). It roughly doubles the run's request count, so it's
-    opt-in while it's still being evaluated — `anchorage-str-db daily --pages`.
+    A run makes two per-listing passes: the calendar, and the listing's own
+    page for the location payload and STR registration number (see
+    `listing_page.py`). The page pass is not optional. It roughly doubles the
+    request count, but a run that skipped it would write rows whose
+    `location_is_exact` and `str_registration_id` are carried-forward stale
+    values rather than today's — a second, quieter kind of daily record that
+    nothing downstream can distinguish from the real one.
     """
     scrape_date = scrape_date or datetime.now(UTC).date()
     started = datetime.now(UTC)
@@ -42,19 +45,16 @@ def run_daily(db_path: Path, scrape_date: date | None = None, fetch_pages: bool 
 
         # Pages are fetched *before* the merge, not after, so their fields
         # land in the same SCD2 version as the search fields they describe.
-        pages = None
-        page_stats = store.PageFetchStats()
-        if fetch_pages:
-            pages = listing_page.fetch_listing_pages([str(p.listing_id) for p in parsed])
-            page_stats = store.PageFetchStats.of(pages)
-            log.info(
-                "listing pages: %d fetched, %d failed, %d with an exact location, "
-                "%d with an STR registration number",
-                page_stats.attempted,
-                page_stats.failed,
-                page_stats.exact_located,
-                page_stats.registered,
-            )
+        pages = listing_page.fetch_listing_pages([str(p.listing_id) for p in parsed])
+        page_stats = store.PageFetchStats.of(pages)
+        log.info(
+            "listing pages: %d fetched, %d failed, %d with an exact location, "
+            "%d with an STR registration number",
+            page_stats.attempted,
+            page_stats.failed,
+            page_stats.exact_located,
+            page_stats.registered,
+        )
 
         listing_stats = store.merge_listings(con, scrape_date, parsed, pages=pages)
         store.insert_observations(con, scrape_date, parsed)
@@ -106,7 +106,7 @@ def run_daily(db_path: Path, scrape_date: date | None = None, fetch_pages: bool 
         con.close()
         raise
 
-    results = checks.run_checks(con, scrape_date, page_stats=page_stats if fetch_pages else None)
+    results = checks.run_checks(con, scrape_date, page_stats=page_stats)
     ok = checks.report(results)
     con.close()
 

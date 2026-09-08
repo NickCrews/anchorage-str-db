@@ -40,12 +40,9 @@ From the repo root:
 uv run anchorage-str-db --db data/anchorage_str.duckdb daily
 ```
 
-Optional deeper pass (extra listing-page details, including whether map
-coordinates are exact or privacy-shifted):
-
-```sh
-uv run anchorage-str-db --db data/anchorage_str.duckdb daily --pages
-```
+That is the whole run, and the only way to invoke it: search, each listing's
+calendar, each listing's own page (for details like whether the map
+coordinate is exact or privacy-shifted), merge, and the quality gate.
 
 ## Plain-Language Table Guide
 

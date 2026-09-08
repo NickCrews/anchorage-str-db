@@ -28,11 +28,11 @@ class CheckResult:
 def run_checks(
     con: duckdb.DuckDBPyConnection,
     scrape_date: date,
-    page_stats: PageFetchStats | None = None,
+    page_stats: PageFetchStats,
 ) -> list[CheckResult]:
-    """`page_stats` is this run's listing-page pass, when `--pages` ran —
-    parse provenance isn't persisted, so its health checks read the run's
-    in-memory stats rather than the database."""
+    """`page_stats` is this run's listing-page pass — parse provenance isn't
+    persisted, so its health checks read the run's in-memory stats rather
+    than the database."""
     results: list[CheckResult] = []
 
     def check(name, severity, passed, detail):
@@ -120,9 +120,11 @@ def run_checks(
         f"{freshness} listing_observations rows for {scrape_date}",
     )
 
-    # The listing-page pass is opt-in (`daily --pages`), so only gate on it
-    # when this run actually attempted it.
-    if page_stats and page_stats.attempted:
+    # Every run makes the listing-page pass, so this gate is always live.
+    # `attempted` is still checked because a run that found no listings at
+    # all has already failed `listing_count_plausible` above, and dividing
+    # by zero here would bury that under a traceback.
+    if page_stats.attempted:
         rate = page_stats.failed / page_stats.attempted
         check(
             "listing_page_failure_rate",
@@ -132,8 +134,8 @@ def run_checks(
             f"failed ({rate:.0%})",
         )
 
-    fetched = page_stats.attempted - page_stats.failed if page_stats else 0
-    if page_stats and fetched:
+    fetched = page_stats.attempted - page_stats.failed
+    if fetched:
         # `isExactLocation` is the whole point of the listing-page pass, and
         # it comes from the one layer that reads Airbnb's private JSON. If a
         # run reads pages but none of them yield the flag, that layer has

@@ -26,16 +26,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
-    daily = sub.add_parser(
-        "daily", help="search Anchorage, fetch calendars, merge, run quality checks"
-    )
-    daily.add_argument(
-        "--pages",
-        action="store_true",
+    sub.add_parser(
+        "daily",
         help=(
-            "also fetch each listing's own page for its location payload "
-            "(Airbnb's isExactLocation flag) and municipal STR registration "
-            "number; roughly doubles the run's request count"
+            "search Anchorage, fetch each listing's calendar and page, merge, "
+            "run quality checks"
         ),
     )
 
@@ -48,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     args.db.parent.mkdir(parents=True, exist_ok=True)
 
     if args.command == "daily":
-        ok = run_daily(args.db, scrape_date=args.date, fetch_pages=args.pages)
+        ok = run_daily(args.db, scrape_date=args.date)
         return 0 if ok else 1
 
     return 2

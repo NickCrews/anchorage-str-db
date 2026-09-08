@@ -148,8 +148,8 @@ ORDER BY
 -- Q: Which listings publish their *real* location, and which are fuzzed?
 -- Airbnb jitters the map pin for listings whose host hasn't opted into
 -- showing the exact spot, and the search response never says which case a
--- coordinate is. The listing page does, via `isExactLocation`, which
--- `daily --pages` records onto the listing itself.
+-- coordinate is. The listing page does, via `isExactLocation`, which the
+-- daily run records onto the listing itself.
 -- The parcel-matching query above is only trustworthy for the exact rows;
 -- for the fuzzed ones the nearest parcel is a coincidence, not an answer.
 -- `page_seen_date IS NULL` means we've never read that listing's page —
