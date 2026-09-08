@@ -65,9 +65,9 @@ CREATE TABLE IF NOT EXISTS listings (
     guest_capacity INTEGER,
     -- `location_lat`/`location_lng` come from search and exist for every
     -- listing; the rest of the location_* columns come from the listing's
-    -- own page, and are NULL for rows written before that pass existed or
-    -- where the page fetch failed. `location_is_exact` says whether the
-    -- coordinate is the listing's real position or Airbnb's jitter.
+    -- own page, and are NULL where that fetch failed.
+    -- `location_is_exact` says whether the coordinate is the listing's real
+    -- position or Airbnb's jitter.
     location_lat DOUBLE,
     location_lng DOUBLE,
     url VARCHAR,
@@ -129,46 +129,9 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
 """
 
 
-# Renames applied to an already-published database. CREATE TABLE IF NOT
-# EXISTS is a no-op on an existing database, so schema changes need explicit
-# ALTERs — this is the project's whole migration story, and it works because
-# the daily job carries the previous day's file forward rather than
-# rebuilding from scratch (see CONTRIBUTING.md). DuckDB has no RENAME COLUMN
-# IF EXISTS, hence the check against the live column list.
-_LISTINGS_RENAMES = {
-    "lat": "location_lat",
-    "lng": "location_lng",
-}
-
-_MIGRATIONS_SQL = """
-ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS page_fetch_attempted INTEGER;
-ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS page_fetch_failed INTEGER;
-ALTER TABLE listings ADD COLUMN IF NOT EXISTS location_is_exact BOOLEAN;
-ALTER TABLE listings ADD COLUMN IF NOT EXISTS location_exact_address VARCHAR;
-ALTER TABLE listings ADD COLUMN IF NOT EXISTS location_subtitle VARCHAR;
-ALTER TABLE listings ADD COLUMN IF NOT EXISTS location_verified BOOLEAN;
-ALTER TABLE listings ADD COLUMN IF NOT EXISTS str_registration_id VARCHAR;
-ALTER TABLE listings ADD COLUMN IF NOT EXISTS page_seen_date DATE;
-"""
-
-
-def _migrate(con: duckdb.DuckDBPyConnection) -> None:
-    columns = {
-        row[0]
-        for row in con.execute(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = 'listings'"
-        ).fetchall()
-    }
-    for old, new in _LISTINGS_RENAMES.items():
-        if old in columns and new not in columns:
-            con.execute(f"ALTER TABLE listings RENAME COLUMN {old} TO {new}")
-    con.execute(_MIGRATIONS_SQL)
-
-
 def connect(db_path) -> duckdb.DuckDBPyConnection:
     con = duckdb.connect(str(db_path))
     con.execute(SCHEMA_SQL)
-    _migrate(con)
     return con
 
 

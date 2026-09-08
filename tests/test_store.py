@@ -5,32 +5,6 @@ from anchorage_str_db.airbnb_client import CalendarNight, CalendarResult
 from anchorage_str_db.listing_page import ListingPage
 
 
-def test_connect_migrates_a_database_with_the_old_column_names(tmp_path):
-    """The published database predates the location_* names: the daily job
-    carries yesterday's file forward, so connect() must rename in place."""
-    import duckdb
-
-    path = tmp_path / "old.duckdb"
-    old = duckdb.connect(str(path))
-    old.execute(
-        "CREATE TABLE listings (listing_id BIGINT, lat DOUBLE, lng DOUBLE, "
-        "attr_hash VARCHAR, first_seen_date DATE, last_seen_date DATE, "
-        "valid_from DATE, valid_to DATE, is_current BOOLEAN)"
-    )
-    old.execute(
-        "INSERT INTO listings VALUES (1, 60.95, -149.1, 'h', DATE '2026-08-01', "
-        "DATE '2026-08-01', DATE '2026-08-01', NULL, true)"
-    )
-    old.close()
-
-    con = store.connect(path)
-
-    assert con.execute(
-        "SELECT location_lat, location_lng, location_is_exact, str_registration_id "
-        "FROM listings"
-    ).fetchall() == [(60.95, -149.1, None, None)]
-
-
 def test_merge_listings_new_and_unchanged(tmp_path, make_listing):
     con = store.connect(tmp_path / "t.duckdb")
     day1 = [make_listing(1, "Cabin A"), make_listing(2, "Cabin B")]

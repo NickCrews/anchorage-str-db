@@ -19,10 +19,10 @@ the log for which one. `--verbose` logs every check's pass/fail, not just
 failures.
 
 A run against a fresh (empty) database creates the schema automatically.
-Columns added to an already-published table need an explicit `ALTER` in
-`store.MIGRATIONS_SQL`, since `CREATE TABLE IF NOT EXISTS` is a no-op on an
-existing file and the daily job carries yesterday's file forward rather
-than rebuilding it.
+There is no migration machinery: schema changes mean editing
+`store.SCHEMA_SQL` and rebuilding the database from scratch. Once there's
+published history worth keeping, that stops being true and this repo will
+need a real answer — until then, don't add one speculatively.
 
 ### Two phases: fetch everything, then write everything
 
@@ -168,9 +168,9 @@ its own investigation into what's scrapeable and how. If you pick this up:
 
 - Give it its own `vrbo_client.py`, mirroring `airbnb_client.py`'s shape
   (a search function, a calendar function).
-- Add a `source` column to `listings` and `calendar_status` (default
-  `'airbnb'` via a migration) so the two sources coexist in one schema
-  instead of needing parallel tables.
+- Add a `source` column to `listings` and `calendar_status` (defaulting
+  to `'airbnb'`) so the two sources coexist in one schema instead of
+  needing parallel tables.
 - The policy questions in `queries/policy_questions.sql` should mostly just
   need `GROUP BY source` added, not a rewrite.
 
