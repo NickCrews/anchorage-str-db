@@ -54,14 +54,6 @@ uv run anchorage-str-db --db data/anchorage_str.duckdb daily --pages
 - `calendar_status`: nightly open/booked-like availability states
 - `scrape_runs`: run health, counts, and failures
 
-## Important Limits
+## Goals and more info
 
-- Airbnb only (no Vrbo/Expedia yet)
-- "Not available" does not always mean a guest booking; hosts can block nights
-- History starts when you start collecting; no retroactive backfill
-- Some map points are intentionally blurred by Airbnb for privacy
-
-## Privacy
-
-This data can be sensitive at the property level. Keep datasets private unless
-you have a clear reason and approval to share publicly.
+See [](./docs/prd.md)
