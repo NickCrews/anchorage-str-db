@@ -1,8 +1,8 @@
 import {QueryDataTable} from '@sqlrooms/data-table';
 import {escapeVal} from '@sqlrooms/duckdb';
-import {Badge, Input, SpinnerPane} from '@sqlrooms/ui';
+import {Badge, Input} from '@sqlrooms/ui';
 import {useMemo, useState, type FC} from 'react';
-import {useRoomStore} from '../store';
+import {DataStatusGate} from './DataStatusGate';
 
 const BASE_QUERY = `
   SELECT
@@ -30,7 +30,6 @@ const BASE_QUERY = `
 `;
 
 export const ListingsView: FC = () => {
-  const status = useRoomStore((s) => s.dataInit.status);
   const [search, setSearch] = useState('');
 
   const query = useMemo(() => {
@@ -40,11 +39,8 @@ export const ListingsView: FC = () => {
     return `${BASE_QUERY}\n  AND (l.name ILIKE ${pattern} OR l.property_title ILIKE ${pattern})\n  ORDER BY l.last_seen_date DESC`;
   }, [search]);
 
-  if (status !== 'ready') {
-    return <SpinnerPane className="h-full" />;
-  }
-
   return (
+    <DataStatusGate>
     <div className="flex h-full flex-col gap-2 p-3">
       <div className="flex items-center gap-2">
         <Input
@@ -59,5 +55,6 @@ export const ListingsView: FC = () => {
         <QueryDataTable query={query} pageSize={50} />
       </div>
     </div>
+    </DataStatusGate>
   );
 };

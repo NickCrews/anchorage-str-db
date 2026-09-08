@@ -15,6 +15,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, SpinnerPane } from '@sqlrooms/ui';
 import type { FC } from 'react';
 import { useRoomStore } from '../store';
+import { DataStatusGate } from './DataStatusGate';
 import { StatCard } from './StatCard';
 
 // DuckDB DATE columns come back from useSql as epoch-millisecond numbers,
@@ -133,10 +134,6 @@ export const OverviewView: FC = () => {
     `,
   });
 
-  if (!enabled) {
-    return <SpinnerPane className="h-full" />;
-  }
-
   const kpi = kpiData?.toArray()[0];
   const pctBooked =
     kpi?.operatingTonight && kpi.bookedTonight != null
@@ -144,6 +141,7 @@ export const OverviewView: FC = () => {
       : null;
 
   return (
+    <DataStatusGate>
     <div className="h-full space-y-4 overflow-auto p-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
@@ -307,5 +305,6 @@ export const OverviewView: FC = () => {
         </Card>
       </div>
     </div>
+    </DataStatusGate>
   );
 };
