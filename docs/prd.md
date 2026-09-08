@@ -47,6 +47,8 @@ So downstream repos can pull this data and join it against other sources
 5. store the most recent set of photo urls for thumbnails in a web app viewer
 6. History of dates available, price, n beds, n baths, n guests, room type (whole house, room, etc)
   "Not available" does not always mean a guest booking; hosts can block nights
+7. Last updated date for freshness signal
+8. URL to str rental page for someone to verify/explore more
 
 ## Non-goals and Limitations
 
