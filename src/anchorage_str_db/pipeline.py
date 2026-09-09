@@ -25,7 +25,10 @@ def run_daily(db_path: Path, scrape_date: date | None = None) -> bool:
     stay outside.
 
     The fetching is three passes — the search, then each listing's own page,
-    then each listing's calendar. The page pass is not optional. It adds a
+    then each listing's calendar. The search is itself many queries, plus a
+    short coverage audit: see `airbnb_client.search_anchorage` for why
+    Anchorage cannot be covered by a single query, and `audit_coverage` for
+    how the run checks that claim instead of assuming it. The page pass is not optional. It adds a
     request per listing, but a run that skipped it would write rows whose
     `location_is_exact` and `str_registration_id` are carried-forward stale
     values rather than today's — a second, quieter kind of daily record that
@@ -44,14 +47,27 @@ def run_daily(db_path: Path, scrape_date: date | None = None) -> bool:
         # minutes each, and they're where rate-limiting and blocking show up;
         # keeping them outside the transaction means a failure there costs
         # zero writes instead of leaving a half-written day behind.
-        raw_results = airbnb_client.search_anchorage()
+        search_result = airbnb_client.search_anchorage()
         parsed_by_id = {}
-        for raw in raw_results:
+        for raw in search_result.listings:
             p = parse_listing(raw)
             if p is not None:
-                parsed_by_id[p.listing_id] = p  # de-dupe: keep last occurrence
+                # De-dupe: keep last occurrence. Price bands overlap on
+                # purpose (see `PriceBand.split`), so a listing priced near
+                # a band edge legitimately arrives more than once.
+                parsed_by_id[p.listing_id] = p
         parsed = list(parsed_by_id.values())
-        log.info("parsed %d distinct listings (from %d raw results)", len(parsed), len(raw_results))
+        log.info(
+            "parsed %d distinct listings (from %d raw results across %d search queries)",
+            len(parsed),
+            len(search_result.listings),
+            search_result.queries,
+        )
+
+        # Straight after the search, while its results are the thing being
+        # judged: does a differently-shaped query find listings the price
+        # bands did not? See `airbnb_client.audit_coverage`.
+        coverage = airbnb_client.audit_coverage(search_result.listings, scrape_date)
 
         room_ids = [str(p.listing_id) for p in parsed]
 
@@ -66,9 +82,7 @@ def run_daily(db_path: Path, scrape_date: date | None = None) -> bool:
             page_stats.registered,
         )
 
-        calendar_results = airbnb_client.fetch_calendars(
-            room_ids, min_date=scrape_date.isoformat()
-        )
+        calendar_results = airbnb_client.fetch_calendars(room_ids, min_date=scrape_date.isoformat())
 
         # ---- write phase ---------------------------------------------------
         # Pages are recorded on the same row as the search fields they
@@ -125,7 +139,13 @@ def run_daily(db_path: Path, scrape_date: date | None = None) -> bool:
 
     # Reads committed data: the transaction closed above, so the gate judges
     # exactly what a later query would see.
-    results = checks.run_checks(con, scrape_date, page_stats=page_stats)
+    results = checks.run_checks(
+        con,
+        scrape_date,
+        page_stats=page_stats,
+        search_result=search_result,
+        coverage=coverage,
+    )
     ok = checks.report(results)
     con.close()
 

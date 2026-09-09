@@ -5,9 +5,18 @@ internal StaysSearch / PdpAvailabilityCalendar GraphQL endpoints — the same
 ones the website's map search and listing pages use — rather than scraping
 rendered HTML. That makes it resilient to markup changes but means it's
 riding on Airbnb's *unofficial* API surface, which can change without
-notice; `get_api_key()`, `search_anchorage()` and `fetch_calendars()` are
-the only calls into it, kept narrow on purpose so a breakage is easy to
-localize.
+notice; `get_api_key()`, `search_anchorage()`, `audit_coverage()` and
+`fetch_calendars()` are the only calls into it, kept narrow on purpose so a
+breakage is easy to localize.
+
+The search drives pyairbnb's pagination itself (`pyairbnb.search.get` plus
+`standardize.from_search`) rather than calling `pyairbnb.search_all`, for
+two reasons: `search_all` reports only a flat list, with no way to tell a
+query that was truncated at the result cap from one that was genuinely
+exhausted, and it paginates, which is the thing this module goes out of its
+way not to do (see `_search_page`) — and it re-scrapes
+an API key from Airbnb's ~600 KB homepage on every call, which at ~25
+queries a run is the same waste `get_api_key` exists to avoid.
 """
 
 from __future__ import annotations
@@ -16,7 +25,8 @@ import logging
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date
 
 import pyairbnb
 
@@ -28,7 +38,7 @@ log = logging.getLogger(__name__)
 def get_api_key() -> str:
     """Airbnb's public web API key, scraped from the homepage HTML.
 
-    Fetched once per run and threaded through every calendar request.
+    Fetched once per pass and threaded through every request in it.
     `pyairbnb.get_calendar` will happily fetch its own when not given one,
     but it does so *per call* — which meant every listing re-downloaded the
     same ~600 KB homepage to re-extract the same key, two thirds of the
@@ -40,30 +50,267 @@ def get_api_key() -> str:
     return pyairbnb.get_api_key("")
 
 
-def search_anchorage() -> list[dict]:
-    """One bbox search over Anchorage, paginated to completion by pyairbnb.
+@dataclass(frozen=True)
+class PriceBand:
+    """A `price_min`/`price_max` window, in whole USD. `max_usd is None` is
+    the open-ended top band."""
+
+    min_usd: int
+    max_usd: int | None
+
+    @property
+    def width(self) -> float:
+        return float("inf") if self.max_usd is None else self.max_usd - self.min_usd
+
+    def split(self) -> list[PriceBand] | None:
+        """Two abutting halves, or None if this band is one dollar wide.
+
+        The halves share their boundary and that is correct, not a bug:
+        `price_max=X` and `price_min=X` are complementary, so a listing
+        priced exactly X lands in one half and only one. Measured on
+        single-page (deterministic) queries, splitting a 26-listing box at
+        $100, $125, $150 and $200 gave below+above == 26 every time, with
+        no duplicates and nothing lost.
+        """
+        if self.max_usd is None:
+            # Can't bisect an open interval; step the floor up instead.
+            return [PriceBand(self.min_usd, self.min_usd * 2), PriceBand(self.min_usd * 2, None)]
+        if self.width <= config.PRICE_BAND_MIN_WIDTH_USD:
+            return None
+        mid = (self.min_usd + self.max_usd) // 2
+        return [PriceBand(self.min_usd, mid), PriceBand(mid, self.max_usd)]
+
+    def __str__(self) -> str:
+        return f"${self.min_usd}-{self.max_usd if self.max_usd is not None else 'inf'}"
+
+
+@dataclass
+class SearchResult:
+    """One run's search pass.
+
+    `unresolved` is what the quality gate cares about: bands that still
+    needed more than one page at the narrowest width price can express. A
+    multi-page query is both truncatable and non-deterministic, so those are
+    listings we cannot vouch for."""
+
+    listings: list[dict]
+    queries: int = 0
+    unresolved: list[PriceBand] = field(default_factory=list)
+
+
+def _get_page(api_key: str, cursor: str, band: PriceBand | None, box: dict) -> dict:
+    """One search page, retried past Airbnb's intermittent 5xx.
+
+    A failed calendar or page fetch costs one listing's detail and is
+    recorded as such; a failed search page costs the entire pass, and with
+    it the run, because there is no partial search worth writing. So this
+    retries where those give up, and only raises once Airbnb has refused
+    `SEARCH_MAX_RETRIES` times in a row.
+    """
+    last_err: Exception | None = None
+    for attempt in range(1, config.SEARCH_MAX_RETRIES + 1):
+        try:
+            return pyairbnb.search.get(
+                api_key,
+                cursor,
+                "",  # check_in
+                "",  # check_out
+                box["ne_lat"],
+                box["ne_long"],
+                box["sw_lat"],
+                box["sw_long"],
+                config.ZOOM_VALUE,
+                config.CURRENCY,
+                "",  # place_type
+                band.min_usd if band else 0,
+                (band.max_usd or 0) if band else 0,
+                [],  # amenities
+                False,  # free_cancellation
+                0,  # adults
+                0,  # children
+                0,  # infants
+                0,  # min_bedrooms
+                0,  # min_beds
+                0,  # min_bathrooms
+                config.LANGUAGE,
+                "",  # proxy_url
+                "",  # hash
+            )
+        except Exception as e:  # noqa: BLE001 - want to retry any failure kind
+            last_err = e
+            if attempt < config.SEARCH_MAX_RETRIES:
+                log.warning("search page failed (attempt %d), retrying: %s", attempt, e)
+                time.sleep(1.5 * attempt)
+    raise RuntimeError(
+        f"search page failed after {config.SEARCH_MAX_RETRIES} attempts"
+    ) from last_err
+
+
+def _search_page(
+    api_key: str, band: PriceBand | None = None, box: dict | None = None
+) -> tuple[list[dict], int]:
+    """One request. Returns the rows and how many pages Airbnb says exist.
+
+    Deliberately does not paginate. A result set that spans more than one
+    page is both silently truncatable at 280 items and re-ranked between
+    fetches, so the caller's job is to narrow the query until this returns a
+    single page rather than to walk the pages of a lying one.
 
     No check-in/check-out dates are passed — an undated map search returns
     every listing Airbnb will show for the area, not just ones free on
     particular nights, which is what we want for "how many STRs exist."
     Nightly availability comes separately from each listing's calendar.
     """
-    results = pyairbnb.search_all(
-        check_in="",
-        check_out="",
-        ne_lat=config.BBOX["ne_lat"],
-        ne_long=config.BBOX["ne_long"],
-        sw_lat=config.BBOX["sw_lat"],
-        sw_long=config.BBOX["sw_long"],
-        zoom_value=config.ZOOM_VALUE,
-        price_min=0,
-        price_max=0,
-        currency=config.CURRENCY,
-        language=config.LANGUAGE,
-        proxy_url="",
+    raw = _get_page(api_key, "", band, box or config.BBOX)
+    rows = pyairbnb.standardize.from_search(raw)
+    pagination = pyairbnb.utils.get_nested_value(
+        raw, "data.presentation.staysSearch.results.paginationInfo", {}
     )
-    log.info("search_anchorage: %d raw results", len(results))
-    return results
+    return rows, len(pagination.get("pageCursors") or [])
+
+
+def search_anchorage() -> SearchResult:
+    """Search Anchorage as price bands narrow enough to each fit one page.
+
+    Airbnb's paginated search cannot be trusted twice over: it stops at 280
+    items without saying so, and it re-ranks between page fetches so that a
+    listing can appear on two pages while another appears on none. Both
+    defects live in pagination, and a query whose entire result set fits on
+    one page has neither — measured, such a query returns an identical set
+    on every repeat, while a seven-page query churns 69 listings between
+    identical calls.
+
+    So this never paginates. It asks for one page, and if Airbnb says more
+    pages exist it halves the price band and asks again, until every query
+    is answerable in a single page. `pageCursors` reports the page count in
+    the same response, which makes completeness something the run reads off
+    Airbnb rather than infers.
+
+    The geographic footprint stays exactly `config.BBOX` throughout, which
+    is what lets the scrape's scope be checked against the municipality's
+    real parcel extents. Bands abut rather than overlap, so a listing is
+    returned once; the pipeline de-dupes anyway.
+    """
+    api_key = get_api_key()
+    result = SearchResult(listings=[])
+
+    def visit(band: PriceBand) -> None:
+        rows, pages = _search_page(api_key, band)
+        result.queries += 1
+        halves = band.split() if pages > 1 else None
+        log.info(
+            "search: %s -> %d results across %d page(s)%s",
+            band,
+            len(rows),
+            pages,
+            " (splitting)" if halves else "",
+        )
+        if halves:
+            for half in halves:
+                visit(half)
+            return
+        if pages > 1:
+            log.warning(
+                "search: %s still needs %d pages and is too narrow to split — "
+                "more than %d listings at one price, which price cannot separate",
+                band,
+                pages,
+                config.SEARCH_PAGE_SIZE,
+            )
+            result.unresolved.append(band)
+        result.listings.extend(rows)
+        time.sleep(random.uniform(config.SEARCH_MIN_DELAY_S, config.SEARCH_MAX_DELAY_S))
+
+    for lo, hi in config.PRICE_BAND_SEEDS_USD:
+        visit(PriceBand(lo, hi))
+
+    log.info(
+        "search_anchorage: %d results from %d single-page queries (%d unresolved)",
+        len(result.listings),
+        result.queries,
+        len(result.unresolved),
+    )
+    return result
+
+
+@dataclass
+class CoverageAudit:
+    """Result of re-asking for a sample of the market a different way.
+
+    `missed` are listings an unfiltered box search returned that the price
+    bands did not. See `audit_coverage`."""
+
+    boxes: int = 0
+    seen: int = 0
+    missed_ids: list[int] = field(default_factory=list)
+
+    @property
+    def missed(self) -> int:
+        return len(self.missed_ids)
+
+    @property
+    def miss_rate(self) -> float:
+        return self.missed / self.seen if self.seen else 0.0
+
+
+def audit_coverage(listings: list[dict], scrape_date: date) -> CoverageAudit:
+    """Second-opinion check that the price bands actually covered the market.
+
+    Banding is exhaustive only if every listing carries a price Airbnb will
+    filter on. Nothing in the run can prove that from the inside: a band
+    that silently omits the unpriced returns a tidy, plausible result and
+    the union of tidy, plausible results looks complete. So this asks the
+    same question in a shape that has no price filter at all — a handful of
+    small bounding boxes drawn around listings we did find — and reports
+    anything those boxes return that the bands did not.
+
+    Boxes are centred on known listings rather than sampled uniformly over
+    the bbox, because most of the bbox is mountain and would audit nothing.
+    A box needing more than one page is skipped, not counted: a multi-page
+    answer is both truncatable and unstable, so it cannot testify about what
+    is missing.
+
+    The sample is seeded by `scrape_date`, so a run is reproducible but
+    successive days audit different neighbourhoods.
+    """
+    found_ids = {int(r["room_id"]) for r in listings if r.get("room_id") is not None}
+    located = [r for r in listings if (r.get("coordinates") or {}).get("latitude") is not None]
+    audit = CoverageAudit()
+    if not located:
+        return audit
+
+    rng = random.Random(scrape_date.toordinal())
+    api_key = get_api_key()
+    for centre in rng.sample(located, min(config.COVERAGE_AUDIT_SAMPLE, len(located))):
+        coords = centre["coordinates"]
+        lat = coords["latitude"]
+        lng = coords.get("longitud", coords.get("longitude"))
+        if lng is None:
+            continue
+        box = {
+            "sw_lat": lat - config.COVERAGE_AUDIT_BOX_LAT / 2,
+            "ne_lat": lat + config.COVERAGE_AUDIT_BOX_LAT / 2,
+            "sw_long": lng - config.COVERAGE_AUDIT_BOX_LNG / 2,
+            "ne_long": lng + config.COVERAGE_AUDIT_BOX_LNG / 2,
+        }
+        rows, pages = _search_page(api_key, band=None, box=box)
+        if pages > 1:
+            log.info("coverage audit: box at %.4f,%.4f needs %d pages, skipping", lat, lng, pages)
+            continue
+        ids = {int(r["room_id"]) for r in rows if r.get("room_id") is not None}
+        audit.boxes += 1
+        audit.seen += len(ids)
+        audit.missed_ids.extend(sorted(ids - found_ids))
+        time.sleep(random.uniform(config.SEARCH_MIN_DELAY_S, config.SEARCH_MAX_DELAY_S))
+
+    log.info(
+        "coverage audit: %d boxes, %d listings seen, %d missed by the price bands (%.1f%%)",
+        audit.boxes,
+        audit.seen,
+        audit.missed,
+        audit.miss_rate * 100,
+    )
+    return audit
 
 
 @dataclass

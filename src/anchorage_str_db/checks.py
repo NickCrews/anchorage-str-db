@@ -12,6 +12,7 @@ from datetime import date
 import duckdb
 
 from anchorage_str_db import config
+from anchorage_str_db.airbnb_client import CoverageAudit, SearchResult
 from anchorage_str_db.store import PageFetchStats
 
 log = logging.getLogger(__name__)
@@ -29,14 +30,60 @@ def run_checks(
     con: duckdb.DuckDBPyConnection,
     scrape_date: date,
     page_stats: PageFetchStats,
+    search_result: SearchResult,
+    coverage: CoverageAudit,
 ) -> list[CheckResult]:
-    """`page_stats` is this run's listing-page pass — parse provenance isn't
-    persisted, so its health checks read the run's in-memory stats rather
-    than the database."""
+    """`page_stats`, `search_result` and `coverage` are this run's
+    listing-page, search and coverage-audit passes — none of their
+    provenance is persisted, so their health checks read the run's
+    in-memory stats rather than the database."""
     results: list[CheckResult] = []
 
     def check(name, severity, passed, detail):
         results.append(CheckResult(name, severity, passed, detail))
+
+    # Both of Airbnb's search defects — the silent 280-item cap and the
+    # re-ranking that drops listings between pages — live in pagination, so
+    # the search narrows every band until it fits one page. A band that
+    # could not be narrowed that far was answered by a query that is both
+    # truncatable and unstable, and nothing in the resulting data would
+    # show it.
+    unresolved = search_result.unresolved
+    check(
+        "search_single_page",
+        "error",
+        not unresolved,
+        f"{len(unresolved)} price bands still needed more than one page at the narrowest "
+        "width price can express"
+        + (f": {', '.join(str(b) for b in unresolved[:5])}" if unresolved else ""),
+    )
+
+    # `search_single_page` proves each query told the truth about its own
+    # result set; it says nothing about whether the price bands, between
+    # them, covered the market. A listing with no price Airbnb will filter
+    # on would fall in no band and be missing from a result that looks
+    # perfectly healthy. This is the check that can see that, because it
+    # asks in a shape with no price filter at all.
+    if coverage.boxes:
+        check(
+            "search_coverage",
+            "error",
+            coverage.miss_rate <= config.MAX_COVERAGE_MISS_RATE,
+            f"{coverage.missed}/{coverage.seen} listings in {coverage.boxes} audit boxes "
+            f"were missed by the price bands ({coverage.miss_rate:.0%}, "
+            f"max {config.MAX_COVERAGE_MISS_RATE:.0%})"
+            + (f"; e.g. {coverage.missed_ids[:5]}" if coverage.missed_ids else ""),
+        )
+    else:
+        # Every audit box needed more than one page, or the search returned
+        # nothing to centre one on. Either way the audit did not run, and
+        # saying nothing would read as a pass.
+        check(
+            "search_coverage",
+            "warn",
+            False,
+            "coverage audit did not run: no usable audit boxes",
+        )
 
     current_count = con.execute("SELECT count(*) FROM listings WHERE is_current").fetchone()[0]
     lo, hi = config.PLAUSIBLE_LISTING_COUNT
@@ -134,8 +181,7 @@ def run_checks(
             "listing_page_failure_rate",
             "error",
             rate <= config.MAX_PAGE_FAILURE_RATE,
-            f"{page_stats.failed}/{page_stats.attempted} listing-page fetches "
-            f"failed ({rate:.0%})",
+            f"{page_stats.failed}/{page_stats.attempted} listing-page fetches failed ({rate:.0%})",
         )
 
     fetched = page_stats.attempted - page_stats.failed
@@ -149,8 +195,7 @@ def run_checks(
             "exact_location_flag_present",
             "error",
             page_stats.with_exact_flag > 0,
-            f"{page_stats.with_exact_flag}/{fetched} pages read this run "
-            "carried isExactLocation",
+            f"{page_stats.with_exact_flag}/{fetched} pages read this run carried isExactLocation",
         )
 
         # Which extraction layers are still working. `state` is the only

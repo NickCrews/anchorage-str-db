@@ -47,8 +47,9 @@ none of it. The failed-run row in `scrape_runs` is written *after* the
 rollback, on purpose — inside the transaction it would roll back along with
 the run it documents.
 
-The network passes stay outside the transaction because they take minutes,
-and there is nothing to be gained by holding a write lock through them.
+The network passes stay outside the transaction because they take over an
+hour, and there is nothing to be gained by holding a write lock through
+them.
 Individual per-listing failures are tolerated rather than fatal — a failed
 page or calendar fetch comes back marked with an error and is judged in
 aggregate by the failure-rate checks. Tolerate per listing, judge per day,
@@ -76,8 +77,14 @@ for what the pass measured and why it's worth the requests.
 
 ### Request budget
 
-One run makes roughly `2N + 8` requests for N listings — a page and a
-calendar each, plus the search's paginated `StaysSearch` calls. Airbnb's web
+One run makes roughly `2N + 200` requests for N listings — a page and a
+calendar each, plus one `StaysSearch` request per price band. The search is
+many requests and no longer paginates at all; see
+[`docs/research/airbnb-search-pagination.md`](docs/research/airbnb-search-pagination.md)
+if you need to know why. At today's ~2600 listings that is ~5400 requests
+and about 80 minutes, of which the search is ~4 minutes — the per-listing
+passes dominate, so they are the knobs to reach for if a run needs to be
+shorter. Airbnb's web
 API key is scraped once per run and threaded through every calendar request
 (`airbnb_client.get_api_key`). Don't drop that argument: `pyairbnb`'s
 `get_calendar` silently fetches its own key when it isn't given one, and it
@@ -112,11 +119,11 @@ automatic `GITHUB_TOKEN`.
   differ by a factor of ~400 in how much a daily snapshot costs, so they
   are stored differently:
   - `calendar_status` is change-only (via `status_hash`). A snapshot of
-    ~250 listings × ~365 forward nights is ~90k rows/day, ~33M rows/year,
+    ~2600 listings × ~365 forward nights is ~950k rows/day, ~350M rows/year,
     almost all of it unchanged nights re-written for no reason. The merge
     logic earns its keep.
-  - `listing_observations` is one row per listing per day — ~250 rows/day,
-    ~90k rows/year of the most compressible data imaginable. Change-only
+  - `listing_observations` is one row per listing per day — ~2600 rows/day,
+    ~950k rows/year of the most compressible data imaginable. Change-only
     merging bought nothing here and cost a mutable, hand-maintained
     history, so `listings` is now a **view**: `listing_versions` runs
     gaps-and-islands over the daily rows to rebuild `valid_from`/`valid_to`

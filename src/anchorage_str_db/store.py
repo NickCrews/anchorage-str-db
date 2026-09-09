@@ -23,10 +23,10 @@ Both used to be SCD2 tables, on the reasoning that a snapshot-per-day would
 be unaffordable. That reasoning is sound for the calendar and wrong for
 listings, by a factor of about 400:
 
-- calendar: ~250 listings x ~365 forward nights = ~90k rows/day, ~33M/year.
-  Storing a row per night per day is genuinely infeasible, so it earns its
-  merge logic.
-- listings: ~250 rows/day, ~90k/year — and the most compressible data
+- calendar: ~2600 listings x ~365 forward nights = ~950k rows/day,
+  ~350M/year. Storing a row per night per day is genuinely infeasible, so
+  it earns its merge logic.
+- listings: ~2600 rows/day, ~950k/year — and the most compressible data
   imaginable, the same twenty columns repeating verbatim. Change-only
   merging bought nothing here and cost a mutable, hand-maintained history.
 
@@ -608,7 +608,7 @@ def merge_calendar(
     con: duckdb.DuckDBPyConnection, scrape_date: date, results: list[CalendarResult]
 ) -> CalendarMergeStats:
     """SCD2-merge one run's calendar. Still change-only, unlike listings:
-    a snapshot per night per day is ~33M rows/year, so the merge earns its
+    a snapshot per night per day is ~350M rows/year, so the merge earns its
     complexity here. See the module docstring."""
     stats = CalendarMergeStats(attempted=len(results), failed=sum(1 for r in results if r.error))
     rows = [
