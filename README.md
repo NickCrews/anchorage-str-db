@@ -62,6 +62,16 @@ Two tables hold everything; the rest are views over them.
   rather than `calendar_status` for "how many are operating/booked",
   otherwise retired listings keep reporting frozen future nights
 
+## Known Gaps
+
+- **There is no street address for most listings.** `location_exact_address`
+  is nullable and null unless the host chose to publish one on Airbnb. Join
+  on `location_lat`/`location_lng` instead — and read
+  `location_is_exact` first, because roughly half those coordinates are
+  Airbnb's privacy jitter rather than the real spot. Resolving addresses for
+  the rest is a deliberate follow-up, not a thing we're quietly working on;
+  see the PRD.
+
 ## Goals and more info
 
 See [](./docs/prd.md)

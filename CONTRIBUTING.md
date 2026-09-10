@@ -185,7 +185,14 @@ automatic `GITHUB_TOKEN`.
   rather than in a table of its own precisely so that filter is one column
   away from the coordinate instead of one join away. The jitter is stable
   per listing (verified by repeated fetching), so no amount of re-scraping
-  averages it out.
+  averages it out. `location_exact_address` is the escape hatch and it is
+  null for most listings — we store the address when Airbnb hands us one and
+  make no attempt to infer the rest. That's a deliberate deferral recorded in
+  the PRD's follow-ups, not an oversight: don't add a geocoding or
+  parcel-matching step without reading
+  [`docs/research/airbnb-address-deanonymization.md`](docs/research/airbnb-address-deanonymization.md)
+  first, which concludes the tractable path is a public-records request to
+  the Municipality rather than anything technical.
 - **The listing-page parse is layered on purpose, and the layers are
   recorded.** `listing_page.py` extracts the same facts three independent
   ways — schema.org JSON-LD, a shape-search over the embedded GraphQL
