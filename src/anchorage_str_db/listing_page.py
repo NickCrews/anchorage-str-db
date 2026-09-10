@@ -47,7 +47,6 @@ from __future__ import annotations
 
 import json
 import logging
-import random
 import re
 import time
 from collections.abc import Iterator
@@ -57,7 +56,7 @@ from dataclasses import dataclass, fields
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 
-from anchorage_str_db import config
+from anchorage_str_db import config, pace
 
 log = logging.getLogger(__name__)
 
@@ -337,8 +336,17 @@ def _warn_on_disagreement(by_layer: dict[str, dict], room_id: str) -> None:
 
 
 def _fetch_one_page(room_id: str) -> ListingPage:
+    """One listing's page, paced by the run's shared budget.
+
+    The 429 check sits ahead of the broad `except` on purpose. `pace`
+    signals a rate limit by raising, and that exception has to reach the
+    caller rather than be caught here and retried — retrying is precisely
+    the behaviour that turns one 429 into 2600 of them.
+    """
+    pacer = pace.get()
     last_err: Exception | None = None
     for attempt in range(1, config.PAGE_MAX_RETRIES + 1):
+        pacer.wait_turn()
         try:
             response = requests.get(
                 f"https://www.airbnb.com/rooms/{room_id}",
@@ -346,33 +354,59 @@ def _fetch_one_page(room_id: str) -> ListingPage:
                 timeout=config.PAGE_TIMEOUT_S,
                 impersonate="chrome",
             )
-            response.raise_for_status()
-            return parse_listing_page(response.text, room_id)
         except Exception as e:  # noqa: BLE001 - retry any failure kind, as with calendars
+            # A hung request is the limiter's quiet warning, not bad luck:
+            # mild overage stalls connections rather than refusing them.
+            if "timeout" in type(e).__name__.lower():
+                pacer.note_timeout()
             last_err = e
             if attempt < config.PAGE_MAX_RETRIES:
                 time.sleep(0.5 * attempt)
+            continue
+
+        if response.status_code == 429:
+            pacer.note_rate_limited()  # raises RateLimited; aborts the run
+
+        try:
+            response.raise_for_status()
+            page = parse_listing_page(response.text, room_id)
+        except Exception as e:  # noqa: BLE001 - a bad body is this listing's problem alone
+            last_err = e
+            if attempt < config.PAGE_MAX_RETRIES:
+                time.sleep(0.5 * attempt)
+            continue
+
+        pacer.note_ok()
+        return page
     return ListingPage(room_id=str(room_id), error=str(last_err))
 
 
 def fetch_listing_pages(room_ids: list[str]) -> list[ListingPage]:
-    """Fetch every listing's page, capped concurrency, paced between requests.
+    """Fetch every listing's page, capped concurrency, globally paced.
 
-    Same politeness budget as `airbnb_client.fetch_calendars` — this is a
-    second full pass over every listing, so a run that does both makes
-    roughly twice the requests it used to.
+    The pacing is no longer this function's business — it belongs to the
+    run-wide budget in `pace`, because Airbnb counts the search, this pass
+    and the calendar pass against one per-IP total. `PAGE_CONCURRENCY` is
+    now only a cap on how many sockets are open at once.
+
+    A `pace.RateLimited` from any worker aborts the whole pass. There is
+    nothing to salvage by continuing: the block is IP-wide and lasts on the
+    order of an hour, so every remaining listing would fail anyway, slowly,
+    while still knocking.
     """
     results: list[ListingPage] = []
     with ThreadPoolExecutor(max_workers=config.PAGE_CONCURRENCY) as pool:
-        futures = {}
-        for room_id in room_ids:
-            time.sleep(random.uniform(config.PAGE_MIN_DELAY_S, config.PAGE_MAX_DELAY_S))
-            futures[pool.submit(_fetch_one_page, room_id)] = room_id
-        for future in as_completed(futures):
-            result = future.result()
-            if result.error:
-                log.warning(
-                    "listing page fetch failed for room %s: %s", result.room_id, result.error
-                )
-            results.append(result)
+        futures = {pool.submit(_fetch_one_page, room_id): room_id for room_id in room_ids}
+        try:
+            for future in as_completed(futures):
+                result = future.result()
+                if result.error:
+                    log.warning(
+                        "listing page fetch failed for room %s: %s", result.room_id, result.error
+                    )
+                results.append(result)
+        except pace.RateLimited:
+            for f in futures:
+                f.cancel()
+            raise
     return results

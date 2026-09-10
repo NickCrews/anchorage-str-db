@@ -30,7 +30,7 @@ from datetime import date
 
 import pyairbnb
 
-from anchorage_str_db import config
+from anchorage_str_db import config, pace
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +47,22 @@ def get_api_key() -> str:
     stale mid-run every calendar fetch fails at once, which the run's
     calendar-failure-rate check already catches.
     """
+    pace.get().wait_turn()
     return pyairbnb.get_api_key("")
+
+
+def _is_rate_limited(err: Exception) -> bool:
+    """Did this failure come back 429?
+
+    pyairbnb calls `raise_for_status()`, so a rate limit reaches us as an
+    exception rather than a status code. curl_cffi formats it as
+    "HTTP Error 429: " and attaches the response, so check the structured
+    field first and fall back to the message.
+    """
+    response = getattr(err, "response", None)
+    if response is not None and getattr(response, "status_code", None) == 429:
+        return True
+    return "429" in str(err)
 
 
 @dataclass(frozen=True)
@@ -107,8 +122,10 @@ def _get_page(api_key: str, cursor: str, band: PriceBand | None, box: dict) -> d
     retries where those give up, and only raises once Airbnb has refused
     `SEARCH_MAX_RETRIES` times in a row.
     """
+    pacer = pace.get()
     last_err: Exception | None = None
     for attempt in range(1, config.SEARCH_MAX_RETRIES + 1):
+        pacer.wait_turn()
         try:
             return pyairbnb.search.get(
                 api_key,
@@ -137,6 +154,13 @@ def _get_page(api_key: str, cursor: str, band: PriceBand | None, box: dict) -> d
                 "",  # hash
             )
         except Exception as e:  # noqa: BLE001 - want to retry any failure kind
+            # A 429 is not a flaky 5xx and must not be retried: the block is
+            # IP-wide and lasts on the order of an hour, so the retries only
+            # deepen it. Fail the run now, with the real reason.
+            if _is_rate_limited(e):
+                pacer.note_rate_limited()
+            if "timeout" in type(e).__name__.lower():
+                pacer.note_timeout()
             last_err = e
             if attempt < config.SEARCH_MAX_RETRIES:
                 log.warning("search page failed (attempt %d), retrying: %s", attempt, e)
@@ -219,7 +243,6 @@ def search_anchorage() -> SearchResult:
             )
             result.unresolved.append(band)
         result.listings.extend(rows)
-        time.sleep(random.uniform(config.SEARCH_MIN_DELAY_S, config.SEARCH_MAX_DELAY_S))
 
     for lo, hi in config.PRICE_BAND_SEEDS_USD:
         visit(PriceBand(lo, hi))
@@ -301,7 +324,6 @@ def audit_coverage(listings: list[dict], scrape_date: date) -> CoverageAudit:
         audit.boxes += 1
         audit.seen += len(ids)
         audit.missed_ids.extend(sorted(ids - found_ids))
-        time.sleep(random.uniform(config.SEARCH_MIN_DELAY_S, config.SEARCH_MAX_DELAY_S))
 
     log.info(
         "coverage audit: %d boxes, %d listings seen, %d missed by the price bands (%.1f%%)",
@@ -338,8 +360,10 @@ def _fetch_one_calendar(room_id: str, min_date: str, api_key: str) -> CalendarRe
     Left unfiltered, that reads as "100% occupied" for every day before the
     scrape ran, which is a UI artifact, not an occupancy signal.
     """
+    pacer = pace.get()
     last_err: Exception | None = None
     for attempt in range(1, config.CALENDAR_MAX_RETRIES + 1):
+        pacer.wait_turn()
         try:
             months = pyairbnb.get_calendar(api_key=api_key, room_id=str(room_id), proxy_url="")
             nights = []
@@ -357,8 +381,13 @@ def _fetch_one_calendar(room_id: str, min_date: str, api_key: str) -> CalendarRe
                             price_amount=_parse_price(amount),
                         )
                     )
+            pacer.note_ok()
             return CalendarResult(room_id=str(room_id), nights=nights)
         except Exception as e:  # noqa: BLE001 - want to retry any failure kind
+            if _is_rate_limited(e):
+                pacer.note_rate_limited()  # raises RateLimited; aborts the run
+            if "timeout" in type(e).__name__.lower():
+                pacer.note_timeout()
             last_err = e
             if attempt < config.CALENDAR_MAX_RETRIES:
                 time.sleep(0.5 * attempt)
@@ -391,13 +420,20 @@ def fetch_calendars(room_ids: list[str], min_date: str) -> list[CalendarResult]:
     api_key = get_api_key()
     results: list[CalendarResult] = []
     with ThreadPoolExecutor(max_workers=config.CALENDAR_CONCURRENCY) as pool:
-        futures = {}
-        for room_id in room_ids:
-            time.sleep(random.uniform(config.CALENDAR_MIN_DELAY_S, config.CALENDAR_MAX_DELAY_S))
-            futures[pool.submit(_fetch_one_calendar, room_id, min_date, api_key)] = room_id
-        for future in as_completed(futures):
-            result = future.result()
-            if result.error:
-                log.warning("calendar fetch failed for room %s: %s", result.room_id, result.error)
-            results.append(result)
+        futures = {
+            pool.submit(_fetch_one_calendar, room_id, min_date, api_key): room_id
+            for room_id in room_ids
+        }
+        try:
+            for future in as_completed(futures):
+                result = future.result()
+                if result.error:
+                    log.warning(
+                        "calendar fetch failed for room %s: %s", result.room_id, result.error
+                    )
+                results.append(result)
+        except pace.RateLimited:
+            for f in futures:
+                f.cancel()
+            raise
     return results

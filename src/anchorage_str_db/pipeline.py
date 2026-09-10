@@ -10,7 +10,7 @@ import logging
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from anchorage_str_db import airbnb_client, checks, listing_page, store
+from anchorage_str_db import airbnb_client, checks, listing_page, pace, store
 from anchorage_str_db.parse import parse_listing
 
 log = logging.getLogger(__name__)
@@ -23,6 +23,15 @@ def run_daily(db_path: Path, scrape_date: date | None = None) -> bool:
     write everything in one transaction. See `store.transaction` for why the
     writes are all-or-nothing, and the comments below for why the fetches
     stay outside.
+
+    Every request in the network phase is paced by one run-wide budget
+    (`pace`), calibrated in `config.REQUESTS_PER_SECOND` against a measured
+    per-IP limit of roughly 130 requests per rolling minute. If Airbnb
+    returns 429 anyway, `pace.RateLimited` propagates out of whichever pass
+    hit it and aborts the run through the handler below — deliberately, and
+    without retrying: the block is IP-wide and lasts on the order of an
+    hour, so continuing would write a day of failed fetches while still
+    knocking on a door that is being held shut.
 
     The fetching is three passes — the search, then each listing's own page,
     then each listing's calendar. The search is itself many queries, plus a
@@ -39,6 +48,12 @@ def run_daily(db_path: Path, scrape_date: date | None = None) -> bool:
     scrape_date = scrape_date or datetime.now(UTC).date()
     started = datetime.now(UTC)
     log.info("=== anchorage-str-db daily run: %s ===", scrape_date)
+
+    # One request budget for the whole run. Airbnb counts the search, the
+    # page pass and the calendar pass against a single per-IP total, so
+    # pacing them separately — which is what the old per-pass sleeps did —
+    # was budgeting against a limit that does not exist. See `pace`.
+    pace.reset()
 
     con = store.connect(db_path)
     try:

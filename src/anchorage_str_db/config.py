@@ -109,12 +109,6 @@ PRICE_BAND_SEEDS_USD = (
 # return 36 of a possible 40, so there is headroom but not a lot.
 PRICE_BAND_MIN_WIDTH_USD = 1
 
-# Same politeness budget as the other passes. Every band is exactly one
-# request, so the request count is the band count: 181 for Anchorage,
-# ~4 minutes end to end.
-SEARCH_MIN_DELAY_S = 0.3
-SEARCH_MAX_DELAY_S = 0.8
-
 # Retries per search page, mirroring CALENDAR_MAX_RETRIES. Airbnb returns
 # an occasional 500 that succeeds on the next attempt; observed killing a
 # run mid-search. Unlike a failed calendar or page fetch, which costs one
@@ -154,19 +148,31 @@ MAX_COVERAGE_MISS_RATE = 0.05
 CURRENCY = "USD"
 LANGUAGE = "en"
 
-# Be a polite scraper: cap concurrent calendar requests and pace them,
-# rather than firing ~2600 requests at once. The delay is serial in the
-# submit loop, so it, not the fetching, sets the pace of the whole pass.
-# Measured per listing: 0.90s for a page, 0.82s for a calendar. At today's
-# ~2600 listings that is ~40 minutes for the page pass and ~36 for the
-# calendar pass, which with a ~4 minute search puts a full run around 80
-# minutes. That is fine for a once-a-day job and deliberately unhurried,
-# but these are the knobs to reach for if the run ever needs to be shorter
-# — not the search, which is already 5% of the run and cannot be shrunk
-# without losing listings again.
-CALENDAR_CONCURRENCY = 4
-CALENDAR_MIN_DELAY_S = 0.4
-CALENDAR_MAX_DELAY_S = 1.2
+# The whole run's request budget, in requests per second, shared by the
+# search, the page pass and the calendar pass. See `pace.py` for the
+# measurements; the short version is that Airbnb counts *requests per IP
+# over a rolling window* (~130 per ~60s) and does not care how fast you got
+# there, so one global rate is the only knob that corresponds to anything
+# real. The old per-pass `*_MIN_DELAY_S`/`*_MAX_DELAY_S` pairs are gone:
+# they slept serially in each pass's submit loop, which meant the pass rate
+# was `1/mean(delay)` and `*_CONCURRENCY` did nothing at all.
+#
+# Calibration: 1400 requests held at 2.0/s ran 11.7 minutes with zero 429s.
+# The ceiling inferred from three separate trips is ~2.2/s. This sits under
+# both, because overshooting is not a little slower — it is either a stall
+# (measured at 4/s: connections simply stop answering) or an IP-wide ban
+# lasting on the order of an hour (measured at 17/s).
+#
+# At 1.8/s a full run — ~190 search requests plus ~2600 pages plus ~2600
+# calendars — is about 50 minutes, against ~80 at the old 1.25/s. Raising
+# this is not the way to make it much faster; making the page pass ask for
+# fewer listings is (see `docs/research/airbnb-rate-limits.md`).
+REQUESTS_PER_SECOND = 1.8
+
+# How many sockets may be open at once. This is now only a concurrency cap
+# — `REQUESTS_PER_SECOND` sets the pace — so it wants to be high enough to
+# keep the rate achievable given ~0.9s per request, and no higher.
+CALENDAR_CONCURRENCY = 6
 CALENDAR_MAX_RETRIES = 3
 
 DEFAULT_DB_PATH = Path("data/anchorage_str.duckdb")
@@ -198,11 +204,13 @@ MAX_CALENDAR_FAILURE_RATE = 0.25
 # the calendar pass, and deliberately a separate set of knobs: this is a
 # full HTML page (~500 KB) per listing rather than a small JSON response,
 # so it may need to be throttled independently if Airbnb starts objecting.
-PAGE_CONCURRENCY = 4
-PAGE_MIN_DELAY_S = 0.4
-PAGE_MAX_DELAY_S = 1.2
+PAGE_CONCURRENCY = 6
 PAGE_MAX_RETRIES = 3
-PAGE_TIMEOUT_S = 30
+# Shorter than it looks: a request that has hung this long is not slow, it
+# is the limiter stalling us (see `pace.Pacer.note_timeout`), and the sooner
+# that is recognised the sooner the rate comes down. The old 30s meant every
+# worker parked for half a minute before anyone noticed.
+PAGE_TIMEOUT_S = 15
 
 # A listing-page pass with a failure rate above this fraction fails the
 # data-quality gate, mirroring MAX_CALENDAR_FAILURE_RATE.
