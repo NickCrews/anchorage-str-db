@@ -16,9 +16,8 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    # Two full per-listing passes (calendar + listing page), both paced
-    # politely, so a run takes well over the single-pass 30 minutes.
-    timeout-minutes: 60
+    # A run takes about 50 minutes (see "Request budget" in CONTRIBUTING.md).
+    timeout-minutes: 120
     permissions:
       contents: write # to upload the updated database as a release asset
     env:
