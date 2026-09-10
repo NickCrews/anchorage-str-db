@@ -81,10 +81,9 @@ One run makes roughly `2N + 200` requests for N listings — a page and a
 calendar each, plus one `StaysSearch` request per price band. The search is
 many requests and no longer paginates at all; see
 [`docs/research/airbnb-search-pagination.md`](docs/research/airbnb-search-pagination.md)
-if you need to know why. At today's ~2600 listings that is ~5400 requests
-and about 80 minutes, of which the search is ~4 minutes — the per-listing
-passes dominate, so they are the knobs to reach for if a run needs to be
-shorter. Airbnb's web
+if you need to know why. At today's ~2600 listings that is ~5400 requests,
+and a run takes about 50 minutes — the per-listing passes dominate, so they
+are the knobs to reach for if a run needs to be shorter. Airbnb's web
 API key is scraped once per run and threaded through every calendar request
 (`airbnb_client.get_api_key`). Don't drop that argument: `pyairbnb`'s
 `get_calendar` silently fetches its own key when it isn't given one, and it
