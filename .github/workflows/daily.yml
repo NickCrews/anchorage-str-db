@@ -7,6 +7,11 @@ on:
     # anyone ever wants to correlate run times.
     - cron: "0 12 * * *"
   workflow_dispatch:
+    inputs:
+      start_fresh:
+        description: Start a new, empty archive if latest-data has no database.
+        type: boolean
+        default: false
 
 # Never let two runs write to the database at once.
 concurrency:
@@ -20,9 +25,11 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: write # to upload the updated database as a release asset
+      issues: write # to open an issue when a run fails
     env:
       GH_TOKEN: ${{ github.token }}
       DB_PATH: data/anchorage_str.duckdb
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,17 +39,33 @@ jobs:
 
       - run: uv sync --frozen
 
-      # The runner starts clean every time, so pull yesterday's database
-      # back down from the release asset before scraping — otherwise every
-      # run would look like day one and the whole point (history) is lost.
+      # The runner starts clean, so restore yesterday's database from the
+      # release. A missing database fails the run unless `start_fresh` is set.
       - name: Restore previous database
+        env:
+          START_FRESH: ${{ inputs.start_fresh }}
         run: |
           mkdir -p data
-          if gh release download latest-data --repo "$GITHUB_REPOSITORY" \
-               --pattern 'anchorage_str.duckdb' --output "$DB_PATH" 2>/dev/null; then
+          asset=$(basename "$DB_PATH")
+          # "release not found" means empty; any other error is an outage.
+          if ! names=$(gh release view latest-data --repo "$GITHUB_REPOSITORY" \
+                         --json assets --jq '.assets[].name' 2>&1); then
+            if [[ "$names" == *"release not found"* ]]; then
+              names=""
+            else
+              echo "::error::could not list the latest-data release: $names"
+              exit 1
+            fi
+          fi
+          if grep -qxF "$asset" <<< "$names"; then
+            gh release download latest-data --repo "$GITHUB_REPOSITORY" \
+              --pattern "$asset" --output "$DB_PATH"
             echo "restored previous database"
+          elif [ "$START_FRESH" = "true" ]; then
+            echo "no $asset on latest-data; starting a new archive (start_fresh)"
           else
-            echo "no previous release found — starting fresh"
+            echo "::error::latest-data has no $asset. To start a new archive, run with start_fresh=true."
+            exit 1
           fi
 
       - name: Scrape + merge + quality gate
@@ -61,12 +84,47 @@ jobs:
               --notes "Always the most recent successful daily scrape. Superseded on every run — see scrape_runs in the database for history, and git history of this workflow for the pipeline that produced it."
           fi
 
+      # Sundays (UTC), plus every manual run.
       - name: Weekly dated backup
-        if: github.event.schedule == '0 12 * * 0' || github.event_name == 'workflow_dispatch'
         run: |
+          if [ "$(date -u +%u)" != 7 ] && [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
+            echo "no backup today"
+            exit 0
+          fi
           tag="backup-$(date -u +%Y-%m-%d)"
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release create "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" \
+              --latest=false \
               --title "Backup $(date -u +%Y-%m-%d)" \
               --notes "Dated snapshot, kept indefinitely (unlike latest-data, which is overwritten daily)."
           fi
+
+      - name: Close the outage issue
+        continue-on-error: true
+        run: |
+          for n in $(gh issue list --repo "$GITHUB_REPOSITORY" --label pipeline-down \
+                       --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --repo "$GITHUB_REPOSITORY" --comment "Recovered: $RUN_URL"
+          done
+
+      # A red X in the Actions tab notifies no one.
+      - name: Open an issue on failure
+        if: failure() || cancelled()
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          gh label create pipeline-down --repo "$GITHUB_REPOSITORY" --color B60205 \
+            --description "The daily scrape is failing" 2>/dev/null || true
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label pipeline-down \
+                   --state open --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" \
+              --body "Failed again on $(date -u +%Y-%m-%d): $RUN_URL"
+            exit 0
+          fi
+          gh issue create --repo "$GITHUB_REPOSITORY" --label pipeline-down \
+            --title "Daily scrape is failing" --body-file - <<EOF
+          @$OWNER the daily scrape failed on $(date -u +%Y-%m-%d): $RUN_URL
+
+          The next successful run closes this issue. See "How CI runs this" in CONTRIBUTING.md.
+          EOF

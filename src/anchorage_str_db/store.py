@@ -357,6 +357,12 @@ class LegacySchemaError(RuntimeError):
     """Raised for a database written before `listings` became a view."""
 
 
+_NO_MIGRATION = (
+    "There is no migration: see CONTRIBUTING.md, "
+    "'When the published database becomes unreadable'."
+)
+
+
 def _reject_legacy_schema(con: duckdb.DuckDBPyConnection) -> None:
     """Fail loudly rather than half-adopting an old file.
 
@@ -371,9 +377,7 @@ def _reject_legacy_schema(con: duckdb.DuckDBPyConnection) -> None:
         "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'listings'"
     ).fetchone()[0]:
         raise LegacySchemaError(
-            "this database has `listings` as a table, from the pre-view schema. "
-            "There is no migration: delete the file (and the `latest-data` release "
-            "asset, if you are the publisher) and let the next run rebuild it."
+            "this database has `listings` as a table, from the pre-view schema. " + _NO_MIGRATION
         )
     columns = {
         row[0]
@@ -384,8 +388,7 @@ def _reject_legacy_schema(con: duckdb.DuckDBPyConnection) -> None:
     }
     if columns and "page_fetch_ok" not in columns:
         raise LegacySchemaError(
-            "`listing_observations` predates the listing-page columns. "
-            "There is no migration: delete the file and let the next run rebuild it."
+            "`listing_observations` predates the listing-page columns. " + _NO_MIGRATION
         )
 
 
