@@ -106,11 +106,25 @@ same `uv run anchorage-str-db daily` command once a day. Since GitHub Actions
 runners are ephemeral, each run downloads the previous day's database from
 the `latest-data` release (that's the persistence mechanism — there's no
 separate cloud database), scrapes, merges, and re-uploads it if the quality
-gate passes. A `backup-YYYY-MM-DD` release is cut weekly and kept
-indefinitely, so a bad `latest-data` overwrite is always recoverable.
+gate passes. A `backup-YYYY-MM-DD` release is cut every Sunday and kept
+indefinitely.
 
-No secrets are required — `gh release` inside the workflow uses the
-automatic `GITHUB_TOKEN`.
+A failed run opens a `pipeline-down` issue, and the next successful run
+closes it. If `latest-data` has no database, the run fails unless it is
+dispatched with `start_fresh=true`.
+
+No secrets are required — `gh` inside the workflow uses the automatic
+`GITHUB_TOKEN`.
+
+### When the published database becomes unreadable
+
+After a breaking schema change, every run fails with `LegacySchemaError`
+until someone:
+
+1. Archives the `latest-data` asset on its own release, like
+   `archive-pre-view-schema`.
+2. Deletes it: `gh release delete-asset latest-data anchorage_str.duckdb`
+3. Starts over: `gh workflow run daily.yml -f start_fresh=true`
 
 ## Design choices worth knowing before changing things
 
