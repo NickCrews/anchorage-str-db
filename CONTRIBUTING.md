@@ -3,14 +3,30 @@
 ## Setup
 
 ```sh
-uv sync
+pnpm install
 ```
+
+A pnpm workspace with two packages — `packages/scraper` and `packages/ui` —
+sharing the compiler options in `tsconfig.base.json`.
+
+Relative imports are written with their real `.ts` extension, which is what
+lets `node src/cli.ts` run the sources directly (Node strips the types) while
+`tsc` rewrites the extension to `.js` on the way into `dist/`. One spelling,
+and no build step needed to try something out. The corollary is
+`erasableSyntaxOnly`: no enums, no namespaces, no parameter properties,
+because none of those survive type erasure.
 
 ## Running it
 
 ```sh
-uv run anchorage-str-db --db data/anchorage_str.duckdb daily
+pnpm daily                 # the whole pipeline, into data/anchorage_str.duckdb
+pnpm daily --verbose --db /tmp/scratch.duckdb
 ```
+
+Run it from the repo root — that is what the root `daily` script is for. It
+invokes `packages/scraper/src/cli.ts` directly rather than going through
+`pnpm --filter`, which would set the working directory to the package and
+quietly resolve the default `--db` to `packages/scraper/data/`.
 
 That's the entire pipeline: search the Anchorage bbox, fetch every listing's
 page and calendar, SCD2-merge all of it into the database, run the
@@ -24,19 +40,38 @@ There is no migration machinery: schema changes mean editing
 published history worth keeping, that stops being true and this repo will
 need a real answer — until then, don't add one speculatively.
 
+### Two dependencies
+
+The scraper depends on `impit` and `@duckdb/node-api`, and nothing else.
+
+`impit` is the load-bearing one. Airbnb sits behind Akamai, which
+fingerprints the TLS ClientHello; Node's built-in `fetch` announces itself as
+Node however you set `User-Agent`, and is refused. `impit` replays a real
+Chrome handshake, which is why `src/airbnb/http.ts` asks for `chrome124`. If
+requests start failing wholesale with a 403, check that first: the browser
+profile eventually ages out of plausibility.
+
+Everything else is the standard library. Argument parsing is
+`node:util.parseArgs`; the HTML the listing-page parser reads is script tags
+pulled out with a regex, because nothing in it traverses a DOM (see
+`src/html.ts`).
+
+Airbnb's three endpoints are implemented in `packages/scraper/src/airbnb/`,
+one file each. That directory's README covers them.
+
 ### Two phases: fetch everything, then write everything
 
-`run_daily` is deliberately split. All the network work happens first —
+`runDaily` is deliberately split. All the network work happens first —
 search, then a page per listing, then a calendar per listing — and nothing
 touches the database until every fetch has returned. Then all the writes go
-in inside a single `store.transaction`.
+in inside a single `db.transaction`.
 
-This matters because DuckDB's Python client autocommits every statement. Left
+This matters because DuckDB autocommits every statement. Left
 alone, a run that died in the calendar pass (the longest phase, and the one
 that gets rate-limited) would leave today's listings and observations
 committed with no calendar rows, and nothing in the schema marks a scrape
 date as partial — so every query would read that day as complete. Worse,
-`record_observations` deletes a scrape date's rows before re-inserting them
+`recordObservations` deletes a scrape date's rows before re-inserting them
 (so a re-run replaces a day rather than doubling it), and a crash in between
 would drop the day entirely, under a listing-count check whose band is wide
 enough not to notice.
@@ -79,17 +114,24 @@ for what the pass measured and why it's worth the requests.
 
 One run makes roughly `2N + 200` requests for N listings — a page and a
 calendar each, plus one `StaysSearch` request per price band. The search is
-many requests and no longer paginates at all; see
+many requests and never paginates; see
 [`docs/research/airbnb-search-pagination.md`](docs/research/airbnb-search-pagination.md)
 if you need to know why. At today's ~2600 listings that is ~5400 requests,
 and a run takes about 50 minutes — the per-listing passes dominate, so they
-are the knobs to reach for if a run needs to be shorter. Airbnb's web
-API key is scraped once per run and threaded through every calendar request
-(`airbnb_client.get_api_key`). Don't drop that argument: `pyairbnb`'s
-`get_calendar` silently fetches its own key when it isn't given one, and it
-does so *per call*, which means every listing re-downloads the ~600 KB
-homepage to re-extract the same constant. That alone was two thirds of the
-run's requests before it was hoisted.
+are the knobs to reach for if a run needs to be shorter.
+
+Airbnb's web API key is scraped once per run (`pipeline.ts`) and threaded
+through every search and calendar request as a required argument. It is a
+long-lived public constant, not a session token, so one fetch covers the run
+— and it has no default on purpose, because a per-call fetch would make every
+listing re-download the same ~600 KB homepage to re-extract the same string,
+which is two thirds of a run's requests.
+
+The budget itself lives in `pace.ts`, and the attempt loop all three passes
+share lives in `retry.ts` — which is where the three kinds of failure are
+told apart: a 429 aborts the run immediately, a run of timeouts halves the
+request rate, and anything else is Airbnb's ordinary intermittent 5xx and is
+worth another try.
 
 ## Inspecting the database
 
@@ -102,7 +144,7 @@ or run anything in [`queries/policy_questions.sql`](queries/policy_questions.sql
 ## How CI runs this
 
 [`.github/workflows/daily.yml`](.github/workflows/daily.yml) runs the exact
-same `uv run anchorage-str-db daily` command once a day. Since GitHub Actions
+same pipeline once a day, from a `tsc` build of `packages/scraper`. Since GitHub Actions
 runners are ephemeral, each run downloads the previous day's database from
 the `latest-data` release (that's the persistence mechanism — there's no
 separate cloud database), scrapes, merges, and re-uploads it if the quality
@@ -121,8 +163,8 @@ No secrets are required — `gh` inside the workflow uses the automatic
 After a breaking schema change, every run fails with `LegacySchemaError`
 until someone:
 
-1. Archives the `latest-data` asset on its own release, like
-   `archive-pre-view-schema`.
+1. Archives the `latest-data` asset on its own release, named for the
+   schema it holds (e.g. `archive-<date>`).
 2. Deletes it: `gh release delete-asset latest-data anchorage_str.duckdb`
 3. Starts over: `gh workflow run daily.yml -f start_fresh=true`
 
@@ -137,27 +179,23 @@ until someone:
     logic earns its keep.
   - `listing_observations` is one row per listing per day — ~2600 rows/day,
     ~950k rows/year of the most compressible data imaginable. Change-only
-    merging bought nothing here and cost a mutable, hand-maintained
-    history, so `listings` is now a **view**: `listing_versions` runs
-    gaps-and-islands over the daily rows to rebuild `valid_from`/`valid_to`
-    and `listing_activity` derives the first/last/page-seen dates. Column
-    names are unchanged, so `WHERE is_current` still means what it did.
+    merging buys nothing at that size, so `listings` is a **view**:
+    `listing_versions` runs gaps-and-islands over the daily rows to rebuild
+    `valid_from`/`valid_to`, and `listing_activity` derives the
+    first/last/page-seen dates.
 - **Don't add a column to `listings` — add it to `listing_observations`.**
   The observations are the only stored facts about a listing; everything
   else is derived. If the new column should open a new version when it
-  changes, add it to `_VERSION_KEY_SQL` in `store.py` too. If it moves
+  changes, add it to `VERSION_KEY_SQL` in `store.ts` too. If it moves
   most days (a price, a review count), leave it out of the key so a new
   review doesn't read as a new listing.
 - **Nothing about a listing is ever UPDATE'd.** `first_seen_date`,
-  `last_seen_date` and `page_seen_date` used to be mutable columns
-  maintained by hand alongside the observations that already implied them,
-  and they drifted: a listing that was retired and later relisted lost its
-  true first-seen date and had its registration number blanked, because the
-  carry-forward join only looked at versions closed on the current scrape
-  date. Derived, they cannot disagree — and because the published `.duckdb`
-  is downloaded, mutated and re-uploaded every run, a bug in the version
-  logic is now fixed by editing a view rather than by backfilling the only
-  copy of the archive.
+  `last_seen_date` and `page_seen_date` are derived from the observations
+  that imply them, so they cannot disagree with them — the case that breaks
+  a hand-maintained column is a listing that retires and later relists.
+  Deriving also means a bug in the version logic is fixed by editing a view,
+  which matters because the published `.duckdb` is downloaded, mutated and
+  re-uploaded every run, and is the only copy of the archive.
 - **Retirement is a view predicate, not a write.** A listing is current if
   it has been seen within `RETIREMENT_GRACE_DAYS` (5) of the latest
   completed run. The grace exists because Airbnb's map search paginates
@@ -174,7 +212,7 @@ until someone:
   listing — a retired listing keeps the nights it was actually observed
   operating for, which is genuine realized occupancy, and loses the
   unconfirmed future.
-- **Undated search.** `search_anchorage()` passes no check-in/check-out —
+- **Undated search.** `searchAnchorage` passes no check-in/check-out —
   Airbnb's map search without dates returns every listing it will show for
   the area, not just ones free on specific nights. Nightly availability is
   a separate, per-listing concern (the calendar), not something to encode
@@ -183,11 +221,11 @@ until someone:
   calendar endpoint always returns the *whole* current month starting on
   the 1st, so a scrape on the 15th still gets days 1–14 back marked
   `available: false` — not because anyone booked them, just because the
-  past can't be booked. `fetch_calendars(min_date=...)` filters those out;
+  past can't be booked. `toNights(days, minDate)` filters those out;
   without it every day before a given run looks like 100% occupancy, which
-  is a UI artifact, not a real signal. Caught by eyeballing the first real
-  run's output, not by a test — if you touch calendar parsing, sanity-check
-  a few days' worth of output against the live site before trusting it.
+  is a UI artifact, not a real signal. The unit test pins the filter but not
+  Airbnb's response shape, so if you touch calendar parsing, sanity-check a
+  few days' worth of output against the live site before trusting it.
 - **Half the coordinates in `listings` are fake, and `location_is_exact`
   says which half.** Airbnb jitters the map pin unless the host opted into
   showing the exact spot. Any query that joins
@@ -207,29 +245,28 @@ until someone:
   first, which concludes the tractable path is a public-records request to
   the Municipality rather than anything technical.
 - **The listing-page parse is layered on purpose, and the layers are
-  recorded.** `listing_page.py` extracts the same facts three independent
+  recorded.** `listingPage.ts` extracts the same facts three independent
   ways — schema.org JSON-LD, a shape-search over the embedded GraphQL
   state, and regexes over the raw HTML — because none of it is a documented
   API. Each page records which layers actually contributed
-  (`ListingPage.location_source`, in memory, not a database column), and
+  (`ListingPage.locationSource`, in memory, not a database column), and
   the `extraction_layer_*_alive` checks fail when one stops, so a silent
   degradation shows up in the quality gate instead of as quietly missing
   data. Don't "simplify" it to a single path.
 - **The bbox is derived, not eyeballed** — see the docstring in
-  `config.py`. If Anchorage's boundaries or parcel coverage change, or you
+  `config.ts`. If Anchorage's boundaries or parcel coverage change, or you
   want tighter/looser padding, recompute it from `anchorage-property`
   rather than hand-editing the coordinates.
 
 ## Adding a second source (Vrbo)
 
-Not done yet. Vrbo/Expedia Group has a real presence in ski towns and
-would be worth adding, but their anti-scraping posture is stronger than
-Airbnb's map-search API and there's no equivalent well-maintained open
-library to build on the way `pyairbnb` exists for Airbnb — it would need
-its own investigation into what's scrapeable and how. If you pick this up:
+Not done yet. Vrbo/Expedia Group has a real presence in ski towns and would
+be worth adding, but their anti-scraping posture is stronger than Airbnb's
+map-search API, so it needs its own investigation into what is reachable and
+how before any of the below is worth writing. If you pick this up:
 
-- Give it its own `vrbo_client.py`, mirroring `airbnb_client.py`'s shape
-  (a search function, a calendar function).
+- Give it its own `src/vrbo/` directory, mirroring `src/airbnb/`'s shape
+  (one file per endpoint, and a standardizer for each response).
 - Add a `source` column to `listing_observations` and `calendar_status`
   (defaulting to `'airbnb'`) so the two sources coexist in one schema
   instead of needing parallel tables. `listings` picks it up for free, but
@@ -241,17 +278,28 @@ its own investigation into what's scrapeable and how. If you pick this up:
 ## Tests
 
 ```sh
-uv run pytest
+pnpm test        # vitest, both packages
+pnpm typecheck
 ```
 
-`tests/test_listing_page.py` parses synthetic copies of Airbnb's embedded
-PDP JSON — it can't tell you Airbnb hasn't changed that shape (only a live
-fetch can), but it will fail if someone flattens the path-walking.
-`tests/test_store.py` exercises the SCD2 merge logic (listings, calendar,
-retirement) against a real in-memory-ish DuckDB file with synthetic data —
-no network access needed. There's currently no test that hits the live
-Airbnb API (by design — CI shouldn't depend on it being reachable/unblocked
-to pass); `airbnb_client.py` and `parse.py` are the modules most likely to
-break silently when Airbnb changes something, so if you're debugging a
-production failure, start by re-running `search_anchorage()` and
-`fetch_calendars()` interactively against a couple of known room IDs.
+`test/listingPage.test.ts` parses synthetic copies of Airbnb's embedded PDP
+JSON — it can't tell you Airbnb hasn't changed that shape (only a live fetch
+can), but it will fail if someone flattens the path-walking.
+`test/standardize.test.ts` does the same for the search response.
+`test/store.test.ts` exercises the SCD2 merge logic (listings, calendar,
+retirement) against a real DuckDB file with synthetic data.
+
+Nothing in the suite touches the network, by design — CI shouldn't depend on
+Airbnb being reachable and unblocked to pass. That is bought by keeping the
+fetching behind an injected function: `searchAnchorage` takes a `fetchPage`,
+`fetchCalendars` takes a `fetchOne`, and `liveSearchFetcher` /
+`liveCalendarFetcher` / `livePageFetcher` are the only places a real request
+is made. Tests pass a stub; the pipeline passes the live one.
+
+The corollary is that `src/airbnb/` and `parse.ts` are the code most likely
+to break silently when Airbnb changes something, because no offline test can
+see it. If you're debugging a production failure, start there: run a
+`searchAnchorage` over a small box and a `livePageFetcher` against a couple
+of known room ids, and check what the quality gate said about
+`extraction_layer_*_alive` — those checks exist precisely because a parse
+degrading to nulls otherwise looks like a quiet, healthy run.

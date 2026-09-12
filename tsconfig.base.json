@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+
+    // Relative imports are written with their real `.ts` extension, so
+    // `node src/cli.ts` runs the sources directly (Node strips the types)
+    // and `tsc` rewrites the extension to `.js` on the way into dist/.
+    // One spelling, no build step needed to try something out.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    // Nothing that survives type erasure: no enums, no namespaces, no
+    // parameter properties. That is what keeps `node src/cli.ts` working.
+    "erasableSyntaxOnly": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "skipLibCheck": true
+  }
+}

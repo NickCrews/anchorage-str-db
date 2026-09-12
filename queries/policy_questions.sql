@@ -1,5 +1,5 @@
 -- Ready-made answers to the questions GBOS actually asks. Run with:
---   uv run anchorage-str-db sql   (not implemented yet — for now: duckdb data/anchorage_str.duckdb)
+--   duckdb data/anchorage_str.duckdb
 -- or attach the published database read-only from anywhere:
 --   ATTACH 'anchorage_str.duckdb' AS str (READ_ONLY);
 -- ============================================================

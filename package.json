@@ -1,0 +1,19 @@
+{
+  "name": "anchorage-str-db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "description": "Daily Anchorage, AK short-term rental database builder with historical listings and availability",
+  "license": "MIT",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "daily": "node packages/scraper/src/cli.ts daily"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2"
+  }
+}

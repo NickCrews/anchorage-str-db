@@ -17,7 +17,7 @@ The goal is to replace guesses with a consistent, date-stamped database.
 - One local DuckDB file: `anchorage_str.duckdb`
 - A daily snapshot history of listings and calendar availability
 - Ready-to-run policy-oriented queries in `queries/policy_questions.sql`
-- An optional browser viewer in `ui/`
+- An optional browser viewer in `packages/ui/`
 
 ## Quick Start
 
@@ -37,7 +37,8 @@ SELECT count(*) FROM listings WHERE is_current;
 From the repo root:
 
 ```sh
-uv run anchorage-str-db --db data/anchorage_str.duckdb daily
+pnpm install
+pnpm daily
 ```
 
 That is the whole run, and the only way to invoke it: search the Anchorage
@@ -71,6 +72,17 @@ Two tables hold everything; the rest are views over them.
   Airbnb's privacy jitter rather than the real spot. Resolving addresses for
   the rest is a deliberate follow-up, not a thing we're quietly working on;
   see the PRD.
+
+## Repo Layout
+
+A pnpm workspace with two packages, sharing `tsconfig.base.json`:
+
+- `packages/scraper` — the daily pipeline and the DuckDB schema. Depends on
+  exactly two runtime packages: `impit` (an HTTP client that impersonates
+  Chrome's TLS fingerprint, without which Airbnb refuses us) and
+  `@duckdb/node-api`. The Airbnb endpoints it calls live in
+  `packages/scraper/src/airbnb/`, which has its own README.
+- `packages/ui` — the browser viewer.
 
 ## Goals and more info
 

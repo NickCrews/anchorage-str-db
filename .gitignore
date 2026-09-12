@@ -1,19 +1,18 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
+node_modules/
 dist/
-wheels/
-*.egg-info
-
-# Virtual environments
-.venv
+dist-ssr/
+*.tsbuildinfo
+*.local
+*-debug.log*
 
 # Local database working copy (published as a GitHub release asset, not committed)
 data/
 *.duckdb
 *.duckdb.wal
+# the data snapshot copied into the viewer for local dev — never commit
+# STR-level scrape data
+packages/ui/public/*.duckdb
 
 .env
-.ruff_cache/
-.pytest_cache/
+.vscode/*
+!.vscode/extensions.json

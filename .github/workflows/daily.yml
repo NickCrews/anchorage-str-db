@@ -33,11 +33,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v4
-        with:
-          python-version: "3.12"
+      - uses: pnpm/action-setup@v4
 
-      - run: uv sync --frozen
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # impit and @duckdb/node-api ship prebuilt native binaries, so this is
+      # only TypeScript -> JavaScript. The scraper is run from dist/ rather
+      # than through Node's type stripping so a type error fails here, once,
+      # instead of at whatever hour the first bad import is reached.
+      - run: pnpm --filter @anchorage-str-db/scraper build
 
       # The runner starts clean, so restore yesterday's database from the
       # release. A missing database fails the run unless `start_fresh` is set.
@@ -69,7 +78,7 @@ jobs:
           fi
 
       - name: Scrape + merge + quality gate
-        run: uv run anchorage-str-db --db "$DB_PATH" --verbose daily
+        run: node packages/scraper/dist/cli.js --db "$DB_PATH" --verbose daily
 
       # Only reached if the quality gate passed (daily exits non-zero on
       # any error-severity check, which fails the step above first).
