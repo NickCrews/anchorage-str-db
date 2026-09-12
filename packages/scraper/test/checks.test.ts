@@ -29,10 +29,7 @@ afterEach(async () => {
   for (const dir of temporary.splice(0)) await rm(dir, { recursive: true, force: true });
 });
 
-/**
- * Enough rows to make listing_count_plausible and freshness pass, so each
- * test below only has to reason about the one check it's exercising.
- */
+/** Enough rows for listing_count_plausible and observations_written_today to pass. */
 async function seedMinimal(): Promise<Database> {
   const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
   temporary.push(dir);
@@ -60,10 +57,7 @@ async function seedMinimal(): Promise<Database> {
   return db;
 }
 
-/**
- * Most tests here are about a database-derived check, so the in-memory pass
- * summaries default to healthy ones.
- */
+/** Run the checks with healthy in-memory pass stats unless overridden. */
 async function check(
   db: Database,
   overrides: { searchResult?: SearchResult; coverage?: CoverageAudit } = {},
@@ -84,10 +78,9 @@ it('passes no_backdated_calendar_rows on clean data', async () => {
   expect(byName['no_backdated_calendar_rows']!.passed).toBe(true);
 });
 
-it('catches the elapsed-month artifact', async () => {
+it('fails no_backdated_calendar_rows for a night before its valid_from', async () => {
   const db = await seedMinimal();
-  // Simulate the bug directly (bypassing `toNights`, which is what actually
-  // prevents it): a night_date before valid_from.
+  // Bypasses `toNights`, which normally drops such nights.
   await mergeCalendar(db, DAY, [calendarResultFor('0', '2026-08-01', false, 1, null)]);
 
   const { byName, all } = await check(db);
@@ -103,10 +96,6 @@ it('passes search_coverage when the audit found nothing missing', async () => {
 });
 
 it('fails search_coverage when another query shape finds listings we missed', async () => {
-  // The check that answers "are we finding all of the municipality?" rather
-  // than "is our own method internally consistent?". Price banding cannot
-  // see a listing with no filterable price; an unfiltered box can, and this
-  // is where that disagreement becomes a failed run.
   const db = await seedMinimal();
   const coverage: CoverageAudit = {
     boxes: 6,
@@ -121,11 +110,7 @@ it('fails search_coverage when another query shape finds listings we missed', as
   expect(report(all)).toBe(false);
 });
 
-it('tolerates the known query-shape difference', async () => {
-  // The measured miss rate with the convergence loop in place is 0%, but the
-  // audit and the search still ask in different shapes, so a listing or two
-  // of disagreement must not fail the run — otherwise the gate cries wolf
-  // and stops being read.
+it('passes search_coverage for a miss rate under the threshold', async () => {
   const db = await seedMinimal();
   const coverage: CoverageAudit = { boxes: 6, seen: 100, missedIds: [900_000n, 900_001n, 900_002n] };
 
@@ -133,14 +118,12 @@ it('tolerates the known query-shape difference', async () => {
   expect(byName['search_coverage']!.passed).toBe(true);
 });
 
-it('warns rather than silently passing when the audit did not run', async () => {
-  // An audit that never ran must not read as an audit that found nothing.
+it('warns when the audit did not run', async () => {
   const db = await seedMinimal();
 
   const { byName, all } = await check(db, { coverage: emptyAudit() });
   expect(byName['search_coverage']!.passed).toBe(false);
   expect(byName['search_coverage']!.severity).toBe('warn');
-  // A warn must not fail the run on its own.
   expect(report(all)).toBe(true);
 });
 
@@ -151,10 +134,6 @@ it('passes search_single_page when every band fit one page', async () => {
 });
 
 it('fails search_single_page when a band needed more than one page', async () => {
-  // A multi-page query is silently truncatable at 280 items and returns a
-  // different set on every call. A band that could not be narrowed below one
-  // page was answered by such a query, and nothing in the resulting data
-  // would show it.
   const db = await seedMinimal();
   const stuck = new PriceBand(150, 151);
 

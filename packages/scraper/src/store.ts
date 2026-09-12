@@ -1,67 +1,26 @@
 /**
  * DuckDB schema and merge logic.
  *
- * Two grains of observation, one run log, and a set of views that
- * reconstruct the slowly-changing dimensions on top of them.
+ * - `listing_observations`: append-only, one row per (listing, scrape date)
+ *   with everything read that day from search and the listing page. The
+ *   only stored facts about a listing.
+ * - `calendar_status`: SCD2 on (listing_id, night_date). A night that leaves
+ *   Airbnb's ~12-month calendar window is no longer observed, so its last
+ *   value stays as the realized booked/available state.
+ * - `scrape_runs`: one row per run.
  *
- * - `listing_observations` — append-only, one row per (listing, day) it was
- *   seen in search results. Everything we learned about the listing that
- *   day: the search fields, the listing-page fields, and the volatile stuff
- *   (rating, review count, nightly price hint). This is the source of truth;
- *   nothing else about a listing is stored.
- * - `calendar_status` — SCD2 on (listing_id, night_date): whether that night
- *   was available, as observed. Once a night_date scrolls out of Airbnb's
- *   ~12-month forward calendar window, we simply stop observing it, so its
- *   last known value freezes in place — which is exactly the realized
- *   booked/available call for a night once it's in the past. No special
- *   "close out old nights" logic is needed for that; see README for the
- *   caveat that "not available" conflates real bookings with host blocks.
- * - `scrape_runs` — one row per run, for freshness and failure tracking.
+ * `calendar_status` is stored change-only because a daily snapshot would be
+ * ~950k rows/day. Listings are ~2600 rows/day, so they are stored daily and
+ * `listings` is a view: `listing_versions` rebuilds `valid_from`/`valid_to`
+ * with gaps-and-islands, and `listing_activity` derives first/last/page-seen
+ * dates. Deriving keeps those dates consistent with the observations
+ * (including for relisted listings) and lets a version-logic bug be fixed by
+ * editing a view rather than backfilling the only copy of the archive.
  *
- * Why `listings` is a view and `calendar_status` is a table
- * --------------------------------------------------------
- * A snapshot per day costs about 400 times more for the calendar than for
- * listings:
- *
- * - calendar: ~2600 listings x ~365 forward nights = ~950k rows/day,
- *   ~350M/year. Storing a row per night per day is genuinely infeasible, so
- *   it earns its merge logic.
- * - listings: ~2600 rows/day, ~950k/year — and the most compressible data
- *   imaginable, the same twenty columns repeating verbatim. Change-only
- *   merging would buy nothing and cost a mutable, hand-maintained history.
- *
- * So `listings` is derived: `listing_versions` runs gaps-and-islands over
- * the daily rows to rebuild `valid_from`/`valid_to`, and `listing_activity`
- * aggregates first/last/page-seen dates.
- *
- * Deriving gives three properties a stored table would not:
- *
- * 1. `first_seen_date` and `last_seen_date` cannot disagree with the
- *    observations, because they *are* the observations — including for a
- *    listing that retires and later comes back, which is the case a
- *    hand-maintained column gets wrong.
- * 2. History is recomputable. Runs mutate an append-only table, so a bug in
- *    the version logic is fixed by editing a view, not by backfilling a
- *    database that is itself the only copy (see CONTRIBUTING: the published
- *    .duckdb file is downloaded, mutated, and re-uploaded each run).
- * 3. Freshness is answerable per field — `max(scrape_date) FILTER (WHERE
- *    <field> IS NOT NULL)` — rather than only for the questions someone
- *    thought to add a `*_seen_date` column for.
- *
- * The listing-page fields (`location_is_exact`, `str_registration_id`, ...)
- * sit on the same row as the search fields rather than in a table of their
- * own, even though they come from a second endpoint that fails
- * independently. They describe the listing, not an event, and
- * `location_is_exact` in particular is a modifier on the
- * `location_lat`/`location_lng` columns sitting right next to it —
- * splitting them would mean no query could read a coordinate without a
- * join, which is how you end up with analyses that quietly treat jittered
- * pins as real addresses.
- *
- * `page_fetch_ok` is what makes that safe to store per-day: a day we
- * couldn't read the page records NULLs and `false`, and the *view* carries
- * the last successful read forward. Carrying forward in the view rather than
- * on write keeps the raw row honest about what we actually saw.
+ * Listing-page fields share the row with the search fields so that
+ * `location_is_exact` is readable next to `location_lat`/`location_lng`
+ * without a join. A day whose page fetch failed stores `page_fetch_ok =
+ * false` and NULLs; the view carries the last successful read forward.
  */
 
 import {
@@ -103,18 +62,15 @@ CREATE TABLE IF NOT EXISTS listing_observations (
     url VARCHAR,
     badges VARCHAR[],
 
-    -- Volatile: these move most days, which is why they are deliberately
-    -- *not* part of the version key. A new review is not a new listing.
+    -- These change most days, so they are not part of the version key.
     rating_value DOUBLE,
     review_count INTEGER,
     price_hint_per_night DOUBLE,
     price_qualifier VARCHAR,
 
-    -- From the listing's own page, a separate request that fails
-    -- independently. \`page_fetch_ok\` distinguishes "we read the page and
-    -- this host publishes no STR number" from "we never got to look" --
-    -- without it, both are five NULLs and carry-forward can't tell them
-    -- apart. Everything below it is NULL whenever it is false.
+    -- From the listing's own page, a separate request. \`page_fetch_ok\`
+    -- distinguishes "read the page, no STR number" from "page not read";
+    -- the columns below it are NULL when it is false.
     page_fetch_ok BOOLEAN NOT NULL,
     location_is_exact BOOLEAN,
     location_exact_address VARCHAR,
@@ -155,11 +111,10 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
 `;
 
 /**
- * Attributes whose change opens a new listing version. Volatile columns
- * (rating, review count, price hint) are excluded on purpose — they belong
- * to the day, not to the listing — and so is `url`, which is a function of
- * `listing_id`. Coordinates are rounded to 6dp so float noise in Airbnb's
- * response doesn't read as the listing having moved.
+ * Attributes whose change opens a new listing version. Excludes values that
+ * change most days (rating, review count, price hint) and `url`, which is
+ * derived from `listing_id`. Coordinates are rounded to 6dp so float noise
+ * doesn't open a version.
  */
 const VERSION_KEY_SQL = `{
     'name': name,
@@ -184,21 +139,12 @@ const PAGE_ATTRS_SQL = `{
 
 /**
  * `{grace}` is filled from `config.RETIREMENT_GRACE_DAYS`. The views are
- * CREATE OR REPLACE'd on every `connect()`, so changing that constant takes
- * effect on the next run rather than needing a rebuild.
+ * recreated on every `connect()`, so a change to it applies on the next run.
  */
 export const VIEWS_SQL = `
--- The date retirement is measured back from: the most recent run that
--- actually completed its write phase.
---
--- Not simply \`max(scrape_date)\` from the observations, because that stops
--- advancing exactly when it matters -- a run where every listing had
--- vanished would write no rows, freeze the clock, and leave every dead
--- listing reading as current forever. Not \`max(scrape_date)\` from
--- \`scrape_runs\` either, because a *failed* run logs a row there with all
--- counts NULL, and a run that scraped nothing must not retire anything.
--- \`listings_seen IS NOT NULL\` is the marker for a run that got as far as
--- writing, so the two sources together cover both holes.
+-- The date retirement is measured from: the latest run that completed its
+-- writes. Observations alone would stop advancing on a day with no listings;
+-- \`scrape_runs\` alone would include failed runs, whose counts are NULL.
 CREATE OR REPLACE VIEW latest_scrape_date AS
 SELECT max(scrape_date) AS scrape_date FROM (
     SELECT max(scrape_date) AS scrape_date FROM listing_observations
@@ -207,16 +153,10 @@ SELECT max(scrape_date) AS scrape_date FROM (
     WHERE listings_seen IS NOT NULL
 );
 
--- Per-listing summary over its whole observed history: when we first and
--- last saw it, when we last successfully read its page, and whether it is
--- still live.
---
--- "Still live" is the retirement rule, and it lives here rather than in an
--- UPDATE pass because it is a question about the observations, not a fact
--- to be stored: a listing is current if we have seen it within
--- RETIREMENT_GRACE_DAYS of the most recent scrape. The grace exists because
--- Airbnb's map search paginates unreliably, and a listing blinking out for
--- a day should not read as "this STR closed."
+-- Per listing: first and last seen, last successful page read, and whether
+-- it is current. A listing is current if seen within RETIREMENT_GRACE_DAYS
+-- of the latest scrape, because search occasionally omits a listing for a
+-- day.
 CREATE OR REPLACE VIEW listing_activity AS
 SELECT
     listing_id,
@@ -229,8 +169,8 @@ SELECT
 FROM listing_observations
 GROUP BY listing_id;
 
--- SCD2, reconstructed. A version runs from the first day an attribute set
--- was observed to the day before the next distinct set appeared.
+-- SCD2 versions. A version runs from the first day an attribute set was
+-- observed until the next distinct set appears.
 CREATE OR REPLACE VIEW listing_versions AS
 WITH observed AS (
     SELECT
@@ -238,11 +178,10 @@ WITH observed AS (
             location_is_exact, location_exact_address, location_subtitle,
             location_verified, str_registration_id
         ),
-        -- NULL for a day whose page fetch failed, so the carry-forward
-        -- below skips it. Carrying the whole struct rather than each column
-        -- individually is what preserves "read the page, no registration
-        -- number" (a non-NULL struct holding a NULL) as distinct from "did
-        -- not read the page" (a NULL struct).
+        -- NULL when the page fetch failed, so the carry-forward skips it.
+        -- Carrying the whole struct keeps "read the page, no registration
+        -- number" (a struct holding a NULL) distinct from "page not read"
+        -- (a NULL struct).
         CASE WHEN page_fetch_ok THEN {page_attrs} END AS page_attrs
     FROM listing_observations
 ),
@@ -270,8 +209,7 @@ numbered AS (
             AS version_no
     FROM marked
 ),
--- Every row in a group carries an identical version_key by construction, so
--- any_value is a pick, not a guess.
+-- Every row in a group has the same version_key, so any_value is exact.
 aggregated AS (
     SELECT
         listing_id,
@@ -335,15 +273,11 @@ JOIN listing_activity a USING (listing_id);
 CREATE OR REPLACE VIEW listings_current AS
 SELECT * FROM listings WHERE is_current;
 
--- Calendar rows worth believing.
+-- Current calendar rows, minus the future nights of retired listings.
 --
--- When a listing is retired we stop fetching its calendar, so its forward
--- nights freeze with is_current = true and stay that way for up to twelve
--- months. Reading \`calendar_status WHERE is_current\` therefore counts long
--- gone listings as operating on future nights. Nights up to the listing's
--- last_seen_date are still real observations of a listing that was
--- operating, and dropping those would erase genuine history -- so the cut is
--- by night, not by listing.
+-- A retired listing's calendar is no longer fetched, so its future nights
+-- stay is_current for up to twelve months. Nights up to its last_seen_date
+-- are real observations and are kept.
 CREATE OR REPLACE VIEW calendar_current AS
 SELECT c.*
 FROM calendar_status c
@@ -358,7 +292,7 @@ function viewsSql(): string {
     .replace('{version_key}', VERSION_KEY_SQL);
 }
 
-/** Raised for a database written before `listings` became a view. */
+/** Raised for a database whose schema this code cannot read. */
 export class LegacySchemaError extends Error {
   constructor(message: string) {
     super(message);
@@ -370,13 +304,11 @@ const NO_MIGRATION =
   "There is no migration: see CONTRIBUTING.md, 'When the published database becomes unreadable'.";
 
 /**
- * Fail loudly rather than half-adopting an incompatible file.
+ * Throw on an incompatible database.
  *
- * A database with `listings` as a table stores version *intervals*, not
- * daily observations, and there is no migration from it on purpose:
- * expanding intervals back into daily rows would invent observations on days
- * that may not have had a run. Starting the archive over is better than
- * publishing fabricated scrape dates.
+ * A `listings` table stores version intervals rather than daily
+ * observations. It has no migration because expanding intervals into daily
+ * rows would invent observations for days that may have had no run.
  */
 async function rejectLegacySchema(db: Database): Promise<void> {
   const legacyTable = await db.count(
@@ -416,10 +348,7 @@ export interface ObservationStats {
   retired: number;
 }
 
-/**
- * Column order for the daily insert. Kept as one list so the appender, its
- * types and the row builder can't drift apart.
- */
+/** Column order and types for the daily insert. */
 const OBSERVATION_COLUMNS = [
   ['listing_id', BIGINT],
   ['scrape_date', DATE],
@@ -450,19 +379,13 @@ const OBSERVATION_TYPES = OBSERVATION_COLUMNS.map(([, type]) => type);
 /**
  * Write one day's listing observations and report what changed.
  *
- * Idempotent per scrape date: re-running a day replaces its rows rather than
- * adding a second set, which matters because a run that fails the quality
- * gate is expected to be re-run.
+ * Idempotent per scrape date: re-running a day replaces its rows.
  *
- * `pages` is whatever the listing-page pass returned this run; a listing
- * whose page failed (or that had no page fetched at all) records
- * `page_fetch_ok = false` and NULL page columns. The view carries the last
- * good read forward, so this does not read as the host having removed their
- * registration number.
+ * A listing with no successful entry in `pages` records `page_fetch_ok =
+ * false` and NULL page columns.
  *
- * `changed` and `retired` are read back out of the views rather than
- * computed alongside the insert, so the run log can never disagree with what
- * a later query sees.
+ * `changed` and `retired` are read from the views so the run log matches
+ * what later queries see.
  */
 export async function recordObservations(
   db: Database,
@@ -476,10 +399,9 @@ export async function recordObservations(
   }
 
   await db.run('DELETE FROM listing_observations WHERE scrape_date = CAST(? AS DATE)', [scrapeDate]);
-  // After the delete, so re-running a day doesn't count its own previous
-  // rows as prior history and report every listing as already known.
-  // `BIGINT` reads back as a decimal string, which is exactly what `BigInt`
-  // takes — no precision is lost on the way through.
+  // After the delete, so a re-run doesn't count its own earlier rows as
+  // history. `BIGINT` reads back as a decimal string, which `BigInt` parses
+  // exactly.
   const previouslySeen = new Set(
     (
       await db.rows<{ listing_id: string }>(
@@ -534,17 +456,11 @@ export async function recordObservations(
 }
 
 /**
- * How many listings crossed the retirement threshold on this date.
- *
- * Retirement is a view predicate, so there is nothing to update — but the
- * run log still wants the number. A listing counts as retired *today* if
- * it was current yesterday and isn't today, which under
- * `last_seen >= scrape_date - grace` reduces to its last observation falling
+ * How many listings became retired on this date: those last observed
  * exactly `grace + 1` days ago.
  *
- * This is a per-run statistic, so it assumes runs happen daily; a gap in
- * runs shifts which day the transition is reported on,
- * without changing whether the listing is current.
+ * Assumes daily runs. A gap shifts which run reports the retirement but not
+ * whether the listing is current.
  */
 export async function countNewlyRetired(
   db: Database,
@@ -562,11 +478,9 @@ export async function countNewlyRetired(
 // listing-page pass statistics
 
 /**
- * One run's listing-page pass, summarized for logging and the quality gate.
- *
- * Parse provenance (`ListingPage.locationSource`) lives here and in the
- * logs, not in the database — which extraction layer produced a value is a
- * fact about the scraper, not about the listing.
+ * One run's listing-page pass, summarized for logging and the quality
+ * checks. Which extraction layer produced a value is not stored in the
+ * database.
  */
 export interface PageFetchStats {
   attempted: number;
@@ -574,9 +488,9 @@ export interface PageFetchStats {
   exactLocated: number;
   registered: number;
   /**
-   * Parse health: how many fetched pages yielded Airbnb's exact-location
-   * flag at all, and how many each extraction layer contributed to. The
-   * data-quality gate reads these to catch a layer dying silently.
+   * How many fetched pages yielded the exact-location flag, and how many
+   * each extraction layer contributed to. The checks use these to detect a
+   * layer that stopped working.
    */
   withExactFlag: number;
   layerUsed: Record<Layer, number>;
@@ -643,13 +557,7 @@ interface ChangedNight {
   status_hash: string;
 }
 
-/**
- * SCD2-merge one run's calendar.
- *
- * Still change-only, unlike listings: a snapshot per night per day is ~350M
- * rows/year, so the merge earns its complexity here. See the module
- * docstring.
- */
+/** SCD2-merge one run's calendar. See the module docstring. */
 export async function mergeCalendar(
   db: Database,
   scrapeDate: IsoDate,
@@ -775,9 +683,8 @@ export async function logRun(db: Database, run: RunRow): Promise<void> {
       run.pageFetchFailed,
       run.errorSummary,
     ],
-    // The three date/timestamp parameters are bound as strings and cast in
-    // SQL, which is the one spelling that accepts an ISO date, a naive
-    // timestamp, and NULL without a type dance.
+    // Date and timestamp parameters are bound as strings and cast in SQL,
+    // which accepts ISO dates, naive timestamps and NULL alike.
     [
       VARCHAR,
       VARCHAR,

@@ -27,9 +27,7 @@ describe('addDays', () => {
   });
 
   it('does not shift across a DST boundary in the local zone', () => {
-    // The reason dates are strings here: in Anchorage, `new Date` arithmetic
-    // over the March transition loses an hour and can land on the day
-    // before.
+    // Local-time `Date` arithmetic across a DST change can land on the wrong day.
     expect(addDays('2026-03-08', 1)).toBe('2026-03-09');
     expect(addDays('2026-11-01', 1)).toBe('2026-11-02');
   });
@@ -44,8 +42,7 @@ describe('epochDays', () => {
 
 describe('toIsoDate and toSqlTimestamp', () => {
   it('render an instant in UTC, never the local zone', () => {
-    // 2026-09-11 21:30 Anchorage is already the 12th in UTC, which is the
-    // day a run started under the CI schedule.
+    // 2026-09-11 21:30 in Anchorage is the 12th in UTC.
     const instant = new Date('2026-09-12T05:30:00Z');
     expect(toIsoDate(instant)).toBe('2026-09-12');
     expect(toSqlTimestamp(instant)).toBe('2026-09-12 05:30:00');

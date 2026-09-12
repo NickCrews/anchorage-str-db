@@ -1,11 +1,4 @@
-/**
- * The `StaysSearch` standardizer.
- *
- * These assert against the shape of a real captured response, which is the
- * only way to check the standardizer offline — and, like the listing-page
- * tests, they cannot tell you Airbnb hasn't already changed it. That is what
- * the run's quality gate is for.
- */
+/** The `StaysSearch` standardizer, against the shape of a captured response. */
 
 import { describe, expect, it } from 'vitest';
 
@@ -87,8 +80,7 @@ describe('standardizeSearchResponse', () => {
         reviewCount: 50,
         badges: ['TOP_X_GUEST_FAVORITE'],
         priceQualifier: 'for 5 nights',
-        // The struck-through original, not the promotional price: that is
-        // the standing rate a day-over-day series wants.
+        // The original price, not the discounted one.
         priceAmount: 914,
         priceBreakdown: [{ description: '5 nights x $160.80', amount: 804 }],
       },
@@ -105,8 +97,6 @@ describe('standardizeSearchResponse', () => {
   });
 
   it('reports a missing coordinate as null rather than as (0, 0)', () => {
-    // A 0 default puts an unplaced listing in the Gulf of Guinea, where it
-    // reads as a real coordinate downstream.
     const { listings } = standardizeSearchResponse(
       response([{ ...FULL_RESULT, demandStayListing: { id: ENCODED_ID } }]),
     );
@@ -140,8 +130,7 @@ describe('standardizeSearchResponse', () => {
 
 describe('decodeListingId', () => {
   it('decodes Airbnb’s base64 node id without losing precision', () => {
-    // 19 digits: past 2^53, so a `number` would round this to
-    // ...075500 — a different listing, silently.
+    // 19 digits, past 2^53.
     expect(decodeListingId(ENCODED_ID)).toBe(1602507228357075578n);
   });
 

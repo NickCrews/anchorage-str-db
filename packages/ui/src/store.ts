@@ -21,14 +21,8 @@ export const RoomPanelTypes = z.enum([
 ] as const);
 export type RoomPanelTypes = z.infer<typeof RoomPanelTypes>;
 
-/**
- * The whole app state: SQLRooms' room shell (layout, panels, DuckDB
- * connector), the SQL editor slice, and our own data-attach slice.
- */
-export type RoomState = RoomShellSliceState &
-  DataInitSliceState & {
-  // Add your custom app state here
-};
+/** App state: SQLRooms' room shell plus the data-attach slice. */
+export type RoomState = RoomShellSliceState & DataInitSliceState;
 
 export const { roomStore, useRoomStore } = createRoomStore<RoomState>(
   persistSliceConfigs(
@@ -41,10 +35,8 @@ export const { roomStore, useRoomStore } = createRoomStore<RoomState>(
     },
     (set, get, store) => ({
       ...createRoomShellSlice({
-        // `MapView` turns the stored `location_lat`/`location_lng` pair into
-        // WKB points with `ST_Point`, so the spatial extension has to be
-        // loaded before any query runs. Naming the connector explicitly is
-        // the only way in — the default one takes no initialization query.
+        // `MapView` uses `ST_Point`, which needs the spatial extension. The
+        // default connector accepts no initialization query.
         connector: createWasmDuckDbConnector({
           initializationQuery: 'LOAD spatial;',
         }),

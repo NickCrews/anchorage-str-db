@@ -33,7 +33,7 @@ export const DataPanel: FC = () => {
             <span className="font-medium">calendar_current</span> and{' '}
             <span className="font-medium">scrape_runs</span> are views over
             the attached, read-only <code>anchorage_str.duckdb</code> snapshot
-            — see the README for the SCD2 shape and the "available" caveat.
+            — see the root README for table descriptions.
           </p>
         )}
       </div>

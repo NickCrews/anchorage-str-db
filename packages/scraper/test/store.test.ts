@@ -26,8 +26,7 @@ afterEach(async () => {
   for (const dir of temporary.splice(0)) await rm(dir, { recursive: true, force: true });
 });
 
-/** A fresh on-disk database. On disk, not in memory, because reopening it is
- * the only way to prove a transaction committed. */
+/** A fresh on-disk database, so tests can reopen it to verify commits. */
 async function freshDb(name = 't.duckdb'): Promise<{ db: Database; path: string }> {
   const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
   temporary.push(dir);
@@ -74,7 +73,7 @@ function calendar(roomId: string, nights: CalendarNight[], error: string | null 
 }
 
 // --------------------------------------------------------------------------
-// the derived dimension
+// listings
 
 describe('recordObservations', () => {
   it('counts new and unchanged listings', async () => {
@@ -88,8 +87,7 @@ describe('recordObservations', () => {
       retired: 0,
     });
 
-    // Re-recording the same attributes the next day should not open new
-    // versions, even though it writes two more observation rows.
+    // Same attributes the next day: new rows, no new versions.
     const second = await recordObservations(db, '2026-08-02', dayOne);
     expect(second.new).toBe(0);
     expect(second.changed).toBe(0);
@@ -116,8 +114,6 @@ describe('recordObservations', () => {
   });
 
   it('does not open a new version for a new review', async () => {
-    // Rating and review count move most days. They belong to the day, not to
-    // the listing, which is why they are outside the version key.
     const { db } = await freshDb();
     await recordObservations(db, '2026-08-01', [makeListing(1, 'Cabin A')]);
 
@@ -126,21 +122,20 @@ describe('recordObservations', () => {
 
     expect(stats.changed).toBe(0);
     expect(await db.count('SELECT count(*) FROM listings')).toBe(1);
-    // ...but the day's values are still recorded.
+    // The day's values are still recorded.
     expect(
       await db.rows('SELECT review_count FROM listing_observations ORDER BY scrape_date'),
     ).toEqual([{ review_count: 10 }, { review_count: 99 }]);
   });
 
   it('is idempotent per day', async () => {
-    // A run that fails the quality gate is expected to be re-run.
     const { db } = await freshDb();
     const listings = [makeListing(1, 'A'), makeListing(2, 'B')];
     const first = await recordObservations(db, '2026-08-01', listings);
     const again = await recordObservations(db, '2026-08-01', listings);
 
     expect(await db.count('SELECT count(*) FROM listing_observations')).toBe(2);
-    // Including new=2: the re-run must not report them as already known.
+    // Including new=2 on the re-run.
     expect(again).toEqual(first);
   });
 });
@@ -163,9 +158,7 @@ describe('retirement', () => {
       if (stats.retired && retiredOn === null) retiredOn = day;
     }
 
-    // Listing 2 was last seen on start + 2 days; retirement fires the first
-    // day the cutoff (scrape_date - grace) strictly exceeds that, i.e.
-    // grace + 1 days later.
+    // Last seen on start + 2, so retired grace + 1 days later.
     expect(retiredOn).toBe(addDays(start, 2 + grace + 1));
     expect(await db.rows('SELECT listing_id, is_current FROM listings ORDER BY listing_id')).toEqual(
       [
@@ -176,10 +169,6 @@ describe('retirement', () => {
   });
 
   it('advances the clock even on a run that sees nothing', async () => {
-    // Retirement is measured back from the latest completed run, not from
-    // the latest observation. If it read the observations alone, the day
-    // every listing vanished would write no rows, freeze the clock, and
-    // leave the whole dead inventory reading as current indefinitely.
     const { db } = await freshDb();
     const start = '2026-08-01';
     await recordObservations(db, start, [makeListing(1, 'A')]);
@@ -195,9 +184,6 @@ describe('retirement', () => {
   });
 
   it('is not advanced by a failed run', async () => {
-    // A failed run logs a row with all counts NULL. Counting it as "the
-    // latest scrape" would retire the entire inventory on the strength of a
-    // run that never got as far as looking.
     const { db } = await freshDb();
     await recordObservations(db, '2026-08-01', [makeListing(1, 'A')]);
     await logRun(
@@ -215,8 +201,6 @@ describe('retirement', () => {
   });
 
   it('keeps a listing’s history when it comes back', async () => {
-    // A relisted listing keeps its true first_seen_date and its registration
-    // number: deriving from the observations, the gap is just a gap.
     const { db } = await freshDb();
     const read = page('1', { locationIsExact: true, strRegistrationId: 'STR20260001' });
     await recordObservations(db, '2026-08-01', [makeListing(1, 'Cabin A')], [read]);
@@ -252,8 +236,6 @@ describe('retirement', () => {
 
 describe('listing-page fields', () => {
   it('land on the listing row', async () => {
-    // They belong on the dimension, not in a side table — a query reading
-    // `location_lat` must be able to see `location_is_exact` without a join.
     const { db } = await freshDb();
     await recordObservations(
       db,
@@ -291,8 +273,6 @@ describe('listing-page fields', () => {
   });
 
   it('carry forward rather than blanking on a run without pages', async () => {
-    // "We didn't look today" must not read as "the host removed their
-    // registration number" — and must not open a spurious version.
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
     await recordObservations(db, '2026-08-26', parsed, [
@@ -323,8 +303,7 @@ describe('listing-page fields', () => {
     expect(await db.rows('SELECT location_is_exact FROM listings WHERE is_current')).toEqual([
       { location_is_exact: true },
     ]);
-    // The row itself stays honest about not having looked; only the view
-    // carries anything forward.
+    // The raw row records the failure; only the view carries values forward.
     expect(
       await db.rows(
         "SELECT page_fetch_ok, location_is_exact FROM listing_observations " +
@@ -334,10 +313,8 @@ describe('listing-page fields', () => {
   });
 
   it('do not resurrect a removed registration number after a later failure', async () => {
-    // The distinction `page_fetch_ok` exists for. Once we have read a page
-    // and seen no number, a subsequent failed fetch must carry *that*
-    // forward — not resurrect the number from two days ago, which is what
-    // carrying each column forward on nullness alone would do.
+    // A failed fetch carries forward the last read ("no number"), not the
+    // last non-null number.
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
     await recordObservations(db, '2026-08-26', parsed, [
@@ -360,8 +337,6 @@ describe('listing-page fields', () => {
   });
 
   it('do not open a version a day just for being re-read', async () => {
-    // When we looked is provenance, not an attribute — if it were part of
-    // the version key this would grow a version per day.
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
     const read = page('1', { locationIsExact: true, locationSource: 'json-ld+state' });
@@ -370,15 +345,13 @@ describe('listing-page fields', () => {
     }
 
     expect(await db.count('SELECT count(*) FROM listings')).toBe(1);
-    // ...but the provenance still records that we looked today.
+    // page_seen_date still advances.
     expect(await db.rows('SELECT page_seen_date FROM listings')).toEqual([
       { page_seen_date: '2026-08-28' },
     ]);
   });
 
   it('open a new version when a host publishes their registration number', async () => {
-    // The dated transition is the point: it's what lets the archive answer
-    // "when did hosts start complying with the display requirement?".
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
     await recordObservations(db, '2026-08-26', parsed, [page('1', { locationIsExact: true })]);
@@ -455,9 +428,6 @@ describe('calendar_current', () => {
   const nights = [night('2026-08-05', true, 2, 100), night('2027-01-01', true, 2, 100)];
 
   it('drops a retired listing’s unconfirmed future', async () => {
-    // When a listing is retired we stop fetching its calendar, so its
-    // forward nights freeze with is_current = true and would otherwise be
-    // counted as operating for up to twelve more months.
     const { db } = await freshDb();
     const start = '2026-08-01';
     await recordObservations(db, start, [makeListing(1, 'A'), makeListing(2, 'B')]);
@@ -480,10 +450,7 @@ describe('calendar_current', () => {
     expect(await operating('calendar_current')).toBe(1); // only listing 1 is still live
   });
 
-  it('keeps nights a retired listing really operated', async () => {
-    // Realized occupancy for a listing that has since closed is genuine
-    // history — the cut is by night, not by listing, or every retirement
-    // would erase the months it was actually operating.
+  it('keeps a retired listing’s nights up to its last sighting', async () => {
     const { db } = await freshDb();
     const start = '2026-08-01';
     const past = [night('2026-08-01', false, 2, 100)];
@@ -505,9 +472,6 @@ describe('calendar_current', () => {
 
 describe('the store itself', () => {
   it('rejects a database with listings as a table', async () => {
-    // There is no migration on purpose: such a table stores version
-    // *intervals*, so rebuilding daily rows from it would invent scrape
-    // dates for days that may have had no run.
     const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
     temporary.push(dir);
     const path = join(dir, 'legacy.duckdb');
@@ -533,10 +497,6 @@ describe('the store itself', () => {
 
 describe('transactions', () => {
   it('roll back a partial run', async () => {
-    // A crash part-way through the writes must leave the day absent, not
-    // half-present. Without a transaction DuckDB autocommits each statement,
-    // so the observations alone would survive a later failure and the day
-    // would read as complete to every query.
     const { db } = await freshDb();
 
     await expect(
@@ -551,8 +511,6 @@ describe('transactions', () => {
   });
 
   it('keep the previous day intact on rollback', async () => {
-    // Recording a day deletes its rows before inserting them, so a failure
-    // in between would drop the day entirely if it weren't transactional.
     const { db } = await freshDb();
     await db.transaction(() => recordObservations(db, '2026-08-26', [makeListing(1, 'Cabin A')]));
 
@@ -580,9 +538,7 @@ describe('transactions', () => {
   });
 
   it('let the failed-run row survive the rollback', async () => {
-    // The failed-run row is written after the rollback, on the same
-    // connection. If the pipeline wrote it *inside* the transaction, the
-    // record of the failure would roll back along with the run it records.
+    // The pipeline writes the failed-run row after the rollback.
     const { db } = await freshDb();
     await expect(
       db.transaction(async () => {

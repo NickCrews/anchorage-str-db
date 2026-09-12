@@ -2,9 +2,8 @@ name: Daily Anchorage STR scrape
 
 on:
   schedule:
-    # 12:00 UTC = 04:00 Anchorage (AKDT) / 03:00 (AKST) — quiet hours, and
-    # well clear of the anchorage-property refresh at 14:00 UTC in case
-    # anyone ever wants to correlate run times.
+    # 12:00 UTC = 04:00 AKDT / 03:00 AKST, before the anchorage-property
+    # refresh at 14:00 UTC.
     - cron: "0 12 * * *"
   workflow_dispatch:
     inputs:
@@ -42,10 +41,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # impit and @duckdb/node-api ship prebuilt native binaries, so this is
-      # only TypeScript -> JavaScript. The scraper is run from dist/ rather
-      # than through Node's type stripping so a type error fails here, once,
-      # instead of at whatever hour the first bad import is reached.
+      # Runs from dist/ rather than via Node's type stripping, so a type
+      # error fails here instead of mid-run.
       - run: pnpm --filter @anchorage-str-db/scraper build
 
       # The runner starts clean, so restore yesterday's database from the
@@ -80,8 +77,7 @@ jobs:
       - name: Scrape + merge + quality gate
         run: node packages/scraper/dist/cli.js --db "$DB_PATH" --verbose daily
 
-      # Only reached if the quality gate passed (daily exits non-zero on
-      # any error-severity check, which fails the step above first).
+      # Reached only if the quality checks passed.
       - name: Publish updated database
         run: |
           tag=latest-data
@@ -90,7 +86,7 @@ jobs:
           else
             gh release create "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" \
               --title "Latest data" \
-              --notes "Always the most recent successful daily scrape. Superseded on every run — see scrape_runs in the database for history, and git history of this workflow for the pipeline that produced it."
+              --notes "The most recent successful daily scrape, replaced on every run. See scrape_runs in the database for run history."
           fi
 
       # Sundays (UTC), plus every manual run.
@@ -116,7 +112,7 @@ jobs:
             gh issue close "$n" --repo "$GITHUB_REPOSITORY" --comment "Recovered: $RUN_URL"
           done
 
-      # A red X in the Actions tab notifies no one.
+      # A failed workflow run alone notifies no one.
       - name: Open an issue on failure
         if: failure() || cancelled()
         env:

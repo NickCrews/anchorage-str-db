@@ -1,38 +1,28 @@
-# What Airbnb's listing page actually says about a listing's location
+# Location data on Airbnb's listing page
 
-Measurement date: 2026-08-26. Companion to
-[`airbnb-address-deanonymization.md`](airbnb-address-deanonymization.md),
-which surveyed how *other people* attack this problem. This one is a direct
-measurement of what Airbnb hands us for Girdwood listings, and what that
-changes for this project.
+Measured 2026-08-26 on Girdwood listings. Explains
+`packages/scraper/src/listingPage.ts`. See also
+[`airbnb-address-deanonymization.md`](airbnb-address-deanonymization.md).
 
-Bottom line up front: **Airbnb tells you, per listing, whether the
-coordinate it gave you is real.** The listing page (PDP) embeds a
-`StaysPdpLocation` object with an `isExactLocation` boolean, and for
-roughly half of Girdwood's listings it is `true` — those coordinates are
-the host's actual position, published deliberately, with nothing to
-de-anonymize. The remaining half are jittered and, as far as this
-measurement goes, not invertible. Separately and probably more usefully,
-the same page carries the **Municipality of Anchorage STR registration
-number** as a structured field, which is the thing the prior research doc
-recommended chasing (§Recommendation 6) over any geolocation work.
+**Summary:** The listing page (PDP) says whether each listing's coordinate is
+exact, via an `isExactLocation` boolean. It is `true` for roughly half of
+Girdwood listings, whose coordinates are the host's published position. The
+rest are jittered and can't be recovered. The page also carries the
+Municipality of Anchorage STR registration number as a structured field.
 
-## How the coordinate reaches us
+## Where the data is
 
-`pyairbnb.search_all()` — what `airbnb_client.search_anchorage()` calls —
-returns `coordinates.latitude` / `coordinates.longitud` per result, and
-that is what `listings.location_lat` / `listings.location_lng` (plain
-`lat` / `lng` before the 2026-08 rename) have always held.
+The search response gives a coordinate for every listing, stored as
+`location_lat`/`location_lng`, but not whether it is exact.
 
-The listing page at `airbnb.com/rooms/<id>` server-renders its entire
-GraphQL response into a single `<script id="data-deferred-state-0">`. The
-location object lives at:
+The page at `airbnb.com/rooms/<id>` embeds its GraphQL response in
+`<script id="data-deferred-state-0">`. The location object is at:
 
 ```
 niobeClientData[0][1].data.node.pdpPresentation.location
 ```
 
-and looks like this (listing 715065, abridged):
+Example (listing 715065, abridged):
 
 ```json
 {
@@ -50,22 +40,17 @@ and looks like this (listing 715065, abridged):
 }
 ```
 
-The same numbers also appear at
-`presentation.stayProductDetailPage.sections.metadata.loggingContext.eventDataLogging.listingLat/Lng`
-(an analytics payload), and the `LOCATION_DEFAULT` section itself is empty
-in the initial render — the map loads lazily.
+The same coordinate also appears in an analytics payload at
+`presentation.stayProductDetailPage.sections.metadata.loggingContext.eventDataLogging.listingLat/Lng`.
+The `LOCATION_DEFAULT` section is empty in the initial render.
 
-`pyairbnb.get_details()` fetches this exact page but its standardizer
-(`pyairbnb/standardize.py`, `from_details`) keeps only the prose
-`seeAllLocationDetails` blurbs from the location section and drops the
-coordinate object entirely. That is why `listing_page.py` parses the page
-itself rather than calling the library.
+pyairbnb's `get_details()` fetches this page but its standardizer drops the
+coordinate object, so this project parses the page itself.
 
-### The coordinate is also in schema.org JSON-LD
+### schema.org JSON-LD
 
-Alongside the private GraphQL blob, the page carries a public
-`<script type="application/ld+json">` block that Airbnb publishes for
-Google's rich results:
+The page also has a `<script type="application/ld+json">` block for search
+engines:
 
 ```json
 {"@context": "https://schema.org", "@type": "VacationRental",
@@ -73,92 +58,68 @@ Google's rich results:
  "address": {"addressLocality": "Girdwood"}}
 ```
 
-Same coordinate, in a standardized vocabulary that is load-bearing for
-Airbnb's search ranking — which makes it far less likely to change shape
-than an internal field. It does *not* carry `isExactLocation`.
+It is a public standard that Airbnb's search ranking depends on, so it is
+unlikely to change shape. It has no `isExactLocation`.
 
-### Which is why the parser is layered, not path-based
+### Parser layers
 
-None of this is a documented API, so `listing_page.py` extracts three
-independent ways and records which ones worked in
-`ListingPage.location_source` (in-memory provenance, fed to the quality
-gate rather than stored):
+None of this is a documented API, so the parser extracts each field three
+ways and records which worked in `ListingPage.locationSource` (in memory,
+read by the quality checks, not stored):
 
 | Layer | Source | Gives |
 | --- | --- | --- |
 | `json-ld` | schema.org block | coordinate |
-| `state` | embedded GraphQL, located by **shape** | everything, incl. the flag |
-| `raw-html` | regex over the undecoded document | flag, registration number |
+| `state` | embedded GraphQL, found by shape | everything, including the flag |
+| `raw-html` | regex over the raw document | flag, registration number |
 
-The `state` layer deliberately does *not* walk
-`niobeClientData[0][1].data.node.pdpPresentation.location`. It searches
-every JSON script on the page for an object carrying a boolean key
-matching `exact…location`, then reads the coordinate and address keys off
-whatever object that turns out to be. Verified against the real saved page,
-this survives: a renamed script id, renamed wrapper keys
-(`niobeClientData` → `apolloState`, `pdpPresentation` → `pdpPresentationV3`),
-a renamed flag (`isExactLocation` → `hasExactLocation`), a dropped
-`type="application/json"` attribute, and the JSON failing to parse at all
-(it falls through to `raw-html` and keeps the coordinate from `json-ld`).
-It breaks only if Airbnb renames the leaf fields *and* changes the wording
-enough that the key patterns miss — at which point the
-`extraction_layer_*_alive` and `exact_location_flag_present` checks fail the
-run rather than letting nulls accumulate quietly.
+The `state` layer does not use the path above. It searches every JSON script
+for an object with a boolean key matching `exact…location` and reads the
+coordinate and address from that object. Tested against a saved page, it
+handles a renamed script id, renamed wrappers (`niobeClientData` →
+`apolloState`, `pdpPresentation` → `pdpPresentationV3`), a renamed flag
+(`isExactLocation` → `hasExactLocation`), a missing `type="application/json"`,
+and unparseable JSON (falling back to `raw-html` for the flag and `json-ld` for
+the coordinate). If all of these fail, the `extraction_layer_*_alive` and
+`exact_location_flag_present` checks fail the run.
 
-The `raw-html` layer refuses to guess: if a pattern matches more than one
-distinct value anywhere in the document, it returns nothing rather than
-picking the first. On the measured pages each pattern had exactly one
-distinct match.
+The `raw-html` layer returns nothing if a pattern matches more than one
+distinct value. On the measured pages each pattern had one distinct match.
 
-## What was measured
+## Measurements
 
-A sample of 29 current listings drawn at random from the database
-(seed 7), plus a separate 12-listing pass, each fetched once:
+29 current listings sampled at random (seed 7), plus a separate 12, each
+fetched once:
 
 | Finding | Result |
 | --- | --- |
-| PDP coordinate vs. stored search coordinate | **identical for all 41**, to the last digit |
-| Same listing fetched 4× over ~10 s | **byte-identical** coordinates every time |
+| PDP coordinate vs. search coordinate | **identical for all 41** |
+| Same listing fetched 4× over ~10 s | **identical** coordinates each time |
 | `isExactLocation: true` | 13/29 (45%) and 7/12 (58%) |
 | `exactAddress` non-null | 0/41 |
 | `defaultZoomLevel` | 12 for all 41 |
 | STR registration number present | 27/29 (93%) and 11/12 (92%) |
 
-Two things follow immediately:
+- **Repeated fetching doesn't reduce the jitter.** The offset is stored, not
+  redrawn per request, as Airbnb's obfuscation patent (US 11,774,260) describes.
+- **No source is more precise.** Search and PDP coordinates match exactly. The
+  page adds the exact/jittered label, not precision.
 
-- **There is no averaging attack.** The jitter is a stable stored value,
-  not re-drawn per request, exactly as Airbnb's obfuscation patent
-  (US 11,774,260, discussed in the companion doc §5) describes. Fetching a
-  listing a thousand times yields the same point a thousand times.
-- **There is no second, less-fuzzed surface.** Search and PDP agree
-  perfectly, so scraping the listing page buys no extra precision. What it
-  buys is the *label*.
+### Decimal places match the flag
 
-### `isExactLocation` is legible in the coordinate itself
+In all 41 listings, `isExactLocation` was `true` exactly when both latitude
+and longitude had four or fewer decimal places, and `false` when they had five
+or more. Exact coordinates appear to be rounded to 4 dp (~11 m) and jittered
+ones emitted at 5 dp. Applied to 286 current listings at the time, this gave
+136 (48%) exact, consistent with both samples.
 
-An unplanned but very clean side finding: across all 41 measured listings,
-`isExactLocation` was `true` **iff** both latitude and longitude carried
-**four or fewer decimal places**, and `false` iff they carried five or
-more. 41/41, no exceptions.
+This is undocumented and could change, so the pipeline stores the flag and
+`exact_flag_matches_coordinate_precision` only warns on a mismatch.
 
-That reads as two different code paths — an exact coordinate rounded to
-4 dp (~11 m, roughly a parcel) and a jittered one emitted at 5 dp — and it
-means the flag can be recovered retroactively from coordinates already in
-the database, without re-fetching anything. Applying it to the 286 current
-listings gives **136 (48%) exact-located**, consistent with both measured
-samples.
+### Registration number
 
-Treat this as a useful cross-check, not as the source of truth: it is an
-undocumented artifact of Airbnb's formatting that could change silently,
-whereas `isExactLocation` is a field Airbnb maintains on purpose. The
-pipeline stores the flag; the decimal-place rule is worth keeping in mind
-mainly for interpreting the pre-2026-08 history, where no flag exists.
-
-### The registration number is a structured field, not just prose
-
-Airbnb renders the Anchorage STR number twice. Once inlined at the end of
-the long description behind a `<b>Registration Details</b>` heading, and
-once — better — as a `BasicListItem` in the description-modal section:
+The number appears in the long description under a `<b>Registration
+Details</b>` heading, and as a `BasicListItem`:
 
 ```json
 {
@@ -168,67 +129,49 @@ once — better — as a `BasicListItem` in the description-modal section:
 }
 ```
 
-Observed numbers all match `STR2026\d{4}`, though hosts type them by hand
-and at least one arrived as `Str20261066`, so the parser normalizes case
-and tolerates a separator. A present number means the host *claims*
-registration — verifying it against the Municipal Clerk's registry is a
-separate step this project can't do yet (see the companion doc §6: the
-registry isn't published as open data).
+Observed numbers match `STR2026\d{4}`. Hosts type them, and at least one was
+`Str20261066`, so the parser ignores case and allows a separator. A number
+means the host claims to be registered; the Municipal Clerk's registry is not
+public, so it can't be verified.
 
-At ~92% coverage a month after the 2026-07-31 display deadline, the
-listings *without* a number are the interesting rows — that query is in
+At ~92% coverage a month after the 2026-07-31 display deadline, listings
+without a number are the notable ones; see
 [`docs/policy_questions.sql`](../policy_questions.sql).
 
-## What this changes for the project
+## How the project uses this
 
-These fields are stored on the same `listing_observations` row as the search
-fields rather than in a side table: `location_is_exact` is a modifier on the
-`location_lat`/`location_lng` columns sitting next to it, and splitting them
-would mean no query could read a coordinate without remembering to join.
-They are part of the version key, so a host toggling their exact location on
-or adding a registration number opens a dated new version in the `listings`
-view. When we looked is provenance rather than an attribute — it is derived
-as `page_seen_date`, the last scrape date where `page_fetch_ok` — so
-re-reading the page daily doesn't grow a version per day.
+The page fields are stored on the same `listing_observations` row as the
+search fields, so `location_is_exact` is next to the coordinate it describes.
+They are part of the version key, so adding a registration number or changing
+exact-location status opens a new version in `listings`. `page_seen_date` is
+derived (the last scrape date with `page_fetch_ok`), so re-reading a page
+daily does not open versions.
 
-The page fetch fails independently of the search, which is what
-`page_fetch_ok` is for: a day we couldn't read the page stores NULLs and
-`false`, and the view carries the last successful read forward. Carrying the
-whole tuple rather than each column keeps "we read the page and this host
-publishes no number" distinct from "we never got to look" — otherwise a
-failed fetch would resurrect a registration number the host had removed.
+A failed page fetch stores `page_fetch_ok = false` and NULLs, and the view
+carries the last successful read forward as a whole. Carrying the fields
+together keeps "read the page, no number" distinct from "page not read", so a
+failed fetch doesn't restore a number the host removed.
 
-1. **Roughly half of Girdwood's listings can be parcel-matched with
-   confidence.** The nearest-centroid query in `policy_questions.sql`
-   already existed but was, for the fuzzed half, matching Airbnb's random
-   offset to whatever parcel happened to be nearby. Filtering on
-   `location_is_exact` turns it from a coin flip into a defensible join —
-   at 4 dp the coordinate is inside the right lot in a place with
-   Girdwood's parcel sizes.
-2. **The other half stays unresolved, and that's the right outcome.**
-   Nothing here inverts the jitter, and the companion doc's conclusion
-   holds: the tractable path for those is the registry, not a
-   de-anonymization pipeline.
-3. **The registration number is the higher-value field.** It answers the
-   compliance question directly, for ~92% of listings, without needing an
-   address at all.
+1. **About half of Girdwood listings can be matched to parcels.** Filtering the
+   nearest-centroid query in `policy_questions.sql` on `location_is_exact`
+   limits it to real coordinates, which at 4 dp fall inside the correct lot
+   given Girdwood's parcel sizes.
+2. **The other half stays unresolved.** Nothing here reverses the jitter; the
+   registry remains the practical route.
+3. **The registration number is the more useful field.** It answers the
+   compliance question for ~92% of listings without an address.
 
-## Ethical note
+## Ethics
 
-Everything above is read from the public listing page as a browser
-receives it. The exact coordinates are the ones the host chose to publish;
-`isExactLocation` is Airbnb's own statement of which those are, and
-honoring it means this project *stops* treating fuzzed pins as locations
-rather than starting to. No attempt is made to invert the obfuscation, and
-per the companion doc §3c, none should be.
+Everything here is read from the public listing page. Exact coordinates are
+ones the host chose to publish, and `isExactLocation` is Airbnb's statement of
+which those are. The project makes no attempt to reverse the jitter.
 
 ## Reproducing
 
 ```sh
-uv run anchorage-str-db --db data/anchorage_str.duckdb daily
+pnpm daily
 ```
-
-Then, to re-derive the table above:
 
 ```sql
 SELECT location_is_exact, count(*), count(str_registration_id)

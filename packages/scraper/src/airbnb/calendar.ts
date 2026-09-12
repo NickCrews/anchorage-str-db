@@ -1,12 +1,10 @@
 /**
  * Airbnb's `PdpAvailabilityCalendar` endpoint: twelve months of nightly
- * availability for one listing, as the listing page's date picker sees it.
+ * availability for one listing.
  *
- * The response always starts at the 1st of the *current* month regardless
- * of today's date, and marks every elapsed day `available: false` simply
- * because the past cannot be booked. Filtering those is the caller's job
- * (see `minDate` in the scraper's `calendars.ts`) — this module reports
- * what Airbnb said.
+ * The response starts on the 1st of the current month and marks elapsed days
+ * `available: false`. This module returns them unfiltered; `toNights` in
+ * `../calendars.ts` drops them.
  */
 
 import { requestJson } from './http.ts';

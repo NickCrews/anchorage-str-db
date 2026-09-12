@@ -1,12 +1,9 @@
 /**
- * Turn a standardized search result into the flat fields we store.
+ * Turn a standardized search result into the flat fields that are stored.
  *
- * Airbnb's search response doesn't have dedicated bedroom/bed/bathroom count
- * fields — they're only expressed as free-text lines like "1 bedroom", "4
- * beds", "1 bath" in `structuredContent.primaryLine`. This module regexes
- * those out rather than trusting the accompanying `type` tag (BEDINFO shows
- * up on both bedroom and bed lines in practice), which is a good deal more
- * robust to Airbnb wording changes.
+ * Bedroom, bed, bath and guest counts exist only as text lines like
+ * "1 bedroom" or "4 beds", so they are parsed from the text. The lines' `type`
+ * tag can't distinguish them: BEDINFO appears on both bedroom and bed lines.
  */
 
 import type { SearchListing } from './airbnb/search.ts';
@@ -15,7 +12,7 @@ const COUNT_RE = /(\d+(?:\.\d+)?)\s*(bedroom|bed|bath|guest)s?\b/i;
 const PER_NIGHT_RE = /x\s*\$?([\d,]+(?:\.\d+)?)/;
 
 export interface ParsedListing {
-  /** `bigint` — see `SearchListing.roomId` for why a number will not do. */
+  /** `bigint`; see `SearchListing.roomId`. */
   listingId: bigint;
   name: string | null;
   propertyTitle: string | null;
@@ -51,8 +48,7 @@ function extractCounts(primaryLines: readonly string[]): Counts {
     return value === undefined ? null : Math.trunc(value);
   };
   return {
-    // A "bed" count only appears standalone on studios that have no separate
-    // "bedroom" line; don't invent a bedroom count from it.
+    // Studios have a "bed" line but no "bedroom" line; bedrooms stays null.
     bedrooms: whole('bedroom'),
     beds: whole('bed'),
     bathrooms: counts.get('bath') ?? null,
@@ -61,10 +57,8 @@ function extractCounts(primaryLines: readonly string[]): Counts {
 }
 
 /**
- * The nightly rate, read out of the price breakdown's own arithmetic
- * ("5 nights x $285.29" -> 285.29) where Airbnb shows it, and otherwise the
- * displayed figure — which the qualifier says is a stay total as often as a
- * nightly rate, hence "hint".
+ * The nightly rate from the price breakdown ("5 nights x $285.29" -> 285.29),
+ * else the displayed price, which may be a stay total.
  */
 function extractPriceHint(listing: SearchListing): number | null {
   const first = listing.priceBreakdown[0];

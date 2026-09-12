@@ -28,11 +28,8 @@ So downstream repos can pull this data and join it against other sources
 (property/parcel db, voterfile, etc) without talking to us first:
 - `host_id` — stable for the life of a host account.
 - `room_id` — stable for the life of a room, per Rooms #2.
-- location — `lat`/`lon` (flagging jittered vs exact, see Rooms #3) is the
-  spatial join key we actually have. Street address is the one we want and
-  don't have; see Rooms #3 and the follow-up below. Downstream consumers
-  should join on coordinates and treat `location_exact_address` as a bonus
-  that is null for most rooms.
+- location — `lat`/`lon`, with a flag for jittered vs exact (see Rooms #3).
+  `location_exact_address` is null for most rooms, so join on coordinates.
 
 ### Hosts
 
@@ -46,9 +43,8 @@ So downstream repos can pull this data and join it against other sources
 
 2. id'ed by room id in url.
 3. `lat`/`lon` are never null, and are stable for the life of the room.
-   Street address is **nullable and null for most rooms** — Airbnb only
-   publishes one when the host opts in. Resolving an address for the rest is
-   deliberately deferred, not designed; see the follow-up below.
+   Street address is nullable and null for most rooms, because Airbnb only
+   publishes one when the host opts in. See the follow-up below.
 4. Get as near an exact date for when the room was first available using the review history for the room
 5. store the most recent set of photo urls for thumbnails in a web app viewer
 6. History of dates available, price, n beds, n baths, n guests, room type (whole house, room, etc)
@@ -71,16 +67,11 @@ So downstream repos can pull this data and join it against other sources
 
 ## Follow-ups (not now)
 
-- **Street address for rooms that don't publish one.** The schema carries a
-  nullable `location_exact_address` and we store it where Airbnb gives it to
-  us, but we are not attempting to resolve the rest — not by parcel
-  matching, not by geocoding the jittered pin, not by mining photos. See
-  [`research/airbnb-address-deanonymization.md`](research/airbnb-address-deanonymization.md)
-  for what the options actually are; the short version is that the dominant
-  real-world method is a public-records request to the Municipality, not a
-  technical one. We intend to come back to this. Until we do, address is a
-  field that is usually empty, and nothing downstream should assume
-  otherwise.
+- **Street address for rooms that don't publish one.** `location_exact_address`
+  is stored when Airbnb provides it; nothing resolves the rest (no parcel
+  matching, geocoding, or photo matching). The most practical route is a
+  public-records request to the Municipality; see
+  [`research/airbnb-address-deanonymization.md`](research/airbnb-address-deanonymization.md).
 - Neighborhood/sub-area tagging (e.g. girdwood vs. rest of anchorage) beyond
   raw lat/lon.
 - Trust/quality signal exposed to downstream consumers (scrape health,

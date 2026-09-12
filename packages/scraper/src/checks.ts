@@ -1,7 +1,6 @@
 /**
- * Data-quality gate. Mirrors the anchorage-property project's audit: a list
- * of checks, each error- or warn-severity, that runs after ingest and exits
- * non-zero on any error so a bad scrape never gets published quietly.
+ * Data-quality checks run after each day's writes. Any failed error-severity
+ * check makes the run exit non-zero, which blocks publishing.
  */
 
 import * as config from './config.ts';
@@ -21,11 +20,7 @@ export interface CheckResult {
 }
 
 export interface CheckInputs {
-  /**
-   * This run's listing-page, search and coverage-audit passes. None of their
-   * provenance is persisted, so their health checks read the run's in-memory
-   * stats rather than the database.
-   */
+  /** In-memory stats from this run's passes, which are not stored in the database. */
   pageStats: PageFetchStats;
   searchResult: SearchResult;
   coverage: CoverageAudit;
@@ -45,12 +40,8 @@ export async function runChecks(
     results.push({ name, severity, passed, detail });
   };
 
-  // Both of Airbnb's search defects — the silent 280-item cap and the
-  // re-ranking that drops listings between pages — live in pagination, so
-  // the search narrows every band until it fits one page. A band that could
-  // not be narrowed that far was answered by a query that is both
-  // truncatable and unstable, and nothing in the resulting data would show
-  // it.
+  // A band still needing multiple pages may have been truncated or
+  // reshuffled (see `searchAnchorage`).
   const unresolved = inputs.searchResult.unresolved;
   check(
     'search_single_page',
@@ -61,12 +52,8 @@ export async function runChecks(
       (unresolved.length ? `: ${unresolved.slice(0, 5).map(String).join(', ')}` : ''),
   );
 
-  // `search_single_page` proves each query told the truth about its own
-  // result set; it says nothing about whether the price bands, between them,
-  // covered the market. A listing with no price Airbnb will filter on would
-  // fall in no band and be missing from a result that looks perfectly
-  // healthy. This is the check that can see that, because it asks in a shape
-  // with no price filter at all.
+  // Catches listings the price bands miss entirely, e.g. ones with no
+  // filterable price (see `auditCoverage`).
   const coverage = inputs.coverage;
   if (coverage.boxes) {
     const rate = missRate(coverage);
@@ -80,9 +67,7 @@ export async function runChecks(
         (coverage.missedIds.length ? `; e.g. ${coverage.missedIds.slice(0, 5).join(', ')}` : ''),
     );
   } else {
-    // Every audit box needed more than one page, or the search returned
-    // nothing to centre one on. Either way the audit did not run, and saying
-    // nothing would read as a pass.
+    // No usable audit boxes; report it rather than passing silently.
     check('search_coverage', 'warn', false, 'coverage audit did not run: no usable audit boxes');
   }
 
@@ -95,10 +80,7 @@ export async function runChecks(
     `${currentCount} current listings, expected [${lo}, ${hi}]`,
   );
 
-  // `listings` is a view, so both this and the overlap check below are
-  // structurally impossible rather than merely unlikely — they are cheap
-  // assertions on the view's SQL, which is where the SCD2 logic lives and
-  // therefore where it can break.
+  // This and the overlap check test the SCD2 logic in the `listings` view.
   const dupes = await db.count(
     'SELECT count(*) FROM (SELECT listing_id FROM listings WHERE is_current ' +
       'GROUP BY listing_id HAVING count(*) > 1)',
@@ -170,10 +152,7 @@ export async function runChecks(
     `${freshness} listing_observations rows for ${scrapeDate}`,
   );
 
-  // Every run makes the listing-page pass, so this gate is always live.
-  // `attempted` is still checked because a run that found no listings at all
-  // has already failed `listing_count_plausible` above, and dividing by zero
-  // here would bury that under a stack trace.
+  // Zero attempts means no listings, which `listing_count_plausible` reports.
   const pageStats = inputs.pageStats;
   if (pageStats.attempted) {
     const rate = pageStats.failed / pageStats.attempted;
@@ -187,10 +166,8 @@ export async function runChecks(
 
   const fetched = pageStats.attempted - pageStats.failed;
   if (fetched) {
-    // `isExactLocation` is the whole point of the listing-page pass, and it
-    // comes from the one layer that reads Airbnb's private JSON. If a run
-    // reads pages but none of them yield the flag, that layer has broken and
-    // the parse is degrading silently to the coordinate-only fallback.
+    // Only the `state` layer yields `isExactLocation`, so none present means
+    // that layer broke.
     check(
       'exact_location_flag_present',
       'error',
@@ -198,10 +175,7 @@ export async function runChecks(
       `${pageStats.withExactFlag}/${fetched} pages read this run carried isExactLocation`,
     );
 
-    // Which extraction layers are still working. `state` is the only one
-    // that can produce the flag, so losing it is the failure above; losing
-    // `json-ld` is a quieter warning that the standards-based cross-check on
-    // the coordinate is gone. See listingPage.ts.
+    // Warn when an extraction layer contributed to no pages. See listingPage.ts.
     for (const layer of ['json-ld', 'state'] as const) {
       const live = pageStats.layerUsed[layer];
       check(
@@ -213,12 +187,9 @@ export async function runChecks(
     }
   }
 
-  // Cross-check the flag against an independent signal: Airbnb emits an
-  // exact coordinate rounded to 4 decimal places and a jittered one at 5+
-  // (41/41 when measured — see docs/research/airbnb-pdp-location-payload.md).
-  // That's an undocumented artifact, so a mismatch doesn't mean the flag is
-  // wrong — it means one of the two stopped meaning what it did, which is
-  // worth a look either way.
+  // Airbnb emits exact coordinates at 4 decimal places and jittered ones at
+  // 5+ (41/41 measured; see docs/research/airbnb-pdp-location-payload.md).
+  // This is undocumented, so a mismatch warns rather than fails.
   const mismatched = await db.count(`
     SELECT count(*) FROM listings
     WHERE is_current AND location_is_exact IS NOT NULL AND location_lat IS NOT NULL
@@ -240,11 +211,8 @@ export async function runChecks(
     );
   }
 
-  // A row's night_date should never be earlier than the scrape_date
-  // (valid_from) that first observed it — if it is, that's the
-  // elapsed-current-month artifact described in calendars.ts, not a real
-  // calendar entry. Catches a regression of that fix, or any other bug
-  // producing backdated rows.
+  // A night before its own valid_from is an elapsed day that `toNights`
+  // should have dropped.
   const backdated = await db.count(
     'SELECT count(*) FROM calendar_status WHERE night_date < valid_from',
   );

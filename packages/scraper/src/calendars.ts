@@ -1,10 +1,4 @@
-/**
- * Fetch every listing's forward calendar, capped concurrency, paced against
- * the run-wide budget.
- *
- * Airbnb's calendar endpoint has no documented rate limit — the CALENDAR_*
- * settings in `config.ts` are a conservative default, not a measured limit.
- */
+/** Fetch every listing's forward calendar, paced by `pace.ts`. */
 
 import { fetchCalendar, type CalendarDay } from './airbnb/calendar.ts';
 import { mapWithConcurrency } from './concurrency.ts';
@@ -37,14 +31,9 @@ export function parseFormattedPrice(formatted: string | null): number | null {
 }
 
 /**
- * Drop already-elapsed days from Airbnb's response.
- *
- * Airbnb's calendar always returns the *whole* current month starting on
- * the 1st, regardless of what day it actually is — so a scrape on the 15th
- * still gets calendarDate 1–14 back, marked `available: false` simply
- * because the past can't be booked, not because anyone booked it. Left
- * unfiltered, that reads as "100% occupied" for every day before the scrape
- * ran, which is a UI artifact, not an occupancy signal.
+ * Convert calendar days to nights, dropping days before `minDate`. Airbnb
+ * returns the whole current month and marks elapsed days `available: false`,
+ * which would otherwise read as booked.
  */
 export function toNights(days: readonly CalendarDay[], minDate: IsoDate): CalendarNight[] {
   return days
@@ -79,9 +68,7 @@ export function liveCalendarFetcher(apiKey: string): FetchOneCalendar {
       );
       return { roomId, nights: toNights(days, minDate), error: null };
     } catch (err) {
-      // A `RateLimitedError` is not this listing's problem and must not be
-      // swallowed into its row — it aborts the pass. Anything else costs
-      // one listing's calendar and is recorded as such.
+      // A rate limit aborts the pass; other errors are recorded per listing.
       if (err instanceof RateLimitedError) throw err;
       return { roomId, nights: [], error: describeError(rootCause(err)) };
     }
@@ -95,11 +82,8 @@ export interface FetchCalendarsOptions {
 }
 
 /**
- * Every listing's calendar.
- *
- * `minDate` (normally the run's scrape date) drops elapsed days from each
- * result — see `toNights`. A `RateLimitedError` from any listing aborts the
- * whole pass; see `concurrency.ts` for why there is nothing to salvage.
+ * Every listing's calendar, with days before `minDate` dropped (see
+ * `toNights`). A `RateLimitedError` from any listing aborts the pass.
  */
 export async function fetchCalendars(
   roomIds: readonly string[],

@@ -1,15 +1,9 @@
 /**
- * Airbnb's public web API key, scraped from the homepage HTML.
+ * Airbnb's public web API key, read from the homepage HTML.
  *
- * It is a long-lived public constant embedded in every page — not a session
- * token — which is what makes fetching it once per run and threading it
- * through every request safe. Callers take it as a required argument with no
- * default, because fetching it per call means re-downloading this ~600 KB
- * homepage once per listing to re-extract the same string: two thirds of a
- * run's requests.
- *
- * If the key does go stale mid-run, every request after it fails at once,
- * which the run's failure-rate checks catch.
+ * It is a long-lived public value, not a session token, so the pipeline
+ * fetches it once per run and passes it to every request. If it goes stale
+ * mid-run, the failure-rate checks catch the resulting errors.
  */
 
 import { request } from './http.ts';

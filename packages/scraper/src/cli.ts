@@ -1,10 +1,5 @@
 #!/usr/bin/env node
-/**
- * `anchorage-str-db [--db PATH] [--date YYYY-MM-DD] [-v] daily`
- *
- * One subcommand, because there is one pipeline. Argument parsing is Node's
- * own `util.parseArgs` — there is nothing here a dependency would do better.
- */
+/** `anchorage-str-db [--db PATH] [--date YYYY-MM-DD] [-v] daily` */
 
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -61,8 +56,7 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
-  // Validated here rather than inside the run: a malformed `--date` is a
-  // usage error, not a failed scrape, and should not be reported as one.
+  // Validated before the run so a bad `--date` is a usage error, not a failed run.
   let scrapeDate;
   try {
     scrapeDate = values.date === undefined ? undefined : parseIsoDate(values.date);
@@ -83,8 +77,7 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-// `import.meta.main` is true only when this file is what Node was asked to
-// run, so importing the CLI from a test does not launch a scrape.
+// True only when run directly, so importing this file does not start a run.
 if (import.meta.main) {
   process.exitCode = await main(process.argv.slice(2));
 }

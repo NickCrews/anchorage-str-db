@@ -1,13 +1,7 @@
 /**
- * Parser tests for the listing page.
- *
- * No network. These build pages shaped like Airbnb's and then deliberately
- * break them, because the point of `listingPage.ts`'s layered design is what
- * it does when Airbnb changes something — a test suite that only checks the
- * happy path would pass right up until the parse started silently returning
- * nulls. What no offline test can tell you is whether Airbnb has *already*
- * changed; only a live fetch does that, which is what the
- * `extraction_layer_*_alive` data-quality checks are for.
+ * Listing-page parser tests. These build synthetic pages shaped like Airbnb's
+ * and alter them to exercise each extraction layer's fallback. Changes on
+ * Airbnb's side are caught by the `extraction_layer_*_alive` checks instead.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -33,10 +27,7 @@ interface PageOptions {
   state?: boolean;
 }
 
-/**
- * A page shaped like Airbnb's: a schema.org block for search engines and a
- * big GraphQL blob for the app, nested a few layers deep.
- */
+/** A page shaped like Airbnb's: a schema.org block and a nested GraphQL blob. */
 function makePage(options: PageOptions = {}): string {
   const {
     stateLocation = STATE_LOCATION,
@@ -112,19 +103,15 @@ it('reads the location flag and coordinate', () => {
 });
 
 it('distinguishes fuzzed listings from exact ones', () => {
-  // The flag, not the coordinate, separates the two cases — Airbnb returns a
-  // plausible-looking Anchorage point either way.
   const fuzzed = { ...STATE_LOCATION, isExactLocation: false };
 
   expect(parseListingPage(makePage({ stateLocation: fuzzed }), '1').locationIsExact).toBe(false);
 });
 
-// --- resilience: the reason this parser is layered ------------------------
+// --- fallbacks -------------------------------------------------------------
 
 describe('resilience', () => {
   it('survives a renamed wrapper, because lookup is by shape', () => {
-    // A path-walking parser hardcoding `niobeClientData[0][1].data.node…`
-    // dies the day Airbnb renames any link in that chain.
     const page = parseListingPage(makePage({ wrapper: 'apolloState' }), '1');
 
     expect(page.locationIsExact).toBe(true);
@@ -132,7 +119,6 @@ describe('resilience', () => {
   });
 
   it('survives a renamed flag', () => {
-    // `isExactLocation` -> `hasExactLocation`: matched on the key *pattern*.
     const renamed = Object.fromEntries(
       Object.entries(STATE_LOCATION).map(([key, value]) => [
         key.replace('isExactLocation', 'hasExactLocation'),
@@ -148,15 +134,12 @@ describe('resilience', () => {
 
     const page = parseListingPage(html, '1');
 
-    // The coordinate still comes from the intact schema.org block, and the
-    // flag from a regex over the wreckage.
+    // Coordinate from JSON-LD, flag from the raw-html regex.
     expect([page.lat, page.locationIsExact]).toEqual([60.9568, true]);
     expect(page.locationSource).toBe('json-ld+raw-html');
   });
 
   it('degrades to coordinate-only when the state blob is gone', () => {
-    // Losing the flag entirely has to be visible in the data, not just a log
-    // line — `locationSource` is what the quality gate reads.
     const page = parseListingPage(makePage({ state: false }), '1');
 
     expect(page.lat).toBe(60.9568);
@@ -164,18 +147,13 @@ describe('resilience', () => {
     expect(page.locationSource).toBe('json-ld');
   });
 
-  it('throws rather than returning nulls when nothing is usable', () => {
-    // A blocked or captcha'd fetch must surface as an error — a row of
-    // plausible nulls would be merged as though we'd looked and found
-    // nothing.
+  it('throws when no layer finds anything', () => {
     expect(() => parseListingPage('<html><body>Page not available</body></html>', '1')).toThrow(
       /no location data/,
     );
   });
 
   it('finds the payload in an unnamed script tag', () => {
-    // The script id and even the type attribute are Airbnb renderer details;
-    // a blob that merely looks like JSON is still tried.
     const html = makePage().replace('id="data-deferred-state-0" type="application/json"', '');
 
     expect(parseListingPage(html, '1').locationIsExact).toBe(true);
@@ -207,16 +185,13 @@ describe('the STR registration number', () => {
   );
 
   it('is null, not an error, when missing', () => {
-    // Registration only became mandatory 2026-07-31; a listing without one
-    // is a finding, not a parse failure.
     const page = parseListingPage(makePage({ registration: null }), '1');
 
     expect(page.strRegistrationId).toBeNull();
     expect(page.locationIsExact).toBe(true);
   });
 
-  it('refuses to guess between conflicting numbers', () => {
-    // The raw-html layer only answers when the page agrees with itself.
+  it('is null when the page has conflicting numbers', () => {
     const html = makePage({
       registration: null,
       description: `Permit STR20260001 or maybe STR20260002. ${'Lovely cabin. '.repeat(20)}`,

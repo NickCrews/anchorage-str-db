@@ -19,10 +19,7 @@ function day(calendarDate: string, available: boolean, price: string | null = nu
 
 describe('toNights', () => {
   it('drops days before the scrape date', () => {
-    // Airbnb always returns the whole current month, including
-    // already-elapsed days marked available=false purely because
-    // the past can't be booked. Those must not be mistaken for real
-    // occupancy — see CONTRIBUTING.md.
+    // Airbnb returns the whole current month, with elapsed days unavailable.
     const days = [
       day('2026-08-01', false),
       day('2026-08-14', false),

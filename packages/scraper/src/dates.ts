@@ -1,13 +1,10 @@
 /**
- * Dates are ISO `YYYY-MM-DD` strings everywhere in this package.
+ * Dates are ISO `YYYY-MM-DD` strings throughout this package.
  *
- * A scrape date is a calendar day in UTC, never an instant, and JavaScript's
- * `Date` cannot represent that: it is a timestamp that renders differently
- * depending on the reader's timezone, so `new Date('2026-09-11')` printed in
- * Anchorage is the 10th. Airbnb's calendar already speaks ISO dates, DuckDB
- * casts them to `DATE` without ambiguity, and they sort and compare as
- * strings — so the string *is* the representation and there is nothing to
- * convert.
+ * A scrape date is a UTC calendar day. A JavaScript `Date` is an instant that
+ * renders by local timezone (`new Date('2026-09-11')` prints as the 10th in
+ * Anchorage). ISO strings match Airbnb's calendar, cast cleanly to DuckDB
+ * `DATE`, and compare correctly as strings.
  */
 
 /** An ISO `YYYY-MM-DD` calendar date. */
@@ -44,9 +41,8 @@ export function addDays(date: IsoDate, days: number): IsoDate {
 }
 
 /**
- * Days since 1970-01-01. Two uses: it is DuckDB's own `DATE` representation,
- * so it is what the appender wants, and it is the per-day seed the coverage
- * audit samples with.
+ * Days since 1970-01-01: DuckDB's `DATE` representation, and the coverage
+ * audit's random seed.
  */
 export function epochDays(date: IsoDate): number {
   return Math.floor(new Date(`${date}T00:00:00Z`).getTime() / 86_400_000);

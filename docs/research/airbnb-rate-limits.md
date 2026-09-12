@@ -1,53 +1,31 @@
-# What Airbnb's rate limit actually is, and what it costs to cross it
+# Airbnb's rate limit
 
-Measurement date: 2026-09-09/10, from one residential IP, against live
-Airbnb. Sample: the 79 room ids returned by two Anchorage price-band
-queries, cycled.
+Measured 2026-09-09/10 from one residential IP against live Airbnb, cycling
+through 79 room ids from two Anchorage price-band queries. Explains
+`packages/scraper/src/pace.ts` and `config.REQUESTS_PER_SECOND`.
 
-Bottom line up front: **Airbnb counts requests per IP over a rolling window
-of roughly a minute, with a threshold near 130, and does not care how fast
-you got there.** That puts the sustainable rate around 2.2/s. Crossing it
-mildly stalls the run; crossing it grossly bans the IP for an hour or more.
-The run is now paced by one global budget at `config.REQUESTS_PER_SECOND`.
+**Summary:** Airbnb allows about 130 requests per IP in a rolling window of
+roughly a minute, regardless of burst rate, so the sustainable rate is about
+2.2/s. Slightly exceeding it stalls connections; greatly exceeding it bans the
+IP for an hour or more. The run is paced by one shared rate below that limit.
 
-## The old pacing made the concurrency knobs inert
+## Latency is server-side
 
-Each pass paced itself by sleeping in its own submit loop:
-
-```python
-for room_id in room_ids:
-    time.sleep(random.uniform(MIN_DELAY_S, MAX_DELAY_S))   # serial
-    futures[pool.submit(fetch_one, room_id)] = room_id
-```
-
-That sleep ran on one thread, serially, *between submissions*. So the pass
-rate was `1/mean(delay)` = **1.25/s** regardless of `*_CONCURRENCY`, and at
-0.8s spacing against ~0.94s requests, about 1.2 of the 4 workers were ever
-busy. Raising the worker count changed nothing at all; the only live knob
-was the delay, and shortening it removed pacing rather than raising it.
-
-Pass duration was simply `N x mean(delay)`: 2600 x 0.8s = ~35 min per pass,
-~80 min for a run.
-
-## It was never parse cost or connection setup
-
-Sequential, 12 listings, pacing removed:
+Sequential, 12 listing pages, no pacing:
 
 | | p50 |
 |---|---|
 | HTTP | 0.943 s |
-| `parse_listing_page` | 0.037 s |
+| parse | 0.037 s |
 | page size | 487 KB |
 
-Parse is **4%** of a listing's time — swapping `html.parser` for `lxml`, or
-dropping BeautifulSoup for a regex, optimises the wrong 4%. Reusing one
-`curl_cffi.Session` (keep-alive) moved p50 0.943s -> 0.878s, ~7%: real, not
-the story. The time is server-side latency on a 487 KB page, and only
-overlapping requests touches it.
+Parsing is 4% of a listing's time. Reusing a keep-alive connection cut p50 by
+~7%. Most of the time is Airbnb's response latency, so only concurrent
+requests reduce total time.
 
-## Short bursts scale beautifully and prove nothing
+## Short bursts don't reveal the limit
 
-24 listings per level, pacing removed:
+24 listings per level, no pacing:
 
 | concurrency | listings/s | errors |
 |---|---|---|
@@ -56,11 +34,11 @@ overlapping requests touches it.
 | 16 | 10.79 | none |
 | 32 | 16.05 | none |
 
-Flat latency (p50 ~1.0s) throughout. Read alone this says "go 13x faster".
+Latency stayed flat (p50 ~1.0s).
 
-## Sustained load finds the wall
+## Sustained load hits the limit
 
-600 page requests at concurrency 16, bucketed per 100:
+600 page requests at concurrency 16, per 100 requests:
 
 | requests | lat p50 | errors |
 |---|---|---|
@@ -69,13 +47,12 @@ Flat latency (p50 ~1.0s) throughout. Read alone this says "go 13x faster".
 | 300 | 0.42s | **100 x HTTP 429** |
 | 400-600 | ~0.38s | 100 x HTTP 429 each |
 
-467 of 600 refused. Note the *falling* latency: a 429 is served fast, so
-throughput rises as the scrape stops working. **Any speed metric that
-ignores status codes scores this failure as a win.**
+467 of 600 were refused. Latency fell because 429s are served quickly, so
+throughput metrics must account for status codes.
 
-## It counts requests, not rate
+## The limit is a request count
 
-Three trips, all on `www.airbnb.com/rooms/`:
+Three trips against `www.airbnb.com/rooms/`:
 
 | rate | requests before trip | elapsed |
 |---|---|---|
@@ -83,47 +60,38 @@ Three trips, all on `www.airbnb.com/rooms/`:
 | ~17/s | ~130 | ~8s |
 | 4/s | ~129 | ~32.5s |
 
-A stable count across a 4x spread in elapsed time is a request counter, not
-a rate limiter. The window is longer than 32.5s (the 4/s trip proves it)
-and shorter than ~104s (or the old 1.25/s pacing would have been tripping
-all along), so ~60s fits everything and gives ~2.2/s.
+The count stayed at ~130 across a 4x range in elapsed time. The window is
+longer than 32.5s (from the 4/s trip) and shorter than ~104s (runs at 1.25/s
+never tripped), so ~60s fits, giving ~2.2/s.
 
-**Confirmed directly:** 1400 requests held at 2.0/s ran 11.7 minutes with
-zero 429s and 10 timeouts. There was a visible pressure episode in the
-middle — p50 latency rose 0.8s -> 3.1s between t=240s and t=450s, then
-recovered — which is why `REQUESTS_PER_SECOND` is set below 2.0 rather than
-at it.
+1400 requests at 2.0/s ran 11.7 minutes with no 429s and 10 timeouts. p50
+latency rose from 0.8s to 3.1s between t=240s and t=450s, then recovered, so
+`REQUESTS_PER_SECOND` is set below 2.0.
 
-## Two different punishments
+## Two kinds of overage
 
-**Mild overage stalls you.** At 4/s no 429 ever arrived. Connections simply
-stopped answering: every worker parked in a timeout and throughput sagged to
-~1.8/s. Nothing in a success/failure count can see this — it looks like
-Airbnb got slow. It is visible only as rising latency, which is what
-`pace.Pacer.note_timeout` watches for.
+**Mild (4/s):** no 429s. Connections stopped responding, every worker waited
+on a timeout, and throughput fell to ~1.8/s. This shows only as rising latency
+and timeouts, which `Pacer.noteTimeout` responds to.
 
-**Gross overage bans you for hours.** The 17/s burst earned a block still
-refusing 32.6 minutes later; a quieter follow-up probe (one request per 5
-minutes) saw it clear about 70 minutes after that. Call it 1-2 hours.
+**Severe (17/s):** the IP was still blocked 32.6 minutes later and cleared
+about 70 minutes after that, so roughly 1–2 hours.
 
-The ban is **IP-wide, not per-endpoint**. Probed together while blocked:
+The ban covers the whole domain. Probed while blocked:
 
 ```
 homepage=429   pdp=429   calendar=429
 ```
 
-The homepage one is the sharp edge: `get_api_key()` scrapes the homepage, so
-a blocked run cannot even *start* a pass. And because the calendar endpoint
-shares the budget, interleaving the page and calendar passes to overlap them
-buys nothing.
+The API key is read from the homepage, so a blocked IP can't start a run. All
+passes share one budget, so running them concurrently doesn't help.
 
-## What the 429 response says
+## The 429 response
 
-No `Retry-After`, no `RateLimit-*`, no `X-RateLimit-*`. **The block length
-cannot be read off the response** — hence a conservative fixed rate rather
-than a negotiated one.
+There is no `Retry-After`, `RateLimit-*` or `X-RateLimit-*` header, so the
+block length can't be read from the response.
 
-The refusal comes from the Akamai edge, not Airbnb's application:
+The refusal comes from Akamai, not Airbnb's application:
 
 ```
 server: nginx
@@ -132,60 +100,30 @@ set-cookie: ak_bmsc=...                  <- Akamai Bot Manager
 x-airbnb-fluffy: {"decision":"NONE","crawler":"none","ip_whitelisted":false}
 ```
 
-`fluffy` is Airbnb's own bot detector and reports `decision: NONE` — it
-never made a block call.
+`fluffy`, Airbnb's own bot detector, reports `decision: NONE`.
 
-**The body contradicts the status line.** Status is 429; the body is
-Airbnb's generic *"503 Service Unavailable — Stay tuned"* page, identical
-across URLs (`etag: "6aa1ab12-6df"`, 1759 bytes). Code that classifies
-failures by body text would read a rate limit as an Airbnb outage. Ours keys
-off status. Keep it that way.
+The status is 429 but the body is Airbnb's generic "503 Service Unavailable"
+page (`etag: "6aa1ab12-6df"`, 1759 bytes). Classifying failures by body text
+would treat a rate limit as an outage, so the code checks the status code.
 
-## Two things ruled out as levers
+## Not factors
 
-Both looked promising and neither is the mechanism. Recorded so they are not
-re-investigated.
+**Cookies.** Requests without a cookie jar get a new device id (`bev`) each
+time. The ban still hit three endpoints at once across requests with
+different `bev` values, which indicates an IP-keyed limit.
 
-**Session cookies.** Every request used a bare `requests.get`, so the cookie
-jar was discarded and Airbnb minted a new device id each time
-(`x-erf-bev-bev-is-generated: 1`, a different `bev` per request); a `Session`
-holds `everest_cookie`/`bev`/`ak_bmsc` and stops that. But the ban hit three
-endpoints simultaneously across calls that each carried a *different* `bev`,
-which is what an IP-keyed limit looks like and not what a device-keyed one
-looks like. Worth fixing as hygiene; not a rate lever.
+**TLS fingerprint vs. User-Agent mismatch.** A Chrome 146 TLS fingerprint with
+a Chrome 120 User-Agent still tripped at a stable ~130 requests.
 
-**Fingerprint mismatch.** `impersonate="chrome"` resolves to chrome146 in
-curl_cffi 0.16.0 while `_HEADERS` hardcodes `Chrome/120.0.0.0` — TLS/JA3 26
-versions from the User-Agent it claims, which is exactly the pair Akamai
-cross-checks. pyairbnb has the same mismatch. Also hygiene; the limit was
-reproducible at a stable ~130 requests regardless.
+## Reducing requests
 
-## The lever this does not pull
+The page pass is 2600 of a run's ~5400 requests and mostly re-reads two
+fields that rarely change (`location_is_exact`, `str_registration_id`).
+Fetching pages only for new listings plus a rotating 1/7 of the rest would cut
+that pass to ~400 requests.
 
-Pacing gets the run from ~80 min to ~50. The larger factor is that the page
-pass spends 2600 of the run's ~5,400 requests refreshing two nearly-static
-fields (`location_is_exact`, `str_registration_id`).
-
-The store already has the machinery for a tiered refresh:
-
-- `listing_versions` carries `page_attrs` forward across days where
-  `page_fetch_ok` is false;
-- `listing_activity` exposes
-  `max(scrape_date) FILTER (WHERE page_fetch_ok) AS page_seen_date`.
-
-Refreshing new listings plus a rotating 1/7 slice would cut that pass from
-2600 requests to ~400 — a bigger win than any rate increase, and it
-*reduces* exposure to the limit instead of spending it.
-
-`pipeline.run_daily`'s docstring argues against skipping the pass: it would
-write "carried-forward stale values rather than today's — a second, quieter
-kind of daily record that nothing downstream can distinguish from the real
-one." That objection is about *indistinguishability*, and `page_seen_date`
-already answers it. What the change genuinely needs is a third state —
-**skipped**, distinct from **failed** — because folding "we chose not to
-look" into `page_fetch_ok = false` would corrupt
-`checks.listing_page_failure_rate`, whose whole job is noticing that Airbnb
-stopped answering.
-
-That is a design decision rather than a tuning change, which is why it is
-written up here and not implemented.
+The views already support this: `listing_versions` carries page fields forward
+across days where `page_fetch_ok` is false, and `listing_activity` exposes
+`page_seen_date`. It would need a third page state, **skipped**, separate from
+**failed**, so that `listing_page_failure_rate` keeps measuring real failures.
+This is not implemented.

@@ -1,6 +1,4 @@
-/**
- * The attempt loop, and the three kinds of failure it must tell apart.
- */
+/** The attempt loop's handling of 429s, timeouts, and other errors. */
 
 import { beforeEach, expect, it } from 'vitest';
 
@@ -15,10 +13,6 @@ beforeEach(() => {
 });
 
 it('retries past a transient Airbnb 500', async () => {
-  // Airbnb returns an occasional 500 that succeeds on the next attempt. A
-  // failed search page costs the entire pass — there is no
-  // partial search worth writing — so it must outlast a blip that the
-  // calendar and page passes could afford to drop one listing over.
   let attempts = 0;
 
   const result = await withRetries(async () => {
@@ -31,10 +25,7 @@ it('retries past a transient Airbnb 500', async () => {
   expect(result).toBe('ok');
 });
 
-it('throws rather than returning short when it never recovers', async () => {
-  // Giving up quietly would return a short page, which reads downstream as
-  // "these are all the listings in this band" — the exact silent undercount
-  // the search exists to prevent.
+it('throws RetriesExhaustedError with the last error as cause', async () => {
   const boom = new HttpError(503, 'https://www.airbnb.com/', 'nope');
 
   await expect(withRetries(async () => Promise.reject(boom), FAST)).rejects.toThrow(
@@ -42,16 +33,13 @@ it('throws rather than returning short when it never recovers', async () => {
   );
   await expect(
     withRetries(async () => Promise.reject(boom), FAST).catch((err: unknown) => {
-      // The wrapper names the pass; the cause names what Airbnb actually said.
       expect(err).toBeInstanceOf(RetriesExhaustedError);
       throw (err as Error).cause;
     }),
   ).rejects.toBe(boom);
 });
 
-it('aborts immediately on a 429 rather than spending its retries on a ban', async () => {
-  // The block is IP-wide and lasts on the order of an hour, so three
-  // attempts half a second apart accomplish nothing but more knocking.
+it('throws RateLimitedError on the first 429 without retrying', async () => {
   let attempts = 0;
 
   await expect(
@@ -65,8 +53,6 @@ it('aborts immediately on a 429 rather than spending its retries on a ban', asyn
 });
 
 it('backs the request rate off after a run of timeouts', async () => {
-  // Mild overage stalls connections rather than refusing them, so a run of
-  // timeouts is the only warning before the expensive failure.
   const pacer = resetPace({ rate: 1e6, timeoutBackoff: 2 });
   const before = pacer.bucket.rate;
 
@@ -85,10 +71,7 @@ it('backs the request rate off after a run of timeouts', async () => {
   expect(pacer.bucket.rate).toBeLessThan(before);
 });
 
-it('does not mistake a room id or a response body for a rate limit', async () => {
-  // A 429 aborts the whole run, so the check is on the status code and
-  // never on the text: "429" turns up in listing ids and in quoted error
-  // pages, and either would kill a healthy run outright.
+it('treats "429" in a message or body as an ordinary error', async () => {
   const attempts: string[] = [];
 
   await expect(

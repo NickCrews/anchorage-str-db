@@ -15,8 +15,6 @@ describe('TokenBucket', () => {
   });
 
   it('serves concurrent acquirers in order', async () => {
-    // N workers must take turns rather than all waking on the same token and
-    // racing for it, or the pace stops meaning anything.
     const bucket = new TokenBucket(200);
     const order: number[] = [];
     await Promise.all(
@@ -57,8 +55,6 @@ describe('Pacer', () => {
   });
 
   it('lets a success reset the timeout streak', () => {
-    // One timeout is ordinary. Only a *run* of them says the limiter is
-    // stalling us rather than that one request was unlucky.
     const pacer = new Pacer({ rate: 4, timeoutBackoff: 3 });
 
     pacer.noteTimeout();

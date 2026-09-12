@@ -1,20 +1,10 @@
 /**
- * Run one job per item, at most `limit` in flight.
+ * Run one job per item, at most `limit` at a time, returning results in input
+ * order.
  *
- * The jobs are all I/O behind `await`, so a fixed set of workers pulling from
- * a shared cursor is the whole implementation.
- *
- * `limit` is only a cap on how many sockets may be open at once — the pace
- * is set by the run-wide budget in `pace.ts`, which every job waits on
- * before sending. Raising it does not make a run faster past the point
- * where the rate is achievable.
- *
- * Results come back in input order. A job that throws aborts the pass: the
- * remaining items are never started, and the first error propagates. That
- * is what a `RateLimitedError` needs — there is nothing to salvage by
- * continuing, since the block is IP-wide and every remaining item would
- * fail anyway, slowly, while still knocking. Per-item failures that *are*
- * survivable are the job's business to catch and report in its result.
+ * If a job throws, no further items start and the first error is rethrown.
+ * Jobs should catch and return any per-item failure that shouldn't abort the
+ * pass.
  */
 
 export async function mapWithConcurrency<T, R>(
@@ -33,8 +23,7 @@ export async function mapWithConcurrency<T, R>(
       try {
         results[index] = await job(items[index]!, index);
       } catch (err) {
-        // Recorded rather than thrown, so the other workers wind down on
-        // their own and no rejection goes unhandled while they do.
+        // Recorded rather than thrown so other workers stop cleanly.
         firstError ??= { err };
         return;
       }

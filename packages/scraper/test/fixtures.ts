@@ -1,7 +1,4 @@
-/**
- * Shared builders. `makeListing` is a plausible parsed listing that tests
- * vary one field of at a time.
- */
+/** Builders for test listings. */
 
 import type { SearchListing } from '../src/airbnb/search.ts';
 import type { ParsedListing } from '../src/parse.ts';

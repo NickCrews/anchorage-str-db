@@ -1,20 +1,11 @@
 /**
- * Search Anchorage as price bands narrow enough to each fit one page, then
- * check that claim a second, differently-shaped way.
+ * Search Anchorage in price bands narrow enough that each fits on one page,
+ * then audit coverage with a differently shaped query.
  *
- * Airbnb's paginated search cannot be trusted twice over: it stops at 280
- * items without saying so, and it re-ranks between page fetches so that a
- * listing can appear on two pages while another appears on none. Both
- * defects live in pagination, and a query whose entire result set fits on
- * one page has neither — measured, such a query returns an identical set on
- * every repeat, while a seven-page query churns 69 listings between
- * identical calls.
- *
- * So this never paginates. It asks for one page, and if Airbnb says more
- * pages exist it halves the price band and asks again, until every query is
- * answerable in a single page. `pageCursors` reports the page count in the
- * same response, which makes completeness something the run reads off
- * Airbnb rather than infers.
+ * Airbnb's paginated search silently stops at 280 items and re-ranks between
+ * page fetches, so listings are duplicated or skipped. A single-page query
+ * has neither problem. This module never paginates: when a response reports
+ * more than one page (`pageCursors`), it halves the price band and retries.
  */
 
 import {
@@ -46,18 +37,13 @@ export class PriceBand {
   }
 
   /**
-   * Two abutting halves, or null if this band is one dollar wide.
-   *
-   * The halves share their boundary and that is correct, not a bug:
-   * `price_max=X` and `price_min=X` are complementary, so a listing priced
-   * exactly X lands in one half and only one. Measured on single-page
-   * (deterministic) queries, splitting a 26-listing box at $100, $125, $150
-   * and $200 gave below+above == 26 every time, with no duplicates and
-   * nothing lost.
+   * Two halves sharing a boundary, or null if the band is at minimum width.
+   * Airbnb's `price_max=X` and `price_min=X` are complementary, so a listing
+   * priced exactly X lands in only one half (see `PRICE_BAND_SEEDS_USD`).
    */
   split(): [PriceBand, PriceBand] | null {
     if (this.maxUsd === null) {
-      // Can't bisect an open interval; step the floor up instead.
+      // An open band can't be bisected, so split at double its floor.
       return [
         new PriceBand(this.minUsd, this.minUsd * 2),
         new PriceBand(this.minUsd * 2, null),
@@ -73,38 +59,18 @@ export class PriceBand {
   }
 }
 
-/**
- * One request's worth of search. `pageCount` is what the caller narrows
- * against.
- */
+/** The first page of a search, and how many pages Airbnb says it has. */
 export interface SearchPage {
   listings: SearchListing[];
   pageCount: number;
 }
 
-/**
- * One search page.
- *
- * Deliberately does not paginate. A result set that spans more than one
- * page is both silently truncatable at 280 items and re-ranked between
- * fetches, so the caller's job is to narrow the query until this returns a
- * single page rather than to walk the pages of a lying one.
- */
+/** Fetch the first page of a search. Callers narrow the query instead of paginating. */
 export type FetchPage = (band: PriceBand | null, box: BoundingBox) => Promise<SearchPage>;
 
 /**
- * The live implementation of `FetchPage`, retried past Airbnb's intermittent
- * 5xx.
- *
- * A failed calendar or page fetch costs one listing's detail and is recorded
- * as such; a failed search page costs the entire pass, and with it the run,
- * because there is no partial search worth writing. So this retries where
- * those give up, and only raises once Airbnb has refused
- * `SEARCH_MAX_RETRIES` times in a row.
- *
- * A 429 is not a flaky 5xx and must not be retried: the block is IP-wide
- * and lasts on the order of an hour, so the retries only deepen it. The run
- * fails now, with the real reason.
+ * The live `FetchPage`. A failed search page fails the run, so it retries up
+ * to `SEARCH_MAX_RETRIES` times; a 429 aborts immediately (see `retry.ts`).
  */
 export function liveSearchFetcher(apiKey: string): FetchPage {
   return (band, box) =>
@@ -134,12 +100,8 @@ export function liveSearchFetcher(apiKey: string): FetchPage {
 }
 
 /**
- * One run's search pass.
- *
- * `unresolved` is what the quality gate cares about: bands that still needed
- * more than one page at the narrowest width price can express. A multi-page
- * query is both truncatable and non-deterministic, so those are listings we
- * cannot vouch for.
+ * One run's search pass. `unresolved` lists bands that still needed more than
+ * one page at minimum width, so their results may be incomplete.
  */
 export interface SearchResult {
   listings: SearchListing[];
@@ -155,12 +117,8 @@ export interface SearchOptions {
 
 /**
  * Search the whole box, splitting by price until no query needs a second
- * page.
- *
- * The geographic footprint stays exactly `box` throughout, which is what
- * lets the scrape's scope be checked against the municipality's real parcel
- * extents. Bands abut rather than overlap, so a listing is returned once;
- * the pipeline de-dupes anyway.
+ * page. Every query uses the same `box`, so the scrape's scope is exactly the
+ * box tested against parcel extents in `config.test.ts`.
  */
 export async function searchAnchorage(options: SearchOptions): Promise<SearchResult> {
   const box = options.box ?? config.BBOX;
@@ -176,7 +134,7 @@ export async function searchAnchorage(options: SearchOptions): Promise<SearchRes
         (halves ? ' (splitting)' : ''),
     );
     if (halves) {
-      // The parent's own page-1 sample is discarded in favour of the halves.
+      // The parent's partial page is discarded; the halves replace it.
       for (const half of halves) await visit(half);
       return;
     }
@@ -204,10 +162,8 @@ export async function searchAnchorage(options: SearchOptions): Promise<SearchRes
 // coverage audit
 
 /**
- * Result of re-asking for a sample of the market a different way.
- *
- * `missedIds` are listings an unfiltered box search returned that the price
- * bands did not. See `auditCoverage`.
+ * Result of `auditCoverage`. `missedIds` are listings an unfiltered box search
+ * returned that the price bands did not.
  */
 export interface CoverageAudit {
   boxes: number;
@@ -224,12 +180,8 @@ export function missRate(audit: CoverageAudit): number {
 }
 
 /**
- * A seeded PRNG — mulberry32 — so a run is reproducible but successive days
- * audit different neighbourhoods.
- *
- * Any small, stable generator does. Nothing depends on which listings get
- * sampled, only on the sample being a function of the scrape date alone, so
- * re-running a day audits the same boxes.
+ * mulberry32, seeded by scrape date, so re-running a day audits the same
+ * boxes and different days audit different ones.
  */
 function seededRandom(seed: number): () => number {
   let state = seed >>> 0;
@@ -259,21 +211,15 @@ export interface AuditOptions {
 }
 
 /**
- * Second-opinion check that the price bands actually covered the market.
+ * Check that the price bands found every listing.
  *
- * Banding is exhaustive only if every listing carries a price Airbnb will
- * filter on. Nothing in the run can prove that from the inside: a band that
- * silently omits the unpriced returns a tidy, plausible result and the
- * union of tidy, plausible results looks complete. So this asks the same
- * question in a shape that has no price filter at all — a handful of small
- * bounding boxes drawn around listings we did find — and reports anything
- * those boxes return that the bands did not.
+ * Banding misses any listing without a price Airbnb filters on. This searches
+ * a few small boxes with no price filter and reports listings they return
+ * that the bands did not.
  *
- * Boxes are centred on known listings rather than sampled uniformly over
- * the bbox, because most of the bbox is mountain and would audit nothing.
- * A box needing more than one page is skipped, not counted: a multi-page
- * answer is both truncatable and unstable, so it cannot testify about what
- * is missing.
+ * Boxes are centred on found listings, since most of the bbox is uninhabited.
+ * A box needing more than one page is skipped because its results are
+ * unreliable.
  */
 export async function auditCoverage(
   listings: readonly SearchListing[],

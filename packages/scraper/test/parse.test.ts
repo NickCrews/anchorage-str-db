@@ -5,9 +5,6 @@ import { makeSearchListing } from './fixtures.ts';
 
 describe('parseListing', () => {
   it('reads counts out of the free-text primary lines', () => {
-    // Airbnb has no dedicated count fields; the accompanying `type` tag is
-    // BEDINFO on both the bedroom and the bed line, so the text is what we
-    // can actually trust.
     const parsed = parseListing(
       makeSearchListing(7, { primaryLines: ['2 bedrooms', '3 beds', '1.5 baths', '6 guests'] }),
     );
@@ -54,8 +51,7 @@ describe('parseListing', () => {
   });
 
   it('builds the canonical listing url from the room id', () => {
-    // A 19-digit id round-trips exactly. As a `number` it would come out
-    // ...075500, pointing at some other host's listing.
+    // A 19-digit id, which a `number` would round.
     expect(parseListing(makeSearchListing(1602507228357075578n)).url).toBe(
       'https://www.airbnb.com/rooms/1602507228357075578',
     );

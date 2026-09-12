@@ -1,10 +1,6 @@
 /**
- * The bounding box is the scrape's entire definition of "Anchorage".
- *
- * Nothing downstream can tell a listing that does not exist from one the
- * search was never asked about, so the box's coverage of the municipality is
- * not something a data-quality check can verify after the fact — it has to
- * be asserted against an independent description of where Anchorage is.
+ * The bounding box defines the scrape's scope. Listings outside it are never
+ * searched, so no data-quality check can detect a box that is too small.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -13,8 +9,6 @@ import { BBOX, MUNICIPALITY_EXTENT } from '../src/config.ts';
 
 describe('the Anchorage bounding box', () => {
   it('contains the whole municipality', () => {
-    // A box that clips any edge undercounts silently: listings outside it
-    // are never asked about.
     expect(BBOX.swLat, 'box clips the south of the municipality').toBeLessThan(
       MUNICIPALITY_EXTENT.swLat,
     );
@@ -30,9 +24,7 @@ describe('the Anchorage bounding box', () => {
   });
 
   it('covers Girdwood', () => {
-    // Girdwood is ~40 miles from downtown but inside the municipality, and
-    // is dense with STRs. It sits far enough from the Bowl that a box drawn
-    // around the city proper misses it entirely.
+    // Girdwood is in the municipality but ~40 miles from downtown.
     const [lat, lng] = [60.9584, -149.1178];
     expect(lat).toBeGreaterThanOrEqual(BBOX.swLat);
     expect(lat).toBeLessThanOrEqual(BBOX.neLat);
@@ -40,10 +32,9 @@ describe('the Anchorage bounding box', () => {
     expect(lng).toBeLessThanOrEqual(BBOX.neLng);
   });
 
-  it('is not absurdly larger than the municipality', () => {
-    // Padding is deliberate, but a box several times too big wastes the
-    // search budget on the Chugach and Cook Inlet and would hide a mistake
-    // like swapped coordinates.
+  it('is less than 1.5x the area of the municipality', () => {
+    // An oversized box wastes requests and can hide mistakes like swapped
+    // coordinates.
     const area = (box: typeof BBOX): number =>
       (box.neLat - box.swLat) * (box.neLng - box.swLng);
     expect(area(BBOX)).toBeLessThan(area(MUNICIPALITY_EXTENT) * 1.5);

@@ -18,15 +18,9 @@ const ANCHORAGE_VIEW_STATE = {
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
 
 /**
- * One point per currently-active listing.
- *
- * `ST_AsWKB(ST_Point(lng, lat))` is the geometry hand-off SQLRooms' deck
- * package expects from a table that stores bare coordinates — see
- * `createDeckMapPointTransformSql` in `@sqlrooms/deck`. It needs the spatial
- * extension, which `store.ts` loads on the connector.
- *
- * `location_precision` is spelled out as text rather than passed as the raw
- * boolean so the categorical color legend reads as English.
+ * One point per current listing, as WKB geometry for `@sqlrooms/deck` (needs
+ * the spatial extension loaded in `store.ts`). `location_precision` is text so
+ * the legend is readable.
  */
 const LISTINGS_QUERY = `
   SELECT
@@ -64,10 +58,8 @@ const PRECISION_COLOR = {
   legend: {title: 'Map pin precision'},
 } as const;
 
-// Quantile rather than sequential: nightly prices run from about $60 to
-// well over $1,000, so a linear domain squashes almost every listing into
-// the bottom colour band and the map stops discriminating. Ranking into
-// bins keeps the cheap/expensive split legible.
+// Quantile bins: prices range from ~$60 to over $1,000, so a linear scale
+// would put most listings in the lowest color.
 const PRICE_COLOR = {
   '@@function': 'colorScale',
   type: 'quantile',
@@ -136,8 +128,6 @@ export const MapView: FC = () => {
         const row = object as ListingRow;
         const lines: string[] = [];
         if (row.name) lines.push(row.name);
-        // `guest_capacity` is deliberately absent: the column exists but
-        // the scraper leaves it NULL for every listing today.
         if (row.bedrooms != null) lines.push(`${row.bedrooms} br`);
         if (row.price_hint_per_night != null) {
           lines.push(`~$${Math.round(row.price_hint_per_night)}/night`);
@@ -166,12 +156,8 @@ export const MapView: FC = () => {
           datasets={datasets}
           mapStyle={MAP_STYLE}
           deckProps={deckProps}
-          // Deck defaults to drawing into MapLibre's own WebGL context, which
-          // saves a context but cannot survive StrictMode's double-mount in
-          // dev: the remount re-attaches to a context deck still holds and
-          // every layer silently stops drawing (basemap and legend still
-          // render, so it looks like "no data"). One extra context on the
-          // single map panel is the cheaper trade.
+          // A separate WebGL context: sharing MapLibre's breaks layer drawing
+          // after StrictMode's dev remount.
           interleaved={false}
         />
 

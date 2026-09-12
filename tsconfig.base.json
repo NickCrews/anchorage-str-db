@@ -8,14 +8,12 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
 
-    // Relative imports are written with their real `.ts` extension, so
-    // `node src/cli.ts` runs the sources directly (Node strips the types)
-    // and `tsc` rewrites the extension to `.js` on the way into dist/.
-    // One spelling, no build step needed to try something out.
+    // Imports use `.ts` extensions so `node src/cli.ts` runs the sources
+    // directly; `tsc` rewrites them to `.js` in dist/.
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
-    // Nothing that survives type erasure: no enums, no namespaces, no
-    // parameter properties. That is what keeps `node src/cli.ts` working.
+    // Required for Node's type stripping: no enums, namespaces, or
+    // parameter properties.
     "erasableSyntaxOnly": true,
 
     "strict": true,

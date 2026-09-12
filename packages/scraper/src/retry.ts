@@ -1,23 +1,15 @@
 /**
- * One attempt loop, shared by the three passes that talk to Airbnb.
+ * The attempt loop shared by every Airbnb request.
  *
- * All three want the same thing: wait for the run's request budget, try,
- * and on failure decide between three very different kinds of error.
+ * Each attempt waits for the pacer, then on failure:
  *
- * - **429 is fatal, immediately.** `noteRateLimited` throws, and that
- *   exception has to leave this loop rather than be caught and retried.
- *   Retrying is precisely the behaviour that turns one 429 into thousands
- *   of them against a block that lasts on the order of an hour.
- * - **A timeout is a warning, not bad luck.** Mild overage stalls
- *   connections rather than refusing them, so a run of them is the only
- *   notice we get before the expensive failure; `noteTimeout` backs the
- *   rate off.
- * - **Anything else is Airbnb's ordinary intermittent 5xx**, which succeeds
- *   on the next attempt often enough to be worth waiting for.
+ * - **429:** throws `RateLimitedError` immediately (see `pace.ts`).
+ * - **Timeout:** reported to `noteTimeout`, which lowers the rate after a
+ *   streak, then retried.
+ * - **Anything else:** retried with linear backoff.
  *
- * What the passes *don't* share is what exhaustion means, so that is the
- * caller's to decide: a failed search page costs the whole run and throws,
- * a failed listing page or calendar costs one listing and is recorded.
+ * Callers decide what exhausted retries mean: the search fails the run, and
+ * per-listing passes record the error.
  */
 
 import { isRateLimited, isTimeout } from './airbnb/http.ts';
@@ -58,7 +50,7 @@ export async function withRetries<T>(
       pacer.noteOk();
       return result;
     } catch (err) {
-      if (isRateLimited(err)) pacer.noteRateLimited(); // throws; aborts the run
+      if (isRateLimited(err)) pacer.noteRateLimited(); // throws
       if (isTimeout(err)) pacer.noteTimeout();
       lastError = err;
       if (n < options.attempts) {

@@ -3,14 +3,8 @@ import type { FC, ReactNode } from 'react';
 import { useRoomStore } from '../store';
 
 /**
- * Renders children only once the database is attached, and — importantly —
- * shows the failure when it isn't.
- *
- * Every view used to spin forever on `status !== 'ready'`. The only thing
- * that ever displayed `dataInit.error` was `DataPanel`, which stopped being
- * mounted when the sidebar was removed, so an attach failure (a stale
- * snapshot missing a view, a 404 on the .duckdb file) looked exactly like a
- * slow load: an infinite spinner with no message anywhere.
+ * Renders children once the database is attached, a spinner while loading,
+ * and the error if attaching failed.
  */
 export const DataStatusGate: FC<{ children: ReactNode }> = ({ children }) => {
   const status = useRoomStore((s) => s.dataInit.status);
@@ -27,7 +21,7 @@ export const DataStatusGate: FC<{ children: ReactNode }> = ({ children }) => {
         </pre>
         <p className="text-muted-foreground text-xs">
           If this mentions a missing table, the snapshot in{' '}
-          <code>ui/public/</code> predates the current schema — re-copy it
+          <code>packages/ui/public/</code> predates the current schema — re-copy it
           from <code>data/anchorage_str.duckdb</code>.
         </p>
       </div>

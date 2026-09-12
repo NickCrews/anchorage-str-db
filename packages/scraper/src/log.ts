@@ -1,9 +1,4 @@
-/**
- * Logging, to stderr, with a level. Everything a run says goes through here.
- *
- * stderr rather than stdout because a run's only stdout product should be
- * whatever a caller might want to pipe; the narration is diagnostics.
- */
+/** Leveled logging to stderr, keeping stdout free for output. */
 
 export type Level = 'debug' | 'info' | 'warn' | 'error';
 
@@ -35,9 +30,8 @@ export function describeError(err: unknown): string {
 }
 
 /**
- * The innermost `cause`. A per-listing failure is recorded as the reason
- * Airbnb actually gave, not as the retry wrapper that gave up on it — "HTTP
- * 503" is diagnosable and "failed after 3 attempts" is not.
+ * The innermost `cause`, so a failure records e.g. "HTTP 503" rather than
+ * "failed after 3 attempts".
  */
 export function rootCause(err: unknown): unknown {
   let current = err;

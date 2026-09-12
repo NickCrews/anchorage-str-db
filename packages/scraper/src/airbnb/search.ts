@@ -1,24 +1,15 @@
 /**
- * Airbnb's `StaysSearch` GraphQL endpoint — the one the website's map search
- * calls — plus the standardizer for its response.
+ * Airbnb's `StaysSearch` GraphQL endpoint (the website's map search) and the
+ * standardizer for its response.
  *
- * The request body is a persisted-query call carrying a long list of
- * `rawParams`, which is how the website encodes what the URL bar shows. Most
- * of them are UI state Airbnb wants to see but does not act on; the ones
- * that select listings are the four bbox corners, `zoomLevel`, and
- * `price_min`/`price_max`. The `placeId` and `query` values are placeholders
- * — the map search ignores them when `searchByMap` is true — so leave them
- * alone rather than making them look meaningful; a reader who "corrects"
- * them has changed nothing, or has started searching somewhere else.
+ * Of the `rawParams`, only the bbox corners and `price_min`/`price_max`
+ * select listings. `placeId` and `query` are placeholders that map search
+ * ignores when `searchByMap` is true; leave them as they are.
  */
 
 import { requestJson } from './http.ts';
 
-/**
- * The persisted-query hash for `StaysSearch`. Airbnb rotates these; a sudden
- * run of 400s from this endpoint means it needs re-reading off the site's JS
- * bundle.
- */
+/** Persisted-query hash for `StaysSearch`. Airbnb rotates it; 400s mean it changed. */
 const OPERATION_ID = '9f945886dcc032b9ef4ba770d9132eb0aa78053296b5405483944c229617b00b';
 
 const TREATMENT_FLAGS = [
@@ -42,7 +33,7 @@ export interface SearchQuery {
   zoom: number;
   currency: string;
   language: string;
-  /** Omit for an unfiltered search — that is how the coverage audit asks. */
+  /** Omit for an unfiltered search. */
   priceMinUsd?: number | undefined;
   /** Omit for the open-ended top band. */
   priceMaxUsd?: number | undefined;
@@ -55,9 +46,8 @@ function rawParams(query: SearchQuery): Array<{ filterName: string; filterValues
     ['channel', 'EXPLORE'],
     ['datePickerType', 'calendar'],
     ['flexibleTripLengths', 'one_week'],
-    // Airbnb honours this, and it is the reason a "page" holds 40-50 rather
-    // than 20 listings. It does not lift the ~280-item cap on a whole
-    // result set, which is why the search splits by price instead.
+    // Airbnb caps this at 40 per page. It does not lift the 280-item cap on
+    // a result set.
     ['itemsPerGrid', '50'],
     ['monthlyLength', '3'],
     ['monthlyStartDate', '2024-02-01'],
@@ -75,9 +65,8 @@ function rawParams(query: SearchQuery): Array<{ filterName: string; filterValues
     ['version', '1.8.3'],
     ['zoomLevel', String(query.zoom)],
   ];
-  // No check-in/check-out on purpose: an undated map search returns every
-  // listing Airbnb will show for the area, not just ones free on particular
-  // nights, which is what "how many STRs exist" wants.
+  // No check-in/check-out, so the search returns every listing in the area,
+  // not only those free on particular nights.
   if (query.priceMinUsd !== undefined && query.priceMinUsd > 0) {
     params.push(['price_min', String(query.priceMinUsd)]);
   }
@@ -133,20 +122,13 @@ export async function fetchSearchPage(query: SearchQuery): Promise<unknown> {
 // standardizing the response
 
 /**
- * One listing, as the search describes it.
- *
- * Only the fields the pipeline stores. The response also carries images,
- * fees, long-stay discounts and a stay total; adding one here means adding a
- * column in `store.ts` to put it in, so they are left on the floor until
- * something asks.
+ * One search result, limited to the fields the pipeline stores. The response
+ * also has images, fees and discounts, which are not read.
  */
 export interface SearchListing {
   /**
-   * `bigint`, not `number`. Airbnb's newer listing ids are 19 digits —
-   * `1602507228357075578` is a real one — and a JS number silently rounds
-   * anything past 2^53, so parsing one as a float renames the listing to a
-   * neighbour that may well exist. The column is `BIGINT` for the same
-   * reason.
+   * `bigint`: newer listing ids are 19 digits (e.g. `1602507228357075578`),
+   * which a JS number would round to a different id.
    */
   roomId: bigint;
   name: string | null;
@@ -169,11 +151,7 @@ export interface SearchListing {
 
 export interface SearchResponse {
   listings: SearchListing[];
-  /**
-   * How many pages Airbnb says this result set spans, read off
-   * `paginationInfo.pageCursors`. The whole search design rests on this
-   * being 1 — see `search.ts` in the scraper package.
-   */
+  /** Pages in the result set, from `paginationInfo.pageCursors`. See `../search.ts`. */
   pageCount: number;
 }
 
@@ -205,11 +183,8 @@ function asNumber(value: unknown): number | null {
 const PRICE_RE = /\d+(?:\.\d+)?/;
 
 /**
- * `"$1,234.50"` -> `1234.5`.
- *
- * The sign is read from the front of the whole string rather than from
- * beside the digits, because the currency symbol sits between them:
- * a discount line reads `"-$110.00"`.
+ * `"$1,234.50"` -> `1234.5`. The sign is read from the start of the string,
+ * since discounts are formatted `"-$110.00"`.
  */
 export function parsePriceAmount(raw: unknown): number | null {
   if (typeof raw !== 'string') return null;
@@ -223,10 +198,8 @@ export function parsePriceAmount(raw: unknown): number | null {
  * `"RGVtYW5kU3RheUxpc3Rpbmc6MTYwMjUwNzIyODM1NzA3NTU3OA=="` ->
  * `1602507228357075578n`.
  *
- * Airbnb base64-encodes `DemandStayListing:<id>`. Anything that does not
- * decode to that shape returns `null` and is dropped by the caller, rather
- * than a sentinel like `0` that would collapse every unreadable row onto one
- * imaginary listing.
+ * Airbnb base64-encodes `DemandStayListing:<id>`. Returns `null` for anything
+ * else, and the caller drops that result.
  */
 export function decodeListingId(encoded: unknown): bigint | null {
   if (typeof encoded !== 'string' || encoded === '') return null;
@@ -236,9 +209,7 @@ export function decodeListingId(encoded: unknown): bigint | null {
   } catch {
     return null;
   }
-  // Anchored on `DemandStayListing:<digits>`: Node's base64 decoder accepts
-  // any string, so without this every unrelated word that happens to end in
-  // a digit would become a listing id.
+  // Node's base64 decoder accepts any string, so validate the decoded shape.
   const match = /^[A-Za-z]+:(\d+)$/.exec(decoded);
   return match?.[1] ? BigInt(match[1]) : null;
 }
@@ -296,9 +267,7 @@ export function standardizeSearchResponse(raw: unknown): SearchResponse {
       badges: asArray(dig(result, 'badges'))
         .map((badge) => asString(dig(badge, 'loggingContext.badgeType')))
         .filter((type): type is string => type !== null),
-      // Airbnb shows the struck-through original when a listing is
-      // discounted; that is the standing price, which is what a
-      // day-over-day series wants.
+      // For a discounted listing, prefer the undiscounted original price.
       priceQualifier: asString(dig(price, 'primaryLine.qualifier')),
       priceAmount:
         parsePriceAmount(dig(price, 'primaryLine.originalPrice')) ??

@@ -1,23 +1,14 @@
 /**
- * The one HTTP client every Airbnb request in a run goes through.
+ * The HTTP client for every Airbnb request.
  *
- * Airbnb sits behind Akamai, which fingerprints the TLS ClientHello. Node's
- * built-in `fetch` announces itself as Node no matter what `User-Agent`
- * header you set, and is refused. `impit` is a Rust client that replays a
- * real browser's ClientHello, ALPN and header order.
- *
- * One instance per process, shared by the search, the page pass and the
- * calendar pass, so they also share a connection pool. That mirrors how
- * Airbnb counts us: one per-IP budget for the lot (see `pace.ts`).
+ * Airbnb sits behind Akamai, which fingerprints the TLS ClientHello and
+ * refuses Node's built-in `fetch`. `impit` replays a real browser's
+ * ClientHello, ALPN and header order. One instance is shared by all passes.
  */
 
 import { Impit } from 'impit';
 
-/**
- * The browser to impersonate. Airbnb accepts this profile today; if requests
- * start failing wholesale with a 403, a newer one is the first thing to try,
- * since a profile eventually ages out of plausibility.
- */
+/** The browser to impersonate. If every request gets 403, try a newer profile. */
 const BROWSER = 'chrome124';
 
 let client: Impit | undefined;
@@ -27,13 +18,7 @@ export function http(): Impit {
   return client;
 }
 
-/**
- * A non-2xx response.
- *
- * Carries `status` as a field rather than only in the message, because the
- * one status this project reacts to — 429 — must be recognised
- * structurally. See `isRateLimited`.
- */
+/** A non-2xx response. `status` is a field so `isRateLimited` can check it. */
 export class HttpError extends Error {
   readonly status: number;
   readonly url: string;
@@ -47,28 +32,19 @@ export class HttpError extends Error {
 }
 
 /**
- * Did this failure come back 429?
- *
- * Structural only — the status code, never the text. A 429 aborts the entire
- * run, so a false positive is expensive, and every plausible textual test has
- * one: `"429"` appears in the room id of listing 4291337, and in any error
- * message that quotes a response body. Every request in this package goes
- * through `request`, which raises `HttpError` carrying the real status, so
- * there is nothing a substring match would catch that this does not.
+ * Whether this failure is an HTTP 429. Checks the status code only, since
+ * "429" can appear in room ids and quoted response bodies, and a 429 aborts
+ * the run.
  */
 export function isRateLimited(err: unknown): boolean {
   return err instanceof HttpError && err.status === 429;
 }
 
 /**
- * Did this request hang rather than fail?
- *
- * A hung request is the limiter's quiet warning, not bad luck: mild overage
- * stalls connections rather than refusing them (see `pace.ts`). impit raises
- * a family of `*Timeout` errors — `ReadTimeout`, `ConnectTimeout`,
- * `PoolTimeout`, `WriteTimeout` — so the error's *name* covers all of them,
- * and an `AbortError` besides. Matching the message instead would fire on
- * any Airbnb error page that happens to say "timed out".
+ * Whether this request timed out (see `Pacer.noteTimeout`). Matches the error
+ * name, which covers impit's `ReadTimeout`, `ConnectTimeout`, `PoolTimeout`,
+ * `WriteTimeout` and `AbortError`, rather than the message, which may quote
+ * an error page.
  */
 export function isTimeout(err: unknown): boolean {
   return err instanceof Error && /timeout|abort/i.test(err.name);

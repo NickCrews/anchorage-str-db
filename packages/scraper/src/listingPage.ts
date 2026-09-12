@@ -1,43 +1,25 @@
 /**
- * Read a listing's own page for the two things search results don't carry:
- * whether its coordinate is real, and its municipal STR registration number.
+ * Read a listing's own page for two fields search results lack: whether its
+ * coordinate is exact, and its municipal STR registration number.
  *
- * ## Why this module exists
+ * Airbnb jitters the map pin unless the host shows the exact location. Search
+ * returns a coordinate either way; the listing page's `isExactLocation` says
+ * which. See `docs/research/airbnb-pdp-location-payload.md`. The registration
+ * number is required in listings from 2026-07-31 under AO 2025-115(S-2).
  *
- * Airbnb jitters the map pin for listings whose host hasn't opted into
- * showing the exact spot. The search endpoint gives us a `(lat, lng)` either
- * way and never says which case it is — but the listing page does, via an
- * `isExactLocation` boolean. Roughly half of Anchorage listings publish a
- * real coordinate; see `docs/research/airbnb-pdp-location-payload.md`.
+ * The page is not a documented API, so fields are extracted by three
+ * independent layers. Each field takes the first layer that produces it, and
+ * `locationSource` records every layer that contributed so the quality checks
+ * can detect a layer that stops working:
  *
- * The page also carries the Municipality of Anchorage STR registration
- * number (AO 2025-115(S-2), required in listings from 2026-07-31).
- *
- * ## Why it's built in layers
- *
- * None of this is a documented API, so the parse is written as three
- * independent extraction layers, tried in order, rather than one path into
- * one blob. Each field takes the first layer that produces it, and every
- * layer that contributed is recorded in `locationSource`, which the run's
- * data-quality gate reads (via `PageFetchStats`) so a silent degradation
- * fails the run instead of only leaving a log line:
- *
- * 1. **`json-ld`** — the schema.org `VacationRental` block Airbnb publishes
- *    for Google rich results. A public standard, load-bearing for their SEO,
- *    and by far the least likely thing on the page to change shape. Carries
- *    the coordinate, but not `isExactLocation`.
- * 2. **`state`** — the server-rendered GraphQL response embedded in a
- *    `<script type="application/json">`. This has every field, and is the
- *    only source for `isExactLocation`. Located by *shape* — we search every
- *    JSON script for an object that has a boolean key matching
- *    `exact…location` — rather than by walking a hardcoded path like
- *    `niobeClientData[0][1].data.node.pdpPresentation.location`, so a
- *    reshuffle of the surrounding structure (or a renamed script id, or a
- *    renamed wrapper) doesn't break it. Only renaming the leaf fields does.
- * 3. **`raw-html`** — regexes over the undecoded document. Survives the JSON
- *    failing to parse at all. Deliberately refuses to guess: if a pattern
- *    matches more than one distinct value anywhere in the page, it returns
- *    nothing rather than picking one.
+ * 1. **`json-ld`**: the schema.org `VacationRental` block Airbnb publishes for
+ *    search engines. The most stable source, but has no `isExactLocation`.
+ * 2. **`state`**: the embedded GraphQL response, the only source of
+ *    `isExactLocation`. Found by searching every JSON script for an object
+ *    with a boolean key matching `exact…location`, not by a fixed path, so
+ *    renamed wrappers or script ids don't break it.
+ * 3. **`raw-html`**: regexes over the raw document, for when the JSON does not
+ *    parse. Returns nothing if a pattern matches more than one distinct value.
  */
 
 import { request } from './airbnb/http.ts';
@@ -48,8 +30,8 @@ import { describeError, log, rootCause } from './log.ts';
 import { RateLimitedError } from './pace.ts';
 import { withRetries } from './retry.ts';
 
-// Matched against *key names* in the embedded JSON, not against a fixed
-// path — survives isExactLocation -> hasExactLocation and friends.
+// Matched against key names anywhere in the embedded JSON, so variants like
+// hasExactLocation also match.
 const EXACT_LOCATION_KEY_RE = /exact.*location/i;
 const LAT_KEY_RE = /^lat(itude)?$/i;
 const LNG_KEY_RE = /^(lng|long|longitude|longitud)$/i;
@@ -72,33 +54,21 @@ const PAGE_HEADERS = {
 export interface PageFields {
   lat: number | null;
   lng: number | null;
-  /**
-   * Airbnb's own flag (`isExactLocation`) for whether `lat`/`lng` is the
-   * listing's true position or the obfuscated pin. The reason this module
-   * exists.
-   */
+  /** Airbnb's `isExactLocation`: whether `lat`/`lng` is exact or jittered. */
   locationIsExact: boolean | null;
-  /**
-   * Populated only for listings publishing a street address outright; null
-   * on most listings measured so far, but cheap to carry.
-   */
+  /** Set only when the host publishes a street address; null for most. */
   locationExactAddress: string | null;
   locationSubtitle: string | null;
   locationVerified: boolean | null;
   strRegistrationId: string | null;
 }
 
-/**
- * What one listing's page told us. Every field is optional: a layer that
- * can't find something leaves it null rather than guessing, and
- * `locationSource` records which layers actually contributed.
- */
+/** What one listing's page yielded. Fields no layer found are null. */
 export interface ListingPage extends PageFields {
   roomId: string;
   /**
-   * Which extraction layers contributed, e.g. `"json-ld+state"`. Provenance
-   * about the parse, not the listing: it feeds logs and the run's
-   * `PageFetchStats`, and is not persisted to the database.
+   * Which extraction layers contributed, e.g. `"json-ld+state"`. Used for logs
+   * and `PageFetchStats`; not stored in the database.
    */
   locationSource: string | null;
   error: string | null;
@@ -135,11 +105,8 @@ function* iterObjects(node: unknown): Generator<JsonObject> {
 }
 
 /**
- * The value of the first key matching `pattern` that holds the wanted type.
- *
- * Type-checking the value matters as much as matching the key: an object can
- * carry both a `latitude` number and a `latitudeDelta`, and a run asking for
- * a coordinate must not be answered by `isExactLocation`.
+ * The value of the first key matching `pattern` whose value has type `kind`.
+ * Checking the type keeps, say, a boolean from answering a numeric lookup.
  */
 function firstKey(obj: JsonObject, pattern: RegExp, kind: 'number'): number | null;
 function firstKey(obj: JsonObject, pattern: RegExp, kind: 'boolean'): boolean | null;
@@ -157,17 +124,12 @@ function firstKey(
 }
 
 /**
- * Every parseable JSON `<script>`, biggest first.
- *
- * Not selecting `#data-deferred-state-0` by id on purpose — the id is an
- * implementation detail of Airbnb's renderer. The payload we want is always
- * the largest JSON blob on the page, so trying them in size order finds it
- * first without naming it.
+ * Every parseable JSON `<script>`, largest first. The wanted payload is the
+ * largest, so this finds it without depending on its script id.
  */
 function* jsonScripts(html: string): Generator<unknown> {
   const candidates = scriptTags(html).filter(
-    // By declared type, or — if Airbnb drops the attribute — by the content
-    // simply looking like a JSON document.
+    // By declared type, or by content that starts like a JSON object.
     (tag) => tag.type.includes('json') || tag.text.trimStart().startsWith('{'),
   );
   candidates.sort((a, b) => b.text.length - a.text.length);
@@ -195,10 +157,9 @@ function fromJsonLd(html: string): Partial<PageFields> {
     }
     for (const obj of iterObjects(doc)) {
       if (typeof obj['latitude'] !== 'number' || typeof obj['longitude'] !== 'number') continue;
-      // Only the coordinate. JSON-LD's `addressLocality` is a bare town name
-      // where `locationSubtitle` is a full "Anchorage, Alaska, United
-      // States" — taking it here would silently change what that column
-      // means depending on which layer won.
+      // Only the coordinate: JSON-LD's `addressLocality` is a bare town name,
+      // not the "Anchorage, Alaska, United States" form `locationSubtitle`
+      // holds.
       return { lat: obj['latitude'], lng: obj['longitude'] };
     }
   }
@@ -209,16 +170,14 @@ function fromJsonLd(html: string): Partial<PageFields> {
 // layer 2: the embedded GraphQL state, located by shape
 
 /**
- * The number appears twice: as a titled list item (clean — the value is the
- * whole string) and inlined at the end of the long description. Prefer the
- * titled item, fall back to any long text that mentions one.
+ * The number appears as a list item titled "Registration…" and in the long
+ * description. Prefer the titled item; fall back to long text.
  */
 function findRegistration(doc: unknown): string | null {
   const prose = new Set<string>();
   for (const obj of iterObjects(doc)) {
     const title = obj['title'];
     if (typeof title === 'string' && REGISTRATION_TITLE_RE.test(title)) {
-      // A field Airbnb itself labels "Registration…" is authoritative.
       for (const nested of iterObjects(obj)) {
         for (const text of Object.values(nested)) {
           if (typeof text !== 'string') continue;
@@ -232,10 +191,8 @@ function findRegistration(doc: unknown): string | null {
       for (const match of value.matchAll(STR_NUMBER_RE_G)) prose.add(match[1]!);
     }
   }
-  // Unlabelled prose only counts if it says one thing. A description naming
-  // two different numbers (a host who manages several units, say) is
-  // ambiguous, and picking the first would be a coin flip recorded as a fact
-  // — the same rule `soleMatch` applies to the raw-html layer.
+  // Prose naming more than one distinct number is ambiguous, so it yields
+  // nothing (the same rule as `soleMatch`).
   return prose.size === 1 ? `STR${[...prose][0]}` : null;
 }
 
@@ -243,7 +200,6 @@ function locationFrom(doc: unknown): Partial<PageFields> {
   for (const obj of iterObjects(doc)) {
     const flag = firstKey(obj, EXACT_LOCATION_KEY_RE, 'boolean');
     if (flag === null) continue;
-    // Whatever this object is called now, it's the location object.
     const verification = obj['verificationDetails'];
     const verified =
       typeof verification === 'object' && verification !== null
@@ -269,13 +225,7 @@ function dropNulls(fields: Partial<PageFields>): Partial<PageFields> {
   ) as Partial<PageFields>;
 }
 
-/**
- * Accumulate across every JSON script rather than committing to one.
- *
- * The location object and the registration item live in the same blob today,
- * but nothing guarantees they always will, so each is taken from whichever
- * script has it.
- */
+/** Takes the location and registration from whichever JSON script has each. */
 function fromEmbeddedState(html: string): Partial<PageFields> {
   const found: Partial<PageFields> = {};
   for (const doc of jsonScripts(html)) {
@@ -292,12 +242,8 @@ function fromEmbeddedState(html: string): Partial<PageFields> {
 // layer 3: regex over the undecoded document
 
 /**
- * A value only if the page agrees with itself about it.
- *
- * Every one of these patterns can in principle match something unrelated.
- * Rather than take the first hit, take the hit only when the whole document
- * yields exactly one distinct value — otherwise we'd be inventing a
- * coordinate or a permit number out of a coincidence.
+ * The captured value if the whole document yields exactly one distinct
+ * value, else null, since these patterns can match unrelated text.
  */
 function soleMatch(pattern: RegExp, html: string): string | null {
   const values = new Set<string>();
@@ -330,11 +276,10 @@ const PAGE_FIELD_NAMES = [
 ] as const satisfies ReadonlyArray<keyof PageFields>;
 
 /**
- * Extract what we can, recording which layers it came from.
+ * Extract every field available, recording which layers contributed.
  *
- * Throws only if *no* layer produced anything — that means a blocked,
- * redirected, or captcha'd fetch, which must surface as an error rather than
- * as a row of plausible-looking nulls.
+ * Throws if no layer produced anything, which indicates a blocked or
+ * redirected fetch rather than a listing with no data.
  */
 export function parseListingPage(html: string, roomId: string): ListingPage {
   const byLayer: Record<Layer, Partial<PageFields>> = {
@@ -350,8 +295,6 @@ export function parseListingPage(html: string, roomId: string): ListingPage {
     for (const name of PAGE_FIELD_NAMES) {
       const value = byLayer[layer][name];
       if (page[name] === null && value !== undefined && value !== null) {
-        // Each field is written from the layer that declares it, so the
-        // narrowing is per-field rather than across the union.
         Object.assign(page, { [name]: value });
         used = true;
       }
@@ -368,11 +311,7 @@ export function parseListingPage(html: string, roomId: string): ListingPage {
   return page;
 }
 
-/**
- * Layers reading different parts of the page should agree. If they don't,
- * one of them has started matching the wrong thing — which is exactly the
- * failure mode a single-path parser hides.
- */
+/** Warn when layers disagree, which means one is matching the wrong thing. */
 function warnOnDisagreement(byLayer: Record<Layer, Partial<PageFields>>, roomId: string): void {
   for (const name of ['lat', 'lng', 'locationIsExact', 'strRegistrationId'] as const) {
     const reported = new Map<Layer, unknown>();
@@ -401,8 +340,8 @@ export type FetchOnePage = (roomId: string) => Promise<ListingPage>;
 export function livePageFetcher(): FetchOnePage {
   return async (roomId) => {
     try {
-      // A bad body is this listing's problem alone, so the parse sits inside
-      // the retry: a truncated or captcha'd page is worth asking for again.
+      // Parsing inside the retry means a truncated or blocked page is
+      // fetched again.
       return await withRetries(
         async () => {
           const html = await request(`https://www.airbnb.com/rooms/${roomId}`, {
@@ -418,8 +357,7 @@ export function livePageFetcher(): FetchOnePage {
         },
       );
     } catch (err) {
-      // A rate limit is IP-wide, not this listing's problem, and aborts the
-      // whole pass rather than being recorded as one failed row.
+      // A rate limit is IP-wide, so it aborts the pass.
       if (err instanceof RateLimitedError) throw err;
       return emptyListingPage(roomId, describeError(rootCause(err)));
     }
@@ -432,12 +370,8 @@ export interface FetchListingPagesOptions {
 }
 
 /**
- * Fetch every listing's page, capped concurrency, globally paced.
- *
- * The pacing is not this function's business — it belongs to the run-wide
- * budget in `pace.ts`, because Airbnb counts the search, this pass and the
- * calendar pass against one per-IP total. `PAGE_CONCURRENCY` is only a cap
- * on how many sockets are open at once.
+ * Fetch every listing's page. The request rate is set by `pace.ts`;
+ * `concurrency` only caps open connections.
  */
 export async function fetchListingPages(
   roomIds: readonly string[],

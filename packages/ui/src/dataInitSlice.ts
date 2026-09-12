@@ -3,16 +3,11 @@ import type { RoomShellSliceState } from '@sqlrooms/room-shell';
 import type { StateCreator } from 'zustand';
 
 /**
- * The tables (views, really) this app expects to exist in the main schema
- * once the database is attached — kept in one place so the rest of the app can
- * just reference them by name.
+ * Tables and views from the attached database that are exposed in the main
+ * schema. Read `calendar_current` rather than `calendar_status` for current
+ * availability.
  */
 export const LAKE_TABLES = [
-  // `listing_observations` and `calendar_status` are the real tables; the
-  // rest are views the published database defines over them. `listings` is
-  // the SCD2 dimension rebuilt per-version, and `calendar_current` is the
-  // one to read for "operating tonight" — plain `calendar_status` keeps
-  // reporting a retired listing's frozen forward nights as current.
   'listings',
   'listings_current',
   'listing_observations',
@@ -29,22 +24,14 @@ export type DataInitSliceState = {
   dataInit: {
     status: 'idle' | 'loading' | 'ready' | 'error';
     error: string | null;
-    /**
-     * Picked up automatically by the room store's init sequence (any
-     * top-level slice with an `initialize()` gets awaited after the DuckDB
-     * connector and any configured `dataSources` are ready) — see
-     * `@sqlrooms/room-store`'s `createBaseRoomSlice`.
-     */
+    /** Awaited by the room store once the DuckDB connector is ready. */
     initialize: () => Promise<void>;
   };
 };
 
 /**
- * Attaches the pre-built `anchorage_str.duckdb` snapshot (served from
- * `public/`) into the in-browser DuckDB-WASM instance and creates
- * convenience views for its tables in the main schema, so the rest of the
- * app (data table, charts) can just query `listings`,
- * `calendar_current`, etc. directly.
+ * Attaches `public/anchorage_str.duckdb` read-only and creates a main-schema
+ * view for each name in `LAKE_TABLES`.
  */
 export function createDataInitSlice(): StateCreator<
   RoomShellSliceState & DataInitSliceState,
@@ -70,7 +57,7 @@ export function createDataInitSlice(): StateCreator<
           if (!response.ok) {
             throw new Error(
               `Could not fetch ${DB_FILE_URL} (${response.status}). ` +
-              `Copy data/anchorage_str.duckdb into ui/public/ first.`,
+              `Copy data/anchorage_str.duckdb into packages/ui/public/ first.`,
             );
           }
           const bytes = new Uint8Array(await response.arrayBuffer());

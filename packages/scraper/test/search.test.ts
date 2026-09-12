@@ -1,9 +1,6 @@
 /**
- * Band arithmetic, the convergence loop, and the coverage audit.
- *
- * The bands must tile [0, inf) with no gap, because a gap is exactly the
- * failure this module exists to prevent — silently invisible listings, in a
- * result that looks complete.
+ * Price bands, band splitting, and the coverage audit. Bands must cover
+ * [0, inf) with no gap, or listings in the gap are never found.
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -21,7 +18,7 @@ import {
 } from '../src/search.ts';
 import { makeSearchListing } from './fixtures.ts';
 
-// Tests never really sleep: a pacer this fast hands out a token immediately.
+// A pacer this fast never sleeps.
 beforeEach(() => {
   resetPace({ rate: 1e6 });
 });
@@ -40,10 +37,6 @@ describe('price bands', () => {
   });
 
   it('cover everything the parent did when split', () => {
-    // `price_max=X` and `price_min=X` are complementary, so abutting halves
-    // lose nothing at the boundary. Measured on single-page queries:
-    // splitting a 26-listing box at $100/$125/$150/$200 gave below+above ==
-    // 26 every time, with no duplicate and no gap.
     const parent = new PriceBand(100, 200);
     const halves = parent.split()!;
     for (let price = parent.minUsd; price <= parent.maxUsd!; price++) {
@@ -74,7 +67,7 @@ describe('price bands', () => {
 });
 
 // --------------------------------------------------------------------------
-// the convergence loop
+// band splitting
 
 type BandKey = string;
 
@@ -105,10 +98,6 @@ describe('searchAnchorage', () => {
   });
 
   it('splits a multi-page band rather than paginating it', async () => {
-    // Covers both of Airbnb's pagination defects. Walking the pages of this
-    // band would return at most 280 of its listings, in a set that
-    // changes between identical calls; halving it until each half fits one
-    // page returns all of them, reproducibly.
     const capped = config.PRICE_BAND_SEEDS_USD[0]!;
     const halves = new PriceBand(capped[0], capped[1]).split()!;
     const result = await searchAnchorage({
@@ -119,7 +108,7 @@ describe('searchAnchorage', () => {
       }),
     });
 
-    // The parent's own page-1 sample is discarded in favour of the halves.
+    // Only the halves' listings, not the parent's.
     expect(
       result.listings.map((listing) => listing.roomId).sort((a, b) => (a < b ? -1 : 1)),
     ).toEqual([
@@ -129,9 +118,6 @@ describe('searchAnchorage', () => {
   });
 
   it('reports a band that cannot be narrowed to one page', async () => {
-    // More than a page of listings at a single price is something price can
-    // no longer separate. The query answering it is truncatable and
-    // unstable, and nothing in the data would show that, so it fails the run.
     const result = await searchAnchorage({
       seeds: [[100, 101]],
       fetchPage: stubPages({ '100:101': page([...Array(40).keys()], 3) }),
@@ -142,8 +128,6 @@ describe('searchAnchorage', () => {
   });
 
   it('issues exactly one request per band and never follows a cursor', async () => {
-    // The whole design rests on not paginating: a multi-page result set is
-    // both silently truncatable at 280 items and re-ranked between fetches.
     let calls = 0;
     const result = await searchAnchorage({
       seeds: [[0, 100]],
@@ -159,8 +143,7 @@ describe('searchAnchorage', () => {
 });
 
 // --------------------------------------------------------------------------
-// coverage audit — the check that we are finding all of the municipality,
-// rather than merely finding a self-consistent subset of it.
+// coverage audit
 
 const KNOWN = [...Array(20).keys()].map((id) => makeSearchListing(id));
 
@@ -176,10 +159,6 @@ describe('auditCoverage', () => {
   });
 
   it('catches a listing the price bands never returned', async () => {
-    // The failure banding can have and geography cannot: a listing with no
-    // price Airbnb will filter on falls in no band, so it is absent from a
-    // result that looks completely healthy. Only a query with no price
-    // filter can see it.
     const audit = await auditCoverage(KNOWN, '2026-08-18', {
       fetchPage: async () => page([1, 999_001]),
     });
@@ -189,8 +168,6 @@ describe('auditCoverage', () => {
   });
 
   it('skips a box that needs more than one page', async () => {
-    // A multi-page audit box is unstable itself, so it cannot testify about
-    // what the search missed. Counting it would manufacture misses.
     const audit = await auditCoverage(KNOWN, '2026-08-18', {
       fetchPage: async () => page([9], 4),
     });

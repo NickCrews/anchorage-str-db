@@ -1,13 +1,8 @@
 /**
- * Pull `<script>` blocks out of a document, without a DOM.
+ * Extract `<script>` blocks from a document without a DOM parser.
  *
- * Nothing in this package traverses HTML — the listing-page parser wants the
- * JSON payloads Airbnb embeds in script tags and nothing else. A script
- * element's content ends at the first `</script`, by the HTML spec's own
- * rules for raw-text elements, so a non-greedy match is not an approximation
- * of a parser here; it is the same rule a parser applies. That saves
- * building a 500 KB page into a tree to read two of its leaves, and saves a
- * dependency.
+ * Per the HTML spec, a script element's content ends at the first
+ * `</script`, so a non-greedy regex matches exactly what a parser would.
  */
 
 export interface ScriptTag {
