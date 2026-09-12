@@ -11,7 +11,7 @@ no server, no data leaves your machine.
 - **Listings** — a searchable, sortable table of the currently active
   listings with their latest rating/review/price snapshot.
 - **SQL** — a full SQL editor over the database, seeded with the ready-made
-  questions from [`queries/policy_questions.sql`](../queries/policy_questions.sql).
+  questions from [`docs/policy_questions.sql`](../../docs/policy_questions.sql).
   Save any result as a new table/view via "New table".
 - **Data** (left sidebar) — the schema tree for `listings`,
   `listing_observations`, `calendar_status`, `scrape_runs`, plus a dropzone

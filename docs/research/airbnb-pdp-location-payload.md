@@ -177,7 +177,7 @@ registry isn't published as open data).
 
 At ~92% coverage a month after the 2026-07-31 display deadline, the
 listings *without* a number are the interesting rows — that query is in
-[`queries/policy_questions.sql`](../../queries/policy_questions.sql).
+[`docs/policy_questions.sql`](../policy_questions.sql).
 
 ## What this changes for the project
 

@@ -16,7 +16,7 @@ The goal is to replace guesses with a consistent, date-stamped database.
 
 - One local DuckDB file: `anchorage_str.duckdb`
 - A daily snapshot history of listings and calendar availability
-- Ready-to-run policy-oriented queries in `queries/policy_questions.sql`
+- Ready-to-run policy-oriented queries in `docs/policy_questions.sql`
 - An optional browser viewer in `packages/ui/`
 
 ## Quick Start

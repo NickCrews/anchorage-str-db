@@ -139,7 +139,7 @@ worth another try.
 duckdb data/anchorage_str.duckdb
 ```
 
-or run anything in [`queries/policy_questions.sql`](queries/policy_questions.sql).
+or run anything in [`docs/policy_questions.sql`](docs/policy_questions.sql).
 
 ## How CI runs this
 
@@ -272,7 +272,7 @@ how before any of the below is worth writing. If you pick this up:
   instead of needing parallel tables. `listings` picks it up for free, but
   the views' `PARTITION BY listing_id` clauses need to become
   `PARTITION BY source, listing_id` — room ids are only unique per source.
-- The policy questions in `queries/policy_questions.sql` should mostly just
+- The policy questions in `docs/policy_questions.sql` should mostly just
   need `GROUP BY source` added, not a rewrite.
 
 ## Tests
