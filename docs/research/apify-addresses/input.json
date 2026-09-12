@@ -1,0 +1,11 @@
+{
+  "urls": [
+    "https://www.airbnb.com/rooms/1101681",
+    "https://www.airbnb.com/rooms/4694553",
+    "https://www.airbnb.com/rooms/6248973"
+  ],
+  "maxRetries": 3,
+  "requestTimeoutSecs": 30,
+  "maxItems": 3,
+  "proxyConfiguration": { "useApifyProxy": true }
+}
