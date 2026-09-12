@@ -75,7 +75,7 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
     log.info(
       `listing pages: ${pageStats.attempted} fetched, ${pageStats.failed} failed, ` +
         `${pageStats.exactLocated} with an exact location, ${pageStats.registered} with an ` +
-        'STR registration number',
+        `STR registration number, ${pageStats.withHostId} with a host id`,
     );
 
     const calendarResults = await fetchCalendars(roomIds, {

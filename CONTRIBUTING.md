@@ -69,17 +69,18 @@ aggregate.
 
 ### Listing-page pass
 
-Every run fetches each listing's own page for two fields the search response
+Every run fetches each listing's own page for fields the search response
 lacks: Airbnb's `isExactLocation` flag (whether `location_lat`/`location_lng`
-is the real position or jittered) and the municipal STR registration number.
-They are stored on the same `listing_observations` row as the search fields.
+is the real position or jittered), the municipal STR registration number, and
+the primary host's user id. They are stored on the same `listing_observations` row as the search fields.
 When a page fetch fails, the `listings` view carries the previous values
 forward.
 
 The pass has no flag to skip it. A skipped pass would write rows whose page
 fields are carried forward from an earlier day, and nothing in the database
 could tell those rows from freshly read ones. See
-[`docs/research/airbnb-pdp-location-payload.md`](docs/research/airbnb-pdp-location-payload.md).
+[`docs/research/airbnb-pdp-location-payload.md`](docs/research/airbnb-pdp-location-payload.md)
+and [`docs/research/airbnb-pdp-host-id.md`](docs/research/airbnb-pdp-host-id.md).
 
 ### Request budget
 
@@ -182,6 +183,8 @@ Every run fails with `LegacySchemaError` until someone:
   documented API. Each page records which layers contributed
   (`ListingPage.locationSource`, in memory only), and the
   `extraction_layer_*_alive` checks fail when a layer stops producing values.
+  JSON-LD has no host, so `host_id` comes from `state` and `raw-html`, and
+  `host_id_coverage` fails the run when both stop producing it.
 - **The bounding box is derived from parcel data.** See the docstring in
   `config.ts`; recompute it from `anchorage-property` rather than editing
   coordinates by hand.

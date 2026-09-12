@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS listing_observations (
     location_subtitle VARCHAR,
     location_verified BOOLEAN,
     str_registration_id VARCHAR,
+    -- The primary host's Airbnb user id (airbnb.com/users/show/<host_id>).
+    host_id BIGINT,
 
     PRIMARY KEY (listing_id, scrape_date)
 );
@@ -114,7 +116,8 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
  * Attributes whose change opens a new listing version. Excludes values that
  * change most days (rating, review count, price hint) and `url`, which is
  * derived from `listing_id`. Coordinates are rounded to 6dp so float noise
- * doesn't open a version.
+ * doesn't open a version. `page` includes `host_id`, so a room changing hands
+ * opens a version.
  */
 const VERSION_KEY_SQL = `{
     'name': name,
@@ -134,7 +137,8 @@ const PAGE_ATTRS_SQL = `{
     'location_exact_address': location_exact_address,
     'location_subtitle': location_subtitle,
     'location_verified': location_verified,
-    'str_registration_id': str_registration_id
+    'str_registration_id': str_registration_id,
+    'host_id': host_id
 }`;
 
 /**
@@ -176,7 +180,7 @@ WITH observed AS (
     SELECT
         * EXCLUDE (
             location_is_exact, location_exact_address, location_subtitle,
-            location_verified, str_registration_id
+            location_verified, str_registration_id, host_id
         ),
         -- NULL when the page fetch failed, so the carry-forward skips it.
         -- Carrying the whole struct keeps "read the page, no registration
@@ -237,6 +241,7 @@ SELECT
     page_attrs.location_subtitle AS location_subtitle,
     page_attrs.location_verified AS location_verified,
     page_attrs.str_registration_id AS str_registration_id,
+    page_attrs.host_id AS host_id,
     lead(valid_from) OVER (PARTITION BY listing_id ORDER BY version_no) AS valid_to
 FROM aggregated;
 
@@ -259,6 +264,7 @@ SELECT
     v.location_subtitle,
     v.location_verified,
     v.str_registration_id,
+    v.host_id,
     a.page_seen_date,
     a.first_seen_date,
     a.last_seen_date,
@@ -301,7 +307,7 @@ export class LegacySchemaError extends Error {
 }
 
 const NO_MIGRATION =
-  "There is no migration: see CONTRIBUTING.md, 'When the published database becomes unreadable'.";
+  "There is no migration: see CONTRIBUTING.md, 'When the published database has an incompatible schema'.";
 
 /**
  * Throw on an incompatible database.
@@ -322,10 +328,13 @@ async function rejectLegacySchema(db: Database): Promise<void> {
   const columns = await db.rows<{ column_name: string }>(
     "SELECT column_name FROM duckdb_columns() WHERE table_name = 'listing_observations'",
   );
-  if (columns.length > 0 && !columns.some((row) => row.column_name === 'page_fetch_ok')) {
-    throw new LegacySchemaError(
-      `\`listing_observations\` has no listing-page columns. ${NO_MIGRATION}`,
-    );
+  if (columns.length === 0) return;
+  for (const required of ['page_fetch_ok', 'host_id']) {
+    if (!columns.some((row) => row.column_name === required)) {
+      throw new LegacySchemaError(
+        `\`listing_observations\` has no \`${required}\` column. ${NO_MIGRATION}`,
+      );
+    }
   }
 }
 
@@ -372,6 +381,7 @@ const OBSERVATION_COLUMNS = [
   ['location_subtitle', VARCHAR],
   ['location_verified', BOOLEAN],
   ['str_registration_id', VARCHAR],
+  ['host_id', BIGINT],
 ] as const satisfies ReadonlyArray<readonly [string, DuckDBType]>;
 
 const OBSERVATION_TYPES = OBSERVATION_COLUMNS.map(([, type]) => type);
@@ -438,6 +448,7 @@ export async function recordObservations(
         page?.locationSubtitle ?? null,
         page?.locationVerified ?? null,
         page?.strRegistrationId ?? null,
+        page?.hostId == null ? null : BigInt(page.hostId),
       ] satisfies DuckDBValue[]);
     }
     appender.flushSync();
@@ -487,6 +498,7 @@ export interface PageFetchStats {
   failed: number;
   exactLocated: number;
   registered: number;
+  withHostId: number;
   /**
    * How many fetched pages yielded the exact-location flag, and how many
    * each extraction layer contributed to. The checks use these to detect a
@@ -502,6 +514,7 @@ export function emptyPageStats(): PageFetchStats {
     failed: 0,
     exactLocated: 0,
     registered: 0,
+    withHostId: 0,
     withExactFlag: 0,
     layerUsed: { 'json-ld': 0, state: 0, 'raw-html': 0 },
   };
@@ -520,6 +533,7 @@ export function summarizePages(pages: readonly ListingPage[]): PageFetchStats {
     failed: pages.length - ok.length,
     exactLocated: ok.filter((page) => page.locationIsExact === true).length,
     registered: ok.filter((page) => page.strRegistrationId !== null).length,
+    withHostId: ok.filter((page) => page.hostId !== null).length,
     withExactFlag: ok.filter((page) => page.locationIsExact !== null).length,
     layerUsed,
   };

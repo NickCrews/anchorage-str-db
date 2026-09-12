@@ -381,6 +381,53 @@ describe('listing-page fields', () => {
       },
     ]);
   });
+
+  it('store a 19-digit host id exactly', async () => {
+    const { db } = await freshDb();
+    await recordObservations(
+      db,
+      '2026-08-26',
+      [makeListing(1, 'Cabin A')],
+      [page('1', { hostId: '1726975321647428715' })],
+    );
+
+    expect(await db.rows('SELECT host_id FROM listings WHERE is_current')).toEqual([
+      { host_id: '1726975321647428715' },
+    ]);
+  });
+
+  it('carry the host id forward past a failed page fetch', async () => {
+    const { db } = await freshDb();
+    const parsed = [makeListing(1, 'Cabin A')];
+    await recordObservations(db, '2026-08-26', parsed, [page('1', { hostId: '3682901' })]);
+
+    const stats = await recordObservations(db, '2026-08-27', parsed, [
+      page('1', { error: 'HttpError: HTTP 503' }),
+    ]);
+
+    expect(stats.changed).toBe(0);
+    expect(await db.rows('SELECT host_id FROM listings WHERE is_current')).toEqual([
+      { host_id: '3682901' },
+    ]);
+  });
+
+  it('open a new version when the room changes hosts', async () => {
+    const { db } = await freshDb();
+    const parsed = [makeListing(1, 'Cabin A')];
+    await recordObservations(db, '2026-08-26', parsed, [page('1', { hostId: '3682901' })]);
+
+    const stats = await recordObservations(db, '2026-08-27', parsed, [
+      page('1', { hostId: '42437515' }),
+    ]);
+
+    expect(stats.changed).toBe(1);
+    expect(
+      await db.rows('SELECT host_id, valid_from, valid_to FROM listings ORDER BY valid_from'),
+    ).toEqual([
+      { host_id: '3682901', valid_from: '2026-08-26', valid_to: '2026-08-27' },
+      { host_id: '42437515', valid_from: '2026-08-27', valid_to: null },
+    ]);
+  });
 });
 
 // --------------------------------------------------------------------------
@@ -483,6 +530,22 @@ describe('the store itself', () => {
 
     await expect(connect(path)).rejects.toThrow(LegacySchemaError);
     await expect(connect(path)).rejects.toThrow(/as a table rather than a view/);
+  });
+
+  it('rejects listing_observations without host_id', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
+    temporary.push(dir);
+    const path = join(dir, 'legacy.duckdb');
+
+    const { Database } = await import('../src/db.ts');
+    const legacy = await Database.open(path);
+    await legacy.run(
+      'CREATE TABLE listing_observations ' +
+        '(listing_id BIGINT, scrape_date DATE, page_fetch_ok BOOLEAN)',
+    );
+    legacy.close();
+
+    await expect(connect(path)).rejects.toThrow(/no `host_id` column/);
   });
 
   it('round-trips a run row', async () => {

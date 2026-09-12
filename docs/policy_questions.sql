@@ -214,3 +214,25 @@ ORDER BY
 --         ST_Transform(ST_Point(l.location_lng, l.location_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true),
 --         ST_Transform(ST_Point(p.centroid_lon, p.centroid_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true)
 --       ) < 60;
+
+-- ============================================================
+-- Q: Which hosts operate the most current listings?
+-- `host_id` is the primary host's account; a property manager running
+-- listings for several owners appears as one host.
+-- ============================================================
+SELECT
+    host_id,
+    'https://www.airbnb.com/users/show/' || host_id AS host_url,
+    count(*) AS current_listings,
+    list(listing_id ORDER BY listing_id) AS listing_ids
+FROM
+    listings
+WHERE
+    is_current
+    AND host_id IS NOT NULL
+GROUP BY
+    host_id
+ORDER BY
+    current_listings DESC
+LIMIT
+    25;

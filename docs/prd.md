@@ -26,7 +26,9 @@ Aim to pull fresh data every day.
 
 So downstream repos can pull this data and join it against other sources
 (property/parcel db, voterfile, etc) without talking to us first:
-- `host_id` — stable for the life of a host account.
+- `host_id` — the primary host's Airbnb user id, stable for the life of the
+  host account. On `listings`; a room changing hands opens a new version.
+  Co-hosts are not recorded.
 - `room_id` — stable for the life of a room, per Rooms #2.
 - location — `lat`/`lon`, with a flag for jittered vs exact (see Rooms #3).
   `location_exact_address` is null for most rooms, so join on coordinates.

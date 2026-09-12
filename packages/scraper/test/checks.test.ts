@@ -9,6 +9,7 @@ import { calendarResultFor } from './helpers.ts';
 import * as config from '../src/config.ts';
 import type { IsoDate } from '../src/dates.ts';
 import type { Database } from '../src/db.ts';
+import { emptyListingPage, type ListingPage } from '../src/listingPage.ts';
 import { emptyAudit, PriceBand, type CoverageAudit, type SearchResult } from '../src/search.ts';
 import {
   connect,
@@ -30,7 +31,7 @@ afterEach(async () => {
 });
 
 /** Enough rows for listing_count_plausible and observations_written_today to pass. */
-async function seedMinimal(): Promise<Database> {
+async function seedMinimal(pages: readonly ListingPage[] = []): Promise<Database> {
   const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
   temporary.push(dir);
   const db = await connect(join(dir, 't.duckdb'));
@@ -38,7 +39,7 @@ async function seedMinimal(): Promise<Database> {
 
   const [floor] = config.PLAUSIBLE_LISTING_COUNT;
   const listings = [...Array(floor).keys()].map((i) => makeListing(i, `Cabin ${i}`));
-  await recordObservations(db, DAY, listings);
+  await recordObservations(db, DAY, listings, pages);
   await logRun(db, {
     scrapeDate: DAY,
     runStartedAt: `${DAY} 00:00:00`,
@@ -144,4 +145,37 @@ it('fails search_single_page when a band needed more than one page', async () =>
   expect(byName['search_single_page']!.severity).toBe('error');
   expect(byName['search_single_page']!.detail).toContain(String(stuck));
   expect(report(all)).toBe(false);
+});
+
+/** A page read for each of the first `count` seeded listings, `withHost` of them with a host id. */
+function pagesRead(count: number, withHost: number): ListingPage[] {
+  return [...Array(count).keys()].map((i) => ({
+    ...emptyListingPage(String(i)),
+    hostId: i < withHost ? String(1000 + i) : null,
+  }));
+}
+
+it('passes host_id_coverage when every page read has a host', async () => {
+  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  const db = await seedMinimal(pagesRead(floor, floor));
+
+  const { byName } = await check(db);
+  expect(byName['host_id_coverage']!.passed).toBe(true);
+});
+
+it('fails host_id_coverage when host ids go missing', async () => {
+  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  const db = await seedMinimal(pagesRead(floor, Math.floor(floor / 2)));
+
+  const { byName, all } = await check(db);
+  expect(byName['host_id_coverage']!.passed).toBe(false);
+  expect(byName['host_id_coverage']!.severity).toBe('error');
+  expect(report(all)).toBe(false);
+});
+
+it('skips host_id_coverage when no page was ever read', async () => {
+  const db = await seedMinimal();
+
+  const { byName } = await check(db);
+  expect(byName['host_id_coverage']).toBeUndefined();
 });

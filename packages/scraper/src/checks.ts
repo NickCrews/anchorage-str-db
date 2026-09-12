@@ -187,6 +187,28 @@ export async function runChecks(
     }
   }
 
+  // An error, not a warning: a parse that finds no host id stores NULL, which
+  // opens a spurious version for every affected listing, and again when the
+  // parser is fixed. Failing the run keeps that day out of the published
+  // archive.
+  const pageRead = await db.count(
+    'SELECT count(*) FROM listings WHERE is_current AND page_seen_date IS NOT NULL',
+  );
+  if (pageRead) {
+    const withHost = await db.count(
+      'SELECT count(*) FROM listings ' +
+        'WHERE is_current AND page_seen_date IS NOT NULL AND host_id IS NOT NULL',
+    );
+    const share = withHost / pageRead;
+    check(
+      'host_id_coverage',
+      'error',
+      share >= config.MIN_HOST_ID_SHARE,
+      `${withHost}/${pageRead} current listings with a page read have a host_id ` +
+        `(${percent(share)}, min ${percent(config.MIN_HOST_ID_SHARE)})`,
+    );
+  }
+
   // Airbnb emits exact coordinates at 4 decimal places and jittered ones at
   // 5+ (41/41 measured; see docs/research/airbnb-pdp-location-payload.md).
   // This is undocumented, so a mismatch warns rather than fails.

@@ -48,7 +48,10 @@ data-quality checks.
   `valid_from`/`valid_to`
 - `scrape_runs`: one row per run, with counts and errors
 - `listings` *(view)*: one row per listing version, derived from the
-  observations. `listings_current` filters to `is_current`.
+  observations. `listings_current` filters to `is_current`. `host_id` is the
+  primary host's Airbnb user id (`airbnb.com/users/show/<host_id>`), stable
+  for the life of the host account; a change of host opens a new version.
+  Co-hosts are not recorded.
 - `calendar_current` *(view)*: use this instead of `calendar_status` for
   "how many are operating/booked"; it drops the frozen future nights of
   retired listings

@@ -1,11 +1,14 @@
 /**
- * Read a listing's own page for two fields search results lack: whether its
- * coordinate is exact, and its municipal STR registration number.
+ * Read a listing's own page for fields search results lack: whether its
+ * coordinate is exact, its municipal STR registration number, and its host's
+ * Airbnb user id.
  *
  * Airbnb jitters the map pin unless the host shows the exact location. Search
  * returns a coordinate either way; the listing page's `isExactLocation` says
  * which. See `docs/research/airbnb-pdp-location-payload.md`. The registration
- * number is required in listings from 2026-07-31 under AO 2025-115(S-2).
+ * number is required in listings from 2026-07-31 under AO 2025-115(S-2). The
+ * host id is the account id in `airbnb.com/users/show/<id>`, stable for the
+ * life of the account; see `docs/research/airbnb-pdp-host-id.md`.
  *
  * The page is not a documented API, so fields are extracted by three
  * independent layers. Each field takes the first layer that produces it, and
@@ -13,11 +16,13 @@
  * can detect a layer that stops working:
  *
  * 1. **`json-ld`**: the schema.org `VacationRental` block Airbnb publishes for
- *    search engines. The most stable source, but has no `isExactLocation`.
+ *    search engines. The most stable source, but has no `isExactLocation` or
+ *    host.
  * 2. **`state`**: the embedded GraphQL response, the only source of
  *    `isExactLocation`. Found by searching every JSON script for an object
  *    with a boolean key matching `exact…location`, not by a fixed path, so
- *    renamed wrappers or script ids don't break it.
+ *    renamed wrappers or script ids don't break it. The host id is likewise
+ *    found by value: the one GraphQL id that decodes to `DemandUser:<id>`.
  * 3. **`raw-html`**: regexes over the raw document, for when the JSON does not
  *    parse. Returns nothing if a pattern matches more than one distinct value.
  */
@@ -45,6 +50,14 @@ const REGISTRATION_TITLE_RE = /registration/i;
 
 const RAW_FLAG_RE_G = /"\w*[eE]xact[lL]ocation\w*"\s*:\s*(true|false)/g;
 
+// GraphQL ids are base64 of `<TypeName>:<id>`. The primary host's account is
+// the page's only `DemandUser`; co-hosts are `ContextualUser`s, whose ids are
+// a different number space.
+const GRAPHQL_ID_RE = /^[A-Za-z0-9+/]{12,}={0,2}$/;
+const HOST_USER_RE = /^DemandUser:(\d+)$/;
+// The decimal host id in the page's analytics context, e.g. `"hostId":"3682901"`.
+const RAW_HOST_ID_RE_G = /"host_?id"\s*:\s*"?(\d+)/gi;
+
 const PAGE_HEADERS = {
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language': config.LANGUAGE,
@@ -61,6 +74,11 @@ export interface PageFields {
   locationSubtitle: string | null;
   locationVerified: boolean | null;
   strRegistrationId: string | null;
+  /**
+   * The primary host's Airbnb user id, as a decimal string: newer ids are 19
+   * digits, which a JS number would round.
+   */
+  hostId: string | null;
 }
 
 /** What one listing's page yielded. Fields no layer found are null. */
@@ -84,6 +102,7 @@ export function emptyListingPage(roomId: string, error: string | null = null): L
     locationSubtitle: null,
     locationVerified: null,
     strRegistrationId: null,
+    hostId: null,
     locationSource: null,
     error,
   };
@@ -219,13 +238,29 @@ function locationFrom(doc: unknown): Partial<PageFields> {
   return {};
 }
 
+/**
+ * The id of the page's one `DemandUser`, or null if there is none or more
+ * than one distinct id.
+ */
+function findHostId(doc: unknown): string | null {
+  const ids = new Set<string>();
+  for (const obj of iterObjects(doc)) {
+    for (const value of Object.values(obj)) {
+      if (typeof value !== 'string' || !GRAPHQL_ID_RE.test(value)) continue;
+      const match = HOST_USER_RE.exec(Buffer.from(value, 'base64').toString('latin1'));
+      if (match) ids.add(match[1]!);
+    }
+  }
+  return ids.size === 1 ? [...ids][0]! : null;
+}
+
 function dropNulls(fields: Partial<PageFields>): Partial<PageFields> {
   return Object.fromEntries(
     Object.entries(fields).filter(([, value]) => value !== null && value !== undefined),
   ) as Partial<PageFields>;
 }
 
-/** Takes the location and registration from whichever JSON script has each. */
+/** Takes each field from whichever JSON script has it. */
 function fromEmbeddedState(html: string): Partial<PageFields> {
   const found: Partial<PageFields> = {};
   for (const doc of jsonScripts(html)) {
@@ -233,6 +268,10 @@ function fromEmbeddedState(html: string): Partial<PageFields> {
     if (found.strRegistrationId === undefined) {
       const registration = findRegistration(doc);
       if (registration) found.strRegistrationId = registration;
+    }
+    if (found.hostId === undefined) {
+      const hostId = findHostId(doc);
+      if (hostId) found.hostId = hostId;
     }
   }
   return found;
@@ -257,6 +296,8 @@ function fromRawHtml(html: string): Partial<PageFields> {
   if (flag !== null) found.locationIsExact = flag === 'true';
   const number = soleMatch(STR_NUMBER_RE_G, html);
   if (number !== null) found.strRegistrationId = `STR${number}`;
+  const hostId = soleMatch(RAW_HOST_ID_RE_G, html);
+  if (hostId !== null) found.hostId = hostId;
   return found;
 }
 
@@ -273,6 +314,7 @@ const PAGE_FIELD_NAMES = [
   'locationSubtitle',
   'locationVerified',
   'strRegistrationId',
+  'hostId',
 ] as const satisfies ReadonlyArray<keyof PageFields>;
 
 /**
@@ -313,7 +355,7 @@ export function parseListingPage(html: string, roomId: string): ListingPage {
 
 /** Warn when layers disagree, which means one is matching the wrong thing. */
 function warnOnDisagreement(byLayer: Record<Layer, Partial<PageFields>>, roomId: string): void {
-  for (const name of ['lat', 'lng', 'locationIsExact', 'strRegistrationId'] as const) {
+  for (const name of ['lat', 'lng', 'locationIsExact', 'strRegistrationId', 'hostId'] as const) {
     const reported = new Map<Layer, unknown>();
     for (const layer of LAYERS) {
       const value = byLayer[layer][name];

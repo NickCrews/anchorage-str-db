@@ -4,9 +4,17 @@
  * Airbnb's side are caught by the `extraction_layer_*_alive` checks instead.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { parseListingPage } from '../src/listingPage.ts';
+import { log } from '../src/log.ts';
+
+/** A GraphQL id: base64 of `<TypeName>:<id>`. */
+function graphqlId(typeName: string, id: string): string {
+  return Buffer.from(`${typeName}:${id}`).toString('base64');
+}
+
+const HOST_ID = '1726975321647428715';
 
 const STATE_LOCATION = {
   __typename: 'StaysPdpLocation',
@@ -25,6 +33,11 @@ interface PageOptions {
   description?: string;
   wrapper?: string;
   state?: boolean;
+  /** The host card's `DemandUser` id; null omits the card. */
+  cardHostId?: string | null;
+  /** The analytics context's decimal `hostId`; null omits it. */
+  contextHostId?: string | null;
+  cohostIds?: string[];
 }
 
 /** A page shaped like Airbnb's: a schema.org block and a nested GraphQL blob. */
@@ -36,6 +49,9 @@ function makePage(options: PageOptions = {}): string {
     description = 'A lovely cabin.',
     wrapper = 'niobeClientData',
     state = true,
+    cardHostId = HOST_ID,
+    contextHostId = HOST_ID,
+    cohostIds = [],
   } = options;
 
   const parts: string[] = [];
@@ -64,7 +80,18 @@ function makePage(options: PageOptions = {}): string {
         {
           data: {
             node: {
+              cohosts: cohostIds.map((id) => ({
+                __typename: 'ContextualUser',
+                id: graphqlId('ContextualUser', id),
+              })),
               pdpPresentation: {
+                hostInfo: cardHostId && {
+                  passportData: {
+                    name: 'Rachel',
+                    userId: graphqlId('DemandUser', cardHostId),
+                    contextualUserId: graphqlId('ContextualUser', '1462636974849197760'),
+                  },
+                },
                 location: stateLocation,
                 descriptions: {
                   longDescriptionHtml: {
@@ -74,7 +101,20 @@ function makePage(options: PageOptions = {}): string {
               },
             },
             presentation: {
-              stayProductDetailPage: { sections: { sections: [{ section: { items } }] } },
+              stayProductDetailPage: {
+                sections: {
+                  sections: [
+                    { section: { items } },
+                    {
+                      loggingData: {
+                        eventData: {
+                          pdpContext: contextHostId && { isSuperHost: 'true', hostId: contextHostId },
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
             },
           },
         },
@@ -198,5 +238,55 @@ describe('the STR registration number', () => {
     });
 
     expect(parseListingPage(html, '1').strRegistrationId).toBeNull();
+  });
+});
+
+// --- host id ----------------------------------------------------------------
+
+describe('the host id', () => {
+  it('is read from the host card and the analytics context', () => {
+    const page = parseListingPage(makePage(), '1');
+
+    expect(page.hostId).toBe(HOST_ID);
+  });
+
+  it('comes from the host card when the analytics context is gone', () => {
+    const page = parseListingPage(makePage({ contextHostId: null }), '1');
+
+    expect(page.hostId).toBe(HOST_ID);
+  });
+
+  it('comes from raw html when the json will not parse', () => {
+    const html = makePage().replace('type="application/json">', 'type="application/json">{{{');
+
+    expect(parseListingPage(html, '1').hostId).toBe(HOST_ID);
+  });
+
+  it('ignores co-hosts, which are ContextualUsers', () => {
+    const page = parseListingPage(
+      makePage({ cohostIds: ['1487913503972378124', '1670698168493833065'] }),
+      '1',
+    );
+
+    expect(page.hostId).toBe(HOST_ID);
+  });
+
+  it('is null, not an error, when the page names no host', () => {
+    const page = parseListingPage(makePage({ cardHostId: null, contextHostId: null }), '1');
+
+    expect(page.hostId).toBeNull();
+    expect(page.locationIsExact).toBe(true);
+  });
+
+  it('warns when the layers disagree', () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    try {
+      const page = parseListingPage(makePage({ contextHostId: '42' }), '1');
+
+      expect(page.hostId).toBe(HOST_ID);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('layers disagree on hostId'));
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

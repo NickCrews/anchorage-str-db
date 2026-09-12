@@ -159,6 +159,13 @@ export const PAGE_TIMEOUT_MS = 15_000;
 /** A listing-page failure rate above this fails the run. */
 export const MAX_PAGE_FAILURE_RATE = 0.25;
 
+/**
+ * The share of current, page-read listings with a `host_id` below which the
+ * run fails. Every listing has a host, and a sample of 41 Girdwood pages
+ * yielded one from both layers, so a shortfall means both layers broke.
+ */
+export const MIN_HOST_ID_SHARE = 0.95;
+
 /** Backoff between retries of a failed fetch: `RETRY_BACKOFF_MS * attempt`. */
 export const RETRY_BACKOFF_MS = 500;
 
