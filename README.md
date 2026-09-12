@@ -19,7 +19,7 @@ Anchorage, Alaska, for answering questions like:
 ## Quick start
 
 ```sh
-gh release download latest-data --repo <owner>/anchorage-str-db -O anchorage_str.duckdb
+gh release download latest-data --repo NickCrews/anchorage-str-db -O anchorage_str.duckdb
 duckdb anchorage_str.duckdb
 ```
 
