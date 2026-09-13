@@ -40,6 +40,14 @@ This searches the Anchorage bounding box, fetches each listing's page and
 calendar, writes the day to the database in one transaction, and runs the
 data-quality checks.
 
+```sh
+ANCHORAGE_STR_REGISTRY_URL='https://.../FeatureServer/0' pnpm registry
+```
+
+This reads the Municipality's short-term rental registrations into the same
+file. It needs an ArcGIS layer URL, which is not yet known — see
+[`docs/research/anchorage-str-registry.md`](./docs/research/anchorage-str-registry.md).
+
 ## Tables
 
 - `listing_observations`: one row per listing per scrape date, including
@@ -79,6 +87,23 @@ data-quality checks.
   "how many are operating/booked"; it drops the frozen future nights of
   retired listings
 
+The municipal registry adds its own tables and views, written by `pnpm registry`,
+which the daily CI run does not yet call, so they are **not in the published
+database** — the ArcGIS endpoint has still to be found and the integration
+has still to be chosen. See
+[`docs/proposals/muni-registry-integration.md`](./docs/proposals/muni-registry-integration.md).
+
+- `str_registration_versions`: the Municipality's registrations, stored
+  change-only with `valid_from`/`valid_to`. `str_registrations` *(view)* adds
+  `first_seen_date` and `removed_date`; `str_registrations_current` filters to
+  the current ones. Each record also keeps its whole ArcGIS `attributes`
+  object as JSON.
+- `registry_runs`: one row per registry refresh, including the layer's own
+  last-edited time whether or not anything changed.
+- `listing_registration_matches` *(view)*: current listings beside current
+  registrations, matched on the registration number, with a `match_kind`
+  saying which side is missing. `listing_registration_coverage` counts them.
+
 ## Known gaps
 
 - **Prices are quotes for open stays, not a nightly series.** Airbnb prices a
@@ -86,6 +111,13 @@ data-quality checks.
   of, have no price. Each day's quote is the listing's earliest bookable
   stay. See
   [`docs/research/airbnb-calendar-price.md`](docs/research/airbnb-calendar-price.md).
+
+- **The registry link is unmeasured.** Anchorage has required a registration
+  number in every listing since 2026-07-31, and both sides of that join are
+  stored, but how many listings carry a valid number is not yet known, and
+  the endpoint the Municipality publishes its registry through has still to
+  be found. See
+  [`docs/proposals/muni-registry-integration.md`](./docs/proposals/muni-registry-integration.md).
 
 - **Most listings have no street address.** `location_exact_address` is null
   unless the host published one. Join on `location_lat`/`location_lng`, and
@@ -101,6 +133,9 @@ A pnpm workspace sharing `tsconfig.base.json`:
   dependencies are `impit` (an HTTP client that impersonates Chrome's TLS
   fingerprint, which Airbnb requires) and `@duckdb/node-api`. The Airbnb
   endpoints are in `packages/scraper/src/airbnb/`.
+- `packages/registry`: the municipal STR registry scrape. Depends only on
+  `@duckdb/node-api`; the ArcGIS endpoints are in
+  `packages/registry/src/arcgis/`.
 - `packages/ui`: the browser viewer.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) to run or change the pipeline, and

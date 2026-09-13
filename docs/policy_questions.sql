@@ -360,3 +360,147 @@ GROUP BY
 ORDER BY
     try_cast(regexp_extract(l.bedrooms, '^\d+') AS INTEGER) NULLS FIRST,
     l.bedrooms;
+
+-- ============================================================
+-- Q: How many listings display a municipal registration number?
+-- Anchorage has required one in every listing since 2026-07-31
+-- (AO 2025-115(S-2)). This needs no registry data: the scraper reads the
+-- number off each listing page.
+-- ============================================================
+SELECT
+    count(*) AS current_listings,
+    count(str_registration_id) AS showing_a_number,
+    round(100.0 * count(str_registration_id) / count(*), 1) AS pct
+FROM
+    listings
+WHERE
+    is_current;
+
+-- ============================================================
+-- Q: How did compliance change over time?
+-- The registration number is part of the listing version key, so a host
+-- adding or removing one opens a new version and the archive already holds
+-- the adoption curve. Reads the version intervals, so it is correct for
+-- days with no run.
+-- ============================================================
+WITH days AS (
+    SELECT UNNEST(range(
+        (SELECT min(valid_from) FROM listings),
+        (SELECT max(scrape_date) FROM listing_observations) + INTERVAL 1 DAY,
+        INTERVAL 1 DAY
+    ))::DATE AS day
+)
+SELECT
+    d.day,
+    count(*) AS current_listings,
+    count(*) FILTER (WHERE l.str_registration_id IS NOT NULL) AS showing_a_number
+FROM
+    days d
+    JOIN listings l
+      ON l.valid_from <= d.day
+     AND (l.valid_to IS NULL OR l.valid_to > d.day)
+GROUP BY
+    ALL
+ORDER BY
+    d.day;
+
+-- ============================================================
+-- Q: How much of the Airbnb market and the registry actually match?
+-- Needs the registry scrape (packages/registry). `match_kind` splits every
+-- current listing and registration four ways; see
+-- docs/proposals/muni-registry-integration.md.
+-- ============================================================
+SELECT
+    *
+FROM
+    listing_registration_coverage
+ORDER BY
+    match_kind;
+
+-- ============================================================
+-- Q: Which listings advertise a number the registry does not hold?
+-- A typo, a registration that has lapsed, or an invented number. The
+-- enforcement list, and the reason the join is not made looser: a wrong
+-- digit should surface here rather than be silently corrected into a match.
+-- ============================================================
+SELECT
+    listing_id,
+    listing_name,
+    listing_registration_text,
+    host_id,
+    listing_lat,
+    listing_lng,
+    listing_location_is_exact
+FROM
+    listing_registration_matches
+WHERE
+    match_kind = 'listing_number_unmatched'
+ORDER BY
+    listing_id;
+
+-- ============================================================
+-- Q: Which registered properties are not on Airbnb?
+-- Vrbo, booked direct, not advertised, or missed by the search. The
+-- registry's own address is the only street address this database holds.
+-- ============================================================
+SELECT
+    registration_id,
+    registration_status,
+    registration_address,
+    parcel_id,
+    operator_name,
+    issued_date,
+    expires_date
+FROM
+    listing_registration_matches
+WHERE
+    match_kind = 'registration_only'
+ORDER BY
+    registration_address;
+
+-- ============================================================
+-- Q: Who operates the most registered rentals?
+-- The registry names an operator per registration, which the Airbnb side
+-- cannot: `host_id` is an account, and one operator can hold several.
+-- ============================================================
+SELECT
+    operator_name,
+    count(*) AS registrations,
+    count(DISTINCT parcel_id) AS parcels,
+    min(issued_date) AS first_registered
+FROM
+    str_registrations_current
+WHERE
+    operator_name IS NOT NULL
+GROUP BY
+    ALL
+HAVING
+    count(*) > 1
+ORDER BY
+    registrations DESC;
+
+-- ============================================================
+-- Q: What happened to a listing after its registration lapsed?
+-- Both sides are stored as version intervals, so this is a join of two
+-- histories rather than a snapshot comparison.
+-- ============================================================
+SELECT
+    r.registration_id,
+    r.status AS registration_status,
+    r.valid_from AS status_from,
+    r.valid_to AS status_to,
+    r.removed_date,
+    l.listing_id,
+    l.last_seen_date AS listing_last_seen,
+    l.is_current AS listing_still_listed
+FROM
+    str_registrations r
+    JOIN listings l
+      ON registration_key(l.str_registration_id) = r.registration_id
+WHERE
+    r.status ILIKE '%expire%'
+    OR r.status ILIKE '%revok%'
+    OR r.removed_date IS NOT NULL
+ORDER BY
+    r.registration_id,
+    r.valid_from;

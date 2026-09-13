@@ -6,8 +6,8 @@
 pnpm install
 ```
 
-The workspace has two packages, `packages/scraper` and `packages/ui`, sharing
-the compiler options in `tsconfig.base.json`.
+The workspace has three packages, `packages/scraper`, `packages/registry` and
+`packages/ui`, sharing the compiler options in `tsconfig.base.json`.
 
 Relative imports use their real `.ts` extension, so `node src/cli.ts` runs the
 sources directly (Node strips the types) and `tsc` rewrites the extension to
@@ -19,6 +19,7 @@ namespaces, or parameter properties.
 ```sh
 pnpm daily                 # writes data/anchorage_str.duckdb
 pnpm daily --verbose --db /tmp/scratch.duckdb
+pnpm registry              # the municipal registry, into the same file
 ```
 
 Run from the repo root. The root `daily` script calls
@@ -32,6 +33,12 @@ database, and runs the data-quality checks.
 It exits non-zero if an error-severity check fails; the log names which one.
 `--verbose` logs passing checks too.
 
+`pnpm registry` needs an ArcGIS layer URL in `$ANCHORAGE_STR_REGISTRY_URL`,
+which is not yet known; `packages/registry/README.md` and
+[`docs/research/anchorage-str-registry.md`](docs/research/anchorage-str-registry.md)
+say how to find and confirm one. Until then the registry tables exist and are
+empty, and the rest of the database is unaffected.
+
 A run against an empty database creates the schema. `store.SCHEMA_SQL` runs
 on every connect, so a new table (`CREATE TABLE IF NOT EXISTS`) or a nullable
 column on `scrape_runs` (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) reaches
@@ -40,7 +47,10 @@ rebuilding the database.
 
 ### Dependencies
 
-The scraper depends only on `impit` and `@duckdb/node-api`.
+The scraper depends only on `impit` and `@duckdb/node-api`. The registry
+depends only on `@duckdb/node-api`: ArcGIS is a documented, public,
+unauthenticated REST API with no bot protection, so Node's own `fetch` is
+enough.
 
 Airbnb sits behind Akamai, which fingerprints the TLS ClientHello and refuses
 Node's built-in `fetch` regardless of `User-Agent`. `impit` replays a Chrome
@@ -121,6 +131,45 @@ instead of adding ~25 minutes to one. In a sample of 200 listings it made 206
 requests. Its `first_review_failure_rate` check is a warning: a failure is
 retried next run, and failing the run would withhold that day's calendar and
 listings, which can't be scraped after the fact.
+
+### The municipal registry
+
+`packages/registry` is a separate package and a separate command, not a pass
+inside the daily run. The two sources fail independently, and a municipal
+server that is down must not withhold a day of Airbnb calendars, which cannot
+be scraped after the fact.
+
+It reads the whole ArcGIS layer every run — a few thousand rows in a handful
+of requests — and stores it change-only, SCD2 on the registration number.
+What keeps the published file small is the storage, not the fetch: a
+registration moves a handful of times a year, so a daily snapshot would be
+~120× the rows for the same information. The arithmetic, and the three things
+change-only storage has to get right (absence, partial extracts, republishes)
+are in
+[`docs/proposals/muni-registry-integration.md`](docs/proposals/muni-registry-integration.md),
+along with proposals for how far to take the integration.
+
+The two sides meet in `listing_registration_matches`, on the registration
+number normalized identically by `normalizeRegistrationId` (TypeScript) and
+the `registration_key` SQL macro. `test/store.test.ts` asserts the two agree:
+if they drift, listings stop matching their own registrations and nothing
+else says so.
+
+The join views read eight columns of `listings_current` — `listing_id`,
+`name`, `host_id`, `room_type`, `location_lat`, `location_lng`,
+`location_is_exact` and `str_registration_id` — and nothing else of the
+scraper's schema; `packages/registry/test/joinViews.test.ts` stands up a
+`listings_current` with exactly those. They are created only when
+`listings_current` is in the file, so a registry-only database works, and
+`CREATE OR REPLACE VIEW listings_current` on the scraper's next run is
+unaffected by their existence.
+
+`packages/registry` repeats `db.ts`, `dates.ts` and `log.ts` rather than
+sharing them. A package here runs straight from its sources (`node
+src/cli.ts`) and Node strips types only outside `node_modules`, so a shared
+`@anchorage-str-db/common` would have to be compiled before either package
+could run. The copies are small, have no dependencies, and the two sides must
+agree only on the ISO date format, which is the storage format for both.
 
 ### Request budget
 
@@ -264,10 +313,13 @@ so start by investigating what is reachable. Then:
 ## Tests
 
 ```sh
-pnpm test        # vitest, both packages
+pnpm test        # vitest, every package
 pnpm typecheck
 ```
 
+- `packages/registry/test/` stubs `fetch` for the wire protocol and injects
+  fetchers everywhere else; `store.test.ts` and `joinViews.test.ts` run the
+  merge and the views against a real DuckDB file.
 - `test/listingPage.test.ts` and `test/standardize.test.ts` parse synthetic
   Airbnb responses. They catch parser regressions but not changes on
   Airbnb's side.
