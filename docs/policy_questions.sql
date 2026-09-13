@@ -236,3 +236,48 @@ ORDER BY
     current_listings DESC
 LIMIT
     25;
+
+-- ============================================================
+-- Q: How has the STR market grown over time?
+-- Listings by the year they were first available on Airbnb, estimated as
+-- the earlier of their first review and first_seen_date
+-- (`first_available_date_est`). Caveats:
+-- - The estimate is never early, only late: a room is listed before its
+--   first review, often by months. A room with no reviews before this
+--   project first saw it counts as entering in the year collection began.
+-- - Only rooms seen since collection began are counted. Rooms that left
+--   Airbnb earlier are missing, so earlier years undercount the market of
+--   that time. `cumulative_listings` counts entries, not rooms operating.
+-- - Joining `listing_first_reviews` drops listings whose reviews have not
+--   been read yet, which would otherwise count as new.
+-- ============================================================
+WITH per_listing AS (
+    SELECT
+        listing_id,
+        any_value(first_available_date_est) AS first_available_date_est
+    FROM
+        listings
+        JOIN listing_first_reviews USING (listing_id)
+    GROUP BY
+        listing_id
+),
+per_year AS (
+    SELECT
+        date_part('year', first_available_date_est) AS year_first_available,
+        count(*) AS listings
+    FROM
+        per_listing
+    GROUP BY
+        ALL
+)
+SELECT
+    year_first_available,
+    listings,
+    sum(listings) OVER (
+        ORDER BY
+            year_first_available
+    ) AS cumulative_listings
+FROM
+    per_year
+ORDER BY
+    year_first_available;

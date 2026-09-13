@@ -46,12 +46,18 @@ data-quality checks.
   whether its page was read (`page_fetch_ok`)
 - `calendar_status`: nightly availability, stored change-only with
   `valid_from`/`valid_to`
+- `listing_first_reviews`: one row per listing whose reviews have been read,
+  with the date of its oldest review (NULL if it had none). A listing with
+  no row has not been read yet.
 - `scrape_runs`: one row per run, with counts and errors
 - `listings` *(view)*: one row per listing version, derived from the
   observations. `listings_current` filters to `is_current`. `host_id` is the
   primary host's Airbnb user id (`airbnb.com/users/show/<host_id>`), stable
   for the life of the host account; a change of host opens a new version.
-  Co-hosts are not recorded.
+  Co-hosts are not recorded. `first_available_date_est` is the earlier of
+  `first_review_date` and `first_seen_date`: the room was listed on or before
+  it. It is an estimate that can only be late: a room with no reviews from
+  before `first_seen_date` looks as new as the day it was first scraped.
 - `calendar_current` *(view)*: use this instead of `calendar_status` for
   "how many are operating/booked"; it drops the frozen future nights of
   retired listings

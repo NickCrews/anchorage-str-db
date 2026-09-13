@@ -121,8 +121,11 @@ export async function runChecks(
   const runs = await db.rows<{
     calendar_fetch_attempted: number | null;
     calendar_fetch_failed: number | null;
+    first_review_fetch_attempted: number | null;
+    first_review_fetch_failed: number | null;
   }>(
-    'SELECT calendar_fetch_attempted, calendar_fetch_failed FROM scrape_runs ' +
+    'SELECT calendar_fetch_attempted, calendar_fetch_failed, ' +
+      'first_review_fetch_attempted, first_review_fetch_failed FROM scrape_runs ' +
       'WHERE scrape_date = CAST(? AS DATE) ORDER BY run_started_at DESC LIMIT 1',
     [scrapeDate],
   );
@@ -139,6 +142,22 @@ export async function runChecks(
     );
   } else {
     check('calendar_failure_rate', 'error', false, 'no scrape_runs row found for this scrape_date');
+  }
+
+  // A warning: a failed listing writes nothing and is retried next run, so
+  // failing the run would withhold the day's calendar and listings, which
+  // can't be re-scraped later, to protect review dates, which can.
+  const reviewsAttempted = run?.first_review_fetch_attempted ?? 0;
+  if (reviewsAttempted) {
+    const failed = run?.first_review_fetch_failed ?? 0;
+    const rate = failed / reviewsAttempted;
+    check(
+      'first_review_failure_rate',
+      'warn',
+      rate <= config.MAX_FIRST_REVIEW_FAILURE_RATE,
+      `${failed}/${reviewsAttempted} first-review fetches failed (${percent(rate)}, max ` +
+        `${percent(config.MAX_FIRST_REVIEW_FAILURE_RATE)})`,
+    );
   }
 
   const freshness = await db.count(

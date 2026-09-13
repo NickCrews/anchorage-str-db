@@ -1,12 +1,14 @@
 /**
  * The daily pipeline: search Anchorage, fetch every listing's page and
- * calendar, write the day to DuckDB, and run the quality checks.
+ * calendar and unresolved listings' earliest reviews, write the day to
+ * DuckDB, and run the quality checks.
  */
 
 import { fetchApiKey } from './airbnb/apiKey.ts';
 import { fetchCalendars, liveCalendarFetcher } from './calendars.ts';
 import { report, runChecks } from './checks.ts';
 import { toSqlTimestamp, todayUtc, type IsoDate } from './dates.ts';
+import { fetchFirstReviews, liveReviewPageFetcher } from './firstReviews.ts';
 import { fetchListingPages, livePageFetcher } from './listingPage.ts';
 import { describeError, log } from './log.ts';
 import { parseListing, type ParsedListing } from './parse.ts';
@@ -16,7 +18,10 @@ import {
   connect,
   logRun,
   mergeCalendar,
+  pendingFirstReviews,
+  recordFirstReviews,
   recordObservations,
+  summarizeFirstReviews,
   summarizePages,
   type RunRow,
 } from './store.ts';
@@ -83,10 +88,23 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
       fetchOne: liveCalendarFetcher(apiKey),
     });
 
+    // Capped per run by FIRST_REVIEW_MAX_PER_RUN; the rest wait for later runs.
+    const pendingReviews = await pendingFirstReviews(db, parsed);
+    const firstReviews = await fetchFirstReviews(pendingReviews, {
+      fetchPage: liveReviewPageFetcher(apiKey),
+    });
+    const firstReviewStats = summarizeFirstReviews(firstReviews);
+    log.info(
+      `first reviews: ${firstReviewStats.attempted} of ${pendingReviews.length} unresolved ` +
+        `listings fetched, ${firstReviewStats.failed} failed, ` +
+        `${firstReviewStats.withReviews} with at least one review`,
+    );
+
     // ---- write phase -----------------------------------------------------
     const stats = await db.transaction(async () => {
       const listingStats = await recordObservations(db, scrapeDate, parsed, pages);
       const calendarStats = await mergeCalendar(db, scrapeDate, calendarResults);
+      await recordFirstReviews(db, scrapeDate, firstReviews);
       await logRun(db, {
         scrapeDate,
         runStartedAt: startedAt,
@@ -100,6 +118,8 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
         calendarNightsChanged: calendarStats.nightsChanged,
         pageFetchAttempted: pageStats.attempted,
         pageFetchFailed: pageStats.failed,
+        firstReviewFetchAttempted: firstReviewStats.attempted,
+        firstReviewFetchFailed: firstReviewStats.failed,
         errorSummary: null,
       });
       return { pageStats, searchResult, coverage };
@@ -135,6 +155,8 @@ function failedRunRow(scrapeDate: IsoDate, startedAt: string, errorSummary: stri
     calendarNightsChanged: null,
     pageFetchAttempted: null,
     pageFetchFailed: null,
+    firstReviewFetchAttempted: null,
+    firstReviewFetchFailed: null,
     errorSummary,
   };
 }

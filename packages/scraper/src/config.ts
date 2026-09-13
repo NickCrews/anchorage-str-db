@@ -166,6 +166,25 @@ export const MAX_PAGE_FAILURE_RATE = 0.25;
  */
 export const MIN_HOST_ID_SHARE = 0.95;
 
+/**
+ * Listings whose earliest review date is resolved per run (`firstReviews.ts`).
+ *
+ * Each listing is resolved once, so in steady state a run resolves only the
+ * few listings new that day. The first runs backfill the ~2600 existing
+ * listings; at 1000 per run that takes ~3 days and adds ~1030 requests
+ * (~10 minutes at `REQUESTS_PER_SECOND`) to each, well inside the CI
+ * timeout.
+ */
+export const FIRST_REVIEW_MAX_PER_RUN = 1000;
+export const FIRST_REVIEW_CONCURRENCY = 6;
+export const FIRST_REVIEW_MAX_RETRIES = 3;
+
+/**
+ * A first-review failure rate above this fails the `first_review_failure_rate`
+ * check, at warn severity (see `checks.ts`).
+ */
+export const MAX_FIRST_REVIEW_FAILURE_RATE = 0.25;
+
 /** Backoff between retries of a failed fetch: `RETRY_BACKOFF_MS * attempt`. */
 export const RETRY_BACKOFF_MS = 500;
 

@@ -13,6 +13,8 @@ import {
   LegacySchemaError,
   logRun,
   mergeCalendar,
+  pendingFirstReviews,
+  recordFirstReviews,
   recordObservations,
   type RunRow,
 } from '../src/store.ts';
@@ -54,6 +56,8 @@ function runRow(scrapeDate: IsoDate, overrides: Partial<RunRow> = {}): RunRow {
     calendarNightsChanged: 0,
     pageFetchAttempted: null,
     pageFetchFailed: null,
+    firstReviewFetchAttempted: null,
+    firstReviewFetchFailed: null,
     errorSummary: null,
     ...overrides,
   };
@@ -515,6 +519,68 @@ describe('calendar_current', () => {
 });
 
 // --------------------------------------------------------------------------
+// first reviews
+
+describe('first reviews', () => {
+  it('stay pending until resolved, then are never pending again', async () => {
+    const { db } = await freshDb();
+    const listings = [makeListing(3, 'C'), makeListing(1, 'A'), makeListing(2, 'B')];
+    await recordObservations(db, '2026-09-01', listings);
+
+    expect((await pendingFirstReviews(db, listings)).map((c) => c.roomId)).toEqual(['1', '2', '3']);
+
+    await recordFirstReviews(db, '2026-09-01', [
+      { roomId: '1', firstReviewDate: '2021-05-04', error: null },
+      { roomId: '2', firstReviewDate: null, error: null },
+      { roomId: '3', firstReviewDate: null, error: 'HTTP 500' },
+    ]);
+
+    // A listing with no reviews is resolved; a failed fetch is retried.
+    expect(await pendingFirstReviews(db, listings)).toEqual([
+      { roomId: '3', reviewCountHint: 10 },
+    ]);
+    expect(
+      await db.rows('SELECT * FROM listing_first_reviews ORDER BY listing_id'),
+    ).toEqual([
+      { listing_id: '1', first_review_date: '2021-05-04', resolved_date: '2026-09-01' },
+      { listing_id: '2', first_review_date: null, resolved_date: '2026-09-01' },
+    ]);
+  });
+
+  it('refuse to resolve a listing twice', async () => {
+    const { db } = await freshDb();
+    const result = { roomId: '1', firstReviewDate: '2021-05-04', error: null };
+    await recordFirstReviews(db, '2026-09-01', [result]);
+
+    await expect(recordFirstReviews(db, '2026-09-02', [result])).rejects.toThrow();
+  });
+
+  it('give listings a first_available_date_est no later than first_seen_date', async () => {
+    const { db } = await freshDb();
+    const listings = [1, 2, 3, 4].map((id) => makeListing(id, `Cabin ${id}`));
+    await recordObservations(db, '2026-09-01', listings);
+    await recordFirstReviews(db, '2026-09-01', [
+      { roomId: '1', firstReviewDate: '2021-05-04', error: null },
+      { roomId: '2', firstReviewDate: null, error: null },
+      // A review dated after first sighting, e.g. from a timezone edge.
+      { roomId: '3', firstReviewDate: '2026-09-02', error: null },
+    ]);
+
+    expect(
+      await db.rows(
+        'SELECT listing_id, first_review_date, first_available_date_est FROM listings ' +
+          'ORDER BY listing_id',
+      ),
+    ).toEqual([
+      { listing_id: '1', first_review_date: '2021-05-04', first_available_date_est: '2021-05-04' },
+      { listing_id: '2', first_review_date: null, first_available_date_est: '2026-09-01' },
+      { listing_id: '3', first_review_date: '2026-09-02', first_available_date_est: '2026-09-01' },
+      { listing_id: '4', first_review_date: null, first_available_date_est: '2026-09-01' },
+    ]);
+  });
+});
+
+// --------------------------------------------------------------------------
 // schema, transactions, run log
 
 describe('the store itself', () => {
@@ -546,6 +612,44 @@ describe('the store itself', () => {
     legacy.close();
 
     await expect(connect(path)).rejects.toThrow(/no `host_id` column/);
+  });
+
+  it('adds the first-review counters to an existing scrape_runs', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
+    temporary.push(dir);
+    const path = join(dir, 'existing.duckdb');
+
+    const { Database } = await import('../src/db.ts');
+    const existing = await Database.open(path);
+    await existing.run(
+      'CREATE TABLE scrape_runs (scrape_date DATE NOT NULL, run_started_at TIMESTAMP NOT NULL, ' +
+        'run_finished_at TIMESTAMP, listings_seen INTEGER, listings_new INTEGER, ' +
+        'listings_changed INTEGER, listings_retired INTEGER, calendar_fetch_attempted INTEGER, ' +
+        'calendar_fetch_failed INTEGER, calendar_nights_changed INTEGER, ' +
+        'page_fetch_attempted INTEGER, page_fetch_failed INTEGER, error_summary VARCHAR)',
+    );
+    await existing.run(
+      "INSERT INTO scrape_runs (scrape_date, run_started_at, listings_seen) " +
+        "VALUES ('2026-08-31', '2026-08-31 12:00:00', 5)",
+    );
+    existing.close();
+
+    const db = await connect(path);
+    open.push(db);
+    await logRun(
+      db,
+      runRow('2026-09-01', { firstReviewFetchAttempted: 7, firstReviewFetchFailed: 1 }),
+    );
+
+    expect(
+      await db.rows(
+        'SELECT scrape_date, first_review_fetch_attempted, first_review_fetch_failed ' +
+          'FROM scrape_runs ORDER BY scrape_date',
+      ),
+    ).toEqual([
+      { scrape_date: '2026-08-31', first_review_fetch_attempted: null, first_review_fetch_failed: null },
+      { scrape_date: '2026-09-01', first_review_fetch_attempted: 7, first_review_fetch_failed: 1 },
+    ]);
   });
 
   it('round-trips a run row', async () => {

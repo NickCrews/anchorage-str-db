@@ -31,7 +31,10 @@ afterEach(async () => {
 });
 
 /** Enough rows for listing_count_plausible and observations_written_today to pass. */
-async function seedMinimal(pages: readonly ListingPage[] = []): Promise<Database> {
+async function seedMinimal(
+  pages: readonly ListingPage[] = [],
+  firstReviews: { attempted: number; failed: number } = { attempted: 0, failed: 0 },
+): Promise<Database> {
   const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
   temporary.push(dir);
   const db = await connect(join(dir, 't.duckdb'));
@@ -53,6 +56,8 @@ async function seedMinimal(pages: readonly ListingPage[] = []): Promise<Database
     calendarNightsChanged: 0,
     pageFetchAttempted: null,
     pageFetchFailed: null,
+    firstReviewFetchAttempted: firstReviews.attempted,
+    firstReviewFetchFailed: firstReviews.failed,
     errorSummary: null,
   });
   return db;
@@ -178,4 +183,28 @@ it('skips host_id_coverage when no page was ever read', async () => {
 
   const { byName } = await check(db);
   expect(byName['host_id_coverage']).toBeUndefined();
+});
+
+it('passes first_review_failure_rate when few first-review fetches failed', async () => {
+  const db = await seedMinimal([], { attempted: 100, failed: 2 });
+
+  const { byName } = await check(db);
+  expect(byName['first_review_failure_rate']!.passed).toBe(true);
+});
+
+it('warns without failing the run when many first-review fetches failed', async () => {
+  const db = await seedMinimal([], { attempted: 100, failed: 90 });
+
+  const { byName, all } = await check(db);
+  expect(byName['first_review_failure_rate']!.passed).toBe(false);
+  expect(byName['first_review_failure_rate']!.severity).toBe('warn');
+  expect(byName['first_review_failure_rate']!.detail).toContain('90/100');
+  expect(report(all)).toBe(true);
+});
+
+it('skips first_review_failure_rate on a run with nothing to resolve', async () => {
+  const db = await seedMinimal();
+
+  const { byName } = await check(db);
+  expect(byName['first_review_failure_rate']).toBeUndefined();
 });

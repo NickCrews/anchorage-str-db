@@ -7,6 +7,10 @@
  * - `calendar_status`: SCD2 on (listing_id, night_date). A night that leaves
  *   Airbnb's ~12-month calendar window is no longer observed, so its last
  *   value stays as the realized booked/available state.
+ * - `listing_first_reviews`: one row per listing whose earliest review date
+ *   has been resolved (see `firstReviews.ts`). Keyed by `listing_id` rather
+ *   than a column on `listing_observations`, because it is resolved once:
+ *   as a daily column it would be NULL on every row but one per listing.
  * - `scrape_runs`: one row per run.
  *
  * `calendar_status` is stored change-only because a daily snapshot would be
@@ -41,6 +45,7 @@ import type { CalendarResult } from './calendars.ts';
 import * as config from './config.ts';
 import { addDays, epochDays, type IsoDate } from './dates.ts';
 import { appendRow, Database } from './db.ts';
+import type { FirstReviewCandidate, FirstReviewResult } from './firstReviews.ts';
 import type { Layer, ListingPage } from './listingPage.ts';
 import { LAYERS } from './listingPage.ts';
 import type { ParsedListing } from './parse.ts';
@@ -109,6 +114,22 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
     page_fetch_attempted INTEGER,
     page_fetch_failed INTEGER,
     error_summary VARCHAR
+);
+
+-- ALTERs rather than table columns, so an existing scrape_runs gains them.
+-- NULL on runs that predate the first-review pass.
+ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS first_review_fetch_attempted INTEGER;
+ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS first_review_fetch_failed INTEGER;
+
+-- A row means the listing's reviews were read; a missing row means they
+-- have not been yet. Failed fetches write no row and are retried next run.
+-- Stores the date only: no review text or reviewer.
+CREATE TABLE IF NOT EXISTS listing_first_reviews (
+    listing_id BIGINT PRIMARY KEY,
+    -- UTC date of the listing's oldest review; NULL if it had no reviews.
+    first_review_date DATE,
+    -- The scrape date of the run that read the reviews.
+    resolved_date DATE NOT NULL
 );
 `;
 
@@ -268,13 +289,22 @@ SELECT
     a.page_seen_date,
     a.first_seen_date,
     a.last_seen_date,
+    r.first_review_date,
+    -- The earlier of the first review and first_seen_date: the room was
+    -- listed on or before this date. An estimate, not the true listing
+    -- date: it can only be too late, never too early. A room with no
+    -- reviews from before this project saw it gets first_seen_date and looks
+    -- newer than it may be. \`least\` skips NULLs, so a listing with no
+    -- reviews, or not yet resolved, gets first_seen_date.
+    least(r.first_review_date, a.first_seen_date) AS first_available_date_est,
     v.version_no,
     v.version_last_seen_date,
     v.valid_from,
     v.valid_to,
     v.valid_to IS NULL AND a.is_current AS is_current
 FROM listing_versions v
-JOIN listing_activity a USING (listing_id);
+JOIN listing_activity a USING (listing_id)
+LEFT JOIN listing_first_reviews r USING (listing_id);
 
 CREATE OR REPLACE VIEW listings_current AS
 SELECT * FROM listings WHERE is_current;
@@ -656,6 +686,75 @@ export async function mergeCalendar(
 }
 
 // --------------------------------------------------------------------------
+// first reviews
+
+/**
+ * This run's listings whose earliest review has not been resolved, in
+ * ascending `listing_id` order (older listings first). `fetchFirstReviews`
+ * caps how many are attempted.
+ */
+export async function pendingFirstReviews(
+  db: Database,
+  listings: readonly ParsedListing[],
+): Promise<FirstReviewCandidate[]> {
+  const resolved = new Set(
+    (
+      await db.rows<{ listing_id: string }>('SELECT listing_id FROM listing_first_reviews')
+    ).map((row) => BigInt(row.listing_id)),
+  );
+  return listings
+    .filter((listing) => !resolved.has(listing.listingId))
+    .sort((a, b) => (a.listingId < b.listingId ? -1 : a.listingId > b.listingId ? 1 : 0))
+    .map((listing) => ({
+      roomId: String(listing.listingId),
+      reviewCountHint: listing.reviewCount,
+    }));
+}
+
+export interface FirstReviewStats {
+  attempted: number;
+  failed: number;
+  /** Resolved listings that have at least one review. */
+  withReviews: number;
+}
+
+export function summarizeFirstReviews(results: readonly FirstReviewResult[]): FirstReviewStats {
+  const ok = results.filter((result) => !result.error);
+  return {
+    attempted: results.length,
+    failed: results.length - ok.length,
+    withReviews: ok.filter((result) => result.firstReviewDate !== null).length,
+  };
+}
+
+const FIRST_REVIEW_TYPES = [BIGINT, DATE, DATE] satisfies DuckDBType[];
+
+/**
+ * Store each successful resolution. Failed results write nothing, so the
+ * listing stays pending. Throws on a listing that is already resolved, which
+ * `pendingFirstReviews` never returns.
+ */
+export async function recordFirstReviews(
+  db: Database,
+  scrapeDate: IsoDate,
+  results: readonly FirstReviewResult[],
+): Promise<void> {
+  const ok = results.filter((result) => !result.error);
+  if (ok.length === 0) return;
+  const appender = await db.appender('listing_first_reviews');
+  const resolvedDate = dateValue(epochDays(scrapeDate));
+  for (const result of ok) {
+    appendRow(appender, FIRST_REVIEW_TYPES, [
+      BigInt(result.roomId),
+      result.firstReviewDate === null ? null : dateValue(epochDays(result.firstReviewDate)),
+      resolvedDate,
+    ]);
+  }
+  appender.flushSync();
+  appender.closeSync();
+}
+
+// --------------------------------------------------------------------------
 // run log
 
 export interface RunRow {
@@ -671,6 +770,8 @@ export interface RunRow {
   calendarNightsChanged: number | null;
   pageFetchAttempted: number | null;
   pageFetchFailed: number | null;
+  firstReviewFetchAttempted: number | null;
+  firstReviewFetchFailed: number | null;
   errorSummary: string | null;
 }
 
@@ -679,9 +780,10 @@ export async function logRun(db: Database, run: RunRow): Promise<void> {
     'INSERT INTO scrape_runs ' +
       '(scrape_date, run_started_at, run_finished_at, listings_seen, listings_new, ' +
       ' listings_changed, listings_retired, calendar_fetch_attempted, calendar_fetch_failed, ' +
-      ' calendar_nights_changed, page_fetch_attempted, page_fetch_failed, error_summary) ' +
+      ' calendar_nights_changed, page_fetch_attempted, page_fetch_failed, ' +
+      ' first_review_fetch_attempted, first_review_fetch_failed, error_summary) ' +
       'VALUES (CAST(? AS DATE), CAST(? AS TIMESTAMP), CAST(? AS TIMESTAMP), ' +
-      '?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [
       run.scrapeDate,
       run.runStartedAt,
@@ -695,6 +797,8 @@ export async function logRun(db: Database, run: RunRow): Promise<void> {
       run.calendarNightsChanged,
       run.pageFetchAttempted,
       run.pageFetchFailed,
+      run.firstReviewFetchAttempted,
+      run.firstReviewFetchFailed,
       run.errorSummary,
     ],
     // Date and timestamp parameters are bound as strings and cast in SQL,
@@ -703,6 +807,8 @@ export async function logRun(db: Database, run: RunRow): Promise<void> {
       VARCHAR,
       VARCHAR,
       VARCHAR,
+      INTEGER,
+      INTEGER,
       INTEGER,
       INTEGER,
       INTEGER,

@@ -27,12 +27,16 @@ directory to the package and put the default `--db` under
 `packages/scraper/data/`.
 
 A run searches the Anchorage bounding box, fetches every listing's page and
-calendar, writes the day to the database, and runs the data-quality checks.
+calendar and up to 1000 listings' earliest review dates, writes the day to the
+database, and runs the data-quality checks.
 It exits non-zero if an error-severity check fails; the log names which one.
 `--verbose` logs passing checks too.
 
-A run against an empty database creates the schema. There are no migrations:
-a schema change means editing `store.SCHEMA_SQL` and rebuilding the database.
+A run against an empty database creates the schema. `store.SCHEMA_SQL` runs
+on every connect, so a new table (`CREATE TABLE IF NOT EXISTS`) or a nullable
+column on `scrape_runs` (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) reaches
+the published database in place. Any other change has no migration and means
+rebuilding the database.
 
 ### Dependencies
 
@@ -82,13 +86,39 @@ could tell those rows from freshly read ones. See
 [`docs/research/airbnb-pdp-location-payload.md`](docs/research/airbnb-pdp-location-payload.md)
 and [`docs/research/airbnb-pdp-host-id.md`](docs/research/airbnb-pdp-host-id.md).
 
+### First-review pass
+
+Each run resolves the earliest review date of up to
+`FIRST_REVIEW_MAX_PER_RUN` (1000) listings that don't have one yet, and stores
+it in `listing_first_reviews`. The `listings` view derives
+`first_available_date_est` from it. A listing is resolved once: a first
+review never changes, and a listing with no reviews stores NULL and is not
+fetched again, since a later first review would fall after its
+`first_seen_date` and couldn't change the estimate. A failed fetch writes no
+row, so the listing is retried next run.
+
+Airbnb's reviews endpoint sorts newest first and has no oldest-first option,
+so `firstReviews.ts` requests the tail of the list at an offset taken from
+search's review count, and requests again at Airbnb's own total when that
+count was stale. Search omits the count for listings with very few reviews.
+Only each review's `createdAt` is read; no review text or reviewer data is
+kept.
+
+The pass is capped so the ~2600-listing backfill spreads over about three runs
+instead of adding ~25 minutes to one. In a sample of 200 listings it made 206
+requests. Its `first_review_failure_rate` check is a warning: a failure is
+retried next run, and failing the run would withhold that day's calendar and
+listings, which can't be scraped after the fact.
+
 ### Request budget
 
 A run makes about `2N + 200` requests for N listings: a page and a calendar
 per listing, plus one `StaysSearch` request per price band (see
 [`docs/research/airbnb-search-pagination.md`](docs/research/airbnb-search-pagination.md)
 for why the search never paginates). At ~2600 listings that is ~5400 requests
-and about 50 minutes. The per-listing passes dominate.
+and about 50 minutes. The first-review pass adds about one request per
+unresolved listing, at most ~1030 (~10 minutes) while backfilling and a handful
+once caught up. The per-listing passes dominate.
 
 The Airbnb API key is fetched once per run in `pipeline.ts` and passed to
 every search and calendar request. It is a long-lived public value, and
@@ -96,7 +126,7 @@ fetching it per request would re-download the ~600 KB homepage for each
 listing.
 
 The shared request rate is in `pace.ts`. `retry.ts` holds the attempt loop
-all three passes use: a 429 aborts the run, a streak of timeouts halves the
+every pass uses: a 429 aborts the run, a streak of timeouts halves the
 request rate, and any other error is retried.
 
 ## Inspecting the database
@@ -215,9 +245,10 @@ pnpm typecheck
 - `test/store.test.ts` runs the merge logic against a real DuckDB file.
 
 No test touches the network. Fetching is injected: `searchAnchorage` takes a
-`fetchPage`, `fetchCalendars` takes a `fetchOne`, and `liveSearchFetcher`,
-`liveCalendarFetcher` and `livePageFetcher` are the only places real requests
-are made.
+`fetchPage`, `fetchCalendars` takes a `fetchOne`, `fetchFirstReviews` takes a
+`fetchPage`, and `liveSearchFetcher`, `liveCalendarFetcher`,
+`livePageFetcher` and `liveReviewPageFetcher` are the only places real
+requests are made.
 
 When Airbnb changes something, `src/airbnb/` and `parse.ts` break without
 failing a test. To debug a production failure, run `searchAnchorage` over a
