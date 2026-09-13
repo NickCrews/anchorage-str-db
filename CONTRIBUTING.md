@@ -122,10 +122,19 @@ requests. Its `first_review_failure_rate` check is a warning: a failure is
 retried next run, and failing the run would withhold that day's calendar and
 listings, which can't be scraped after the fact.
 
+### Host pass
+
+Every listing page carries its primary host's profile card (name, bio,
+`timeAsHost`), so the host pass makes no requests. `collectHostCards` reduces
+the run's pages to one card per distinct host (about 2 listings per host),
+and `recordHostObservations` writes a row for every host with a listing
+observed that day, including hosts whose only page failed.
+
 ### Request budget
 
 A run makes about `3N + 200` requests for N listings: a page, a calendar and
-a price quote per listing, plus one `StaysSearch` request per price band (see
+a price quote per listing (the host pass adds none), plus one `StaysSearch`
+request per price band (see
 [`docs/research/airbnb-search-pagination.md`](docs/research/airbnb-search-pagination.md)
 for why the search never paginates). At ~2600 listings that is ~8000 requests
 and about 75 minutes. The first-review pass adds about one request per
@@ -190,6 +199,19 @@ Every run fails with `LegacySchemaError` until someone:
   change to the column should open a new version, also add it to
   `VERSION_KEY_SQL` in `store.ts`. Leave out values that move most days
   (price, review count).
+- **Hosts are stored the same way.** `host_observations` is append-only with
+  a `profile_read_ok` flag, and `hosts` rebuilds versions with the same
+  gaps-and-islands and carry-forward as `listings`. Name and bio are the
+  version key. `timeAsHost` grows monthly, so `host_activity` summarizes it
+  as the earliest implied start date plus the spread between readings, and
+  `host_start_date_stable` warns when that spread exceeds
+  `HOST_START_MAX_SPREAD_DAYS`. The host checks are warnings because the
+  views carry every host's last read forward.
+- **Portfolio size is counts, not a classification.** `host_portfolios` is
+  derived from `listing_observations.host_id` with no extra requests, as a
+  time series. Where an owner ends and an operator begins is left to
+  downstream users, so no threshold is stored; the viewer's cutoff is a
+  labelled display choice. It counts only listings in the search area.
 - **Listings are never UPDATEd.** `first_seen_date`, `last_seen_date` and
   `page_seen_date` are derived from observations, so they stay correct for a
   listing that retires and later relists, and a bug in version logic is

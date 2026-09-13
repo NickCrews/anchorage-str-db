@@ -38,17 +38,21 @@ const BASE_QUERY = `
     o.quote_nights,
     o.quote_check_in,
     o.price_hint_per_night,
+    l.host_name,
+    l.host_years_hosting,
+    l.host_listings_live,
+    l.host_listings_ever_seen,
     l.first_seen_date,
     l.last_seen_date,
     l.url
-  FROM listings l
+  FROM listings_current_with_host l
   LEFT JOIN listing_photos_current p ON p.listing_id = l.listing_id
   LEFT JOIN (
     SELECT *
     FROM listing_observations
     QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY scrape_date DESC) = 1
   ) o ON o.listing_id = l.listing_id
-  WHERE l.is_current
+  WHERE true
 `;
 
 /** Airbnb's CDN resizes on request: `im_w=240` is ~6 KB against ~190 KB for the original. */
@@ -80,7 +84,7 @@ export const ListingsView: FC = () => {
     const term = search.trim();
     if (!term) return `${BASE_QUERY}\n  ORDER BY l.last_seen_date DESC`;
     const pattern = escapeVal(`%${term}%`);
-    return `${BASE_QUERY}\n  AND (l.name ILIKE ${pattern} OR l.property_title ILIKE ${pattern})\n  ORDER BY l.last_seen_date DESC`;
+    return `${BASE_QUERY}\n  AND (l.name ILIKE ${pattern} OR l.property_title ILIKE ${pattern} OR l.host_name ILIKE ${pattern})\n  ORDER BY l.last_seen_date DESC`;
   }, [search]);
 
   // QueryDataTable renders every cell as text, so this assembles the same
@@ -113,7 +117,7 @@ export const ListingsView: FC = () => {
     <div className="flex h-full flex-col gap-2 p-3">
       <div className="flex items-center gap-2">
         <Input
-          placeholder="Filter by name…"
+          placeholder="Filter by listing or host name…"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);

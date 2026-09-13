@@ -360,3 +360,130 @@ GROUP BY
 ORDER BY
     try_cast(regexp_extract(l.bedrooms, '^\d+') AS INTEGER) NULLS FIRST,
     l.bedrooms;
+
+-- ============================================================
+-- Q: Who are the hosts, and how long have they hosted?
+-- `name` is Airbnb's display name (a first name or a business name).
+-- `hosting_started_on` can be up to a month late; see README.
+-- ============================================================
+SELECT
+    host_id,
+    name,
+    hosting_started_year,
+    years_hosting,
+    about
+FROM
+    hosts
+WHERE
+    is_current
+ORDER BY
+    hosting_started_on;
+
+-- ============================================================
+-- Host portfolios. `host_portfolios` stores counts only; the cutoffs below
+-- are choices, swept rather than fixed.
+-- Scope: only listings in the Anchorage search area are counted. A
+-- `host_id` is an Airbnb account, so a property manager's account can list
+-- for many owners. Listings with no known host are left out.
+-- ============================================================
+-- Q: How many listings does each host hold right now?
+SELECT
+    listings_live AS listings_per_host,
+    count(*) AS hosts,
+    sum(listings_live) AS listings,
+    round(100.0 * sum(listings_live) / sum(sum(listings_live)) OVER (), 1) AS pct_of_attributed_listings
+FROM
+    host_portfolios
+WHERE
+    scrape_date = (SELECT scrape_date FROM latest_scrape_date)
+    AND listings_live > 0
+GROUP BY
+    ALL
+ORDER BY
+    listings_per_host;
+
+-- ============================================================
+-- Q: What share of current inventory is held by hosts with N or more listings?
+-- ============================================================
+WITH now AS (
+    SELECT
+        listings_live
+    FROM
+        host_portfolios
+    WHERE
+        scrape_date = (SELECT scrape_date FROM latest_scrape_date)
+        AND listings_live > 0
+),
+cutoffs AS (
+    SELECT unnest([1, 2, 3, 5, 10, 20]) AS n
+)
+SELECT
+    c.n AS min_listings,
+    count(*) FILTER (WHERE now.listings_live >= c.n) AS hosts,
+    coalesce(sum(now.listings_live) FILTER (WHERE now.listings_live >= c.n), 0) AS listings_held,
+    round(
+        100.0 * coalesce(sum(now.listings_live) FILTER (WHERE now.listings_live >= c.n), 0)
+        / sum(now.listings_live),
+        1
+    ) AS pct_of_attributed_listings
+FROM
+    cutoffs c
+    CROSS JOIN now
+GROUP BY
+    c.n
+ORDER BY
+    c.n;
+
+-- ============================================================
+-- Q: How has that concentration moved over the observed period?
+-- ============================================================
+SELECT
+    scrape_date,
+    count(*) FILTER (WHERE listings_live > 0) AS hosts_with_live_listings,
+    sum(listings_live) AS attributed_live_listings,
+    round(100.0 * sum(listings_live) FILTER (WHERE listings_live >= 2) / nullif(sum(listings_live), 0), 1) AS pct_held_by_2_plus,
+    round(100.0 * sum(listings_live) FILTER (WHERE listings_live >= 5) / nullif(sum(listings_live), 0), 1) AS pct_held_by_5_plus,
+    round(100.0 * sum(listings_live) FILTER (WHERE listings_live >= 10) / nullif(sum(listings_live), 0), 1) AS pct_held_by_10_plus
+FROM
+    host_portfolios
+GROUP BY
+    ALL
+ORDER BY
+    scrape_date;
+
+-- Hosts whose live portfolio grew the most since first observed.
+SELECT
+    host_id,
+    min(scrape_date) AS first_seen,
+    arg_min(listings_live, scrape_date) AS live_at_first_sight,
+    arg_max(listings_live, scrape_date) AS live_now,
+    max(listings_ever_seen) AS ever_seen
+FROM
+    host_portfolios
+GROUP BY
+    host_id
+ORDER BY
+    live_now - live_at_first_sight DESC,
+    live_now DESC
+LIMIT
+    25;
+
+-- ============================================================
+-- Q: Is this Girdwood room part of a large portfolio?
+-- NULL host columns mean the host is unknown, not a portfolio of one.
+-- ============================================================
+SELECT
+    listing_id,
+    name,
+    url,
+    host_name,
+    host_years_hosting,
+    host_listings_live,
+    host_listings_ever_seen
+FROM
+    listings_current_with_host
+WHERE
+    location_subtitle ILIKE 'Girdwood%'
+ORDER BY
+    host_listings_live DESC NULLS LAST,
+    host_id;

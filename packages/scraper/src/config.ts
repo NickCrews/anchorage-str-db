@@ -208,6 +208,23 @@ export const FIRST_REVIEW_MAX_RETRIES = 3;
  */
 export const MAX_FIRST_REVIEW_FAILURE_RATE = 0.25;
 
+/**
+ * Warn-severity gates on the host dimension (see `checks.ts`). A failed page
+ * is the ordinary cause of an unread card, so the failure rate mirrors
+ * `MAX_PAGE_FAILURE_RATE`. The views carry each host's last read forward, so
+ * only hosts never once read can lack a profile; 2616 of 2618 pages measured
+ * yielded a card.
+ */
+export const MAX_HOST_PROFILE_FAILURE_RATE = 0.25;
+export const MIN_HOST_PROFILE_SHARE = 0.95;
+
+/**
+ * How far the start dates implied by one host's `timeAsHost` readings may
+ * spread before `host_start_date_stable` warns. Readings in whole months
+ * taken on different days of the month disagree by up to about a month.
+ */
+export const HOST_START_MAX_SPREAD_DAYS = 45;
+
 /** Backoff between retries of a failed fetch: `RETRY_BACKOFF_MS * attempt`. */
 export const RETRY_BACKOFF_MS = 500;
 

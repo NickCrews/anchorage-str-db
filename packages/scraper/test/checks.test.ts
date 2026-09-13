@@ -9,7 +9,7 @@ import { calendarResultFor } from './helpers.ts';
 import * as config from '../src/config.ts';
 import type { IsoDate } from '../src/dates.ts';
 import type { Database } from '../src/db.ts';
-import { emptyListingPage, type ListingPage } from '../src/listingPage.ts';
+import { collectHostCards, emptyListingPage, type ListingPage } from '../src/listingPage.ts';
 import { emptyAudit, PriceBand, type CoverageAudit, type SearchResult } from '../src/search.ts';
 import {
   connect,
@@ -17,6 +17,7 @@ import {
   type QuoteStats,
   logRun,
   mergeCalendar,
+  recordHostObservations,
   recordObservations,
 } from '../src/store.ts';
 import { makeListing } from './fixtures.ts';
@@ -44,6 +45,7 @@ async function seedMinimal(
   const [floor] = config.PLAUSIBLE_LISTING_COUNT;
   const listings = [...Array(floor).keys()].map((i) => makeListing(i, `Cabin ${i}`));
   await recordObservations(db, DAY, listings, pages);
+  const hostStats = await recordHostObservations(db, DAY, collectHostCards(pages));
   await logRun(db, {
     scrapeDate: DAY,
     runStartedAt: `${DAY} 00:00:00`,
@@ -61,6 +63,8 @@ async function seedMinimal(
     firstReviewFetchFailed: firstReviews.failed,
     quoteFetchAttempted: null,
     quoteFetchFailed: null,
+    hostProfileAttempted: hostStats.attempted,
+    hostProfileFailed: hostStats.failed,
     errorSummary: null,
   });
   return db;
@@ -297,4 +301,52 @@ it('skips first_review_failure_rate on a run with nothing to resolve', async () 
 
   const { byName } = await check(db);
   expect(byName['first_review_failure_rate']).toBeUndefined();
+});
+
+/** Every seeded listing's page read, each under its own host, `withCard` of them with a card. */
+function pagesWithCards(withCard: number): ListingPage[] {
+  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  return pagesRead(floor).map((page, i) => ({
+    ...page,
+    hostCard:
+      i < withCard
+        ? { hostId: page.hostId, name: 'Rachel', about: null, timeAsHostYears: 9, timeAsHostMonths: 7 }
+        : null,
+  }));
+}
+
+it('passes the host profile checks when every host card was read', async () => {
+  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  const db = await seedMinimal(pagesWithCards(floor));
+
+  const { byName } = await check(db);
+  expect(byName['host_profile_failure_rate']!.passed).toBe(true);
+  expect(byName['host_profile_coverage']!.passed).toBe(true);
+  expect(byName['host_start_date_stable']!.passed).toBe(true);
+});
+
+it('warns, without failing the run, when host cards stop being read', async () => {
+  const db = await seedMinimal(pagesWithCards(10));
+
+  const { byName, all } = await check(db);
+  for (const name of ['host_profile_failure_rate', 'host_profile_coverage']) {
+    expect(byName[name]!.passed).toBe(false);
+    expect(byName[name]!.severity).toBe('warn');
+  }
+  expect(report(all)).toBe(true);
+});
+
+it('warns when a host’s start date moves', async () => {
+  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  const db = await seedMinimal(pagesWithCards(floor));
+  // An earlier reading a year off from today's.
+  await db.run(
+    'INSERT INTO host_observations VALUES (1000, CAST(? AS DATE) - 1, true, \'Rachel\', NULL, 8, 7)',
+    [DAY],
+  );
+
+  const { byName } = await check(db);
+  expect(byName['host_start_date_stable']!.passed).toBe(false);
+  expect(byName['host_start_date_stable']!.severity).toBe('warn');
+  expect(byName['host_start_date_stable']!.detail).toContain('1000');
 });

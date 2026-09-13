@@ -13,6 +13,10 @@
  *   as a daily column it would be NULL on every row but one per listing.
  * - `listing_photos`: each listing's photo gallery, one row per distinct set,
  *   written only when the set differs from the listing's previous one.
+ * - `host_observations`: append-only, one row per (host, scrape date) for
+ *   every host owning a listing observed that day: the host card from the
+ *   listing page. The `hosts` view is built from it the way `listings` is
+ *   built from `listing_observations`.
  * - `scrape_runs`: one row per run.
  *
  * `calendar_status` is stored change-only because a daily snapshot would be
@@ -50,7 +54,7 @@ import * as config from './config.ts';
 import { addDays, epochDays, type IsoDate } from './dates.ts';
 import { appendRow, Database } from './db.ts';
 import type { FirstReviewCandidate, FirstReviewResult } from './firstReviews.ts';
-import type { Layer, ListingPage } from './listingPage.ts';
+import type { HostCard, Layer, ListingPage } from './listingPage.ts';
 import { LAYERS } from './listingPage.ts';
 import type { ParsedListing } from './parse.ts';
 import type { PriceQuote } from './priceQuotes.ts';
@@ -146,11 +150,15 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
 );
 
 -- ALTERs rather than table columns, so an existing scrape_runs gains them.
--- NULL on runs that predate the first-review pass.
+-- NULL on runs that predate the pass they count.
 ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS first_review_fetch_attempted INTEGER;
 ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS first_review_fetch_failed INTEGER;
 ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS quote_fetch_attempted INTEGER;
 ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS quote_fetch_failed INTEGER;
+-- Distinct hosts owning a listing observed this run, and how many of them
+-- had no host card read.
+ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS host_profile_attempted INTEGER;
+ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS host_profile_failed INTEGER;
 
 -- A row means the listing's reviews were read; a missing row means they
 -- have not been yet. Failed fetches write no row and are retried next run.
@@ -162,7 +170,38 @@ CREATE TABLE IF NOT EXISTS listing_first_reviews (
     -- The scrape date of the run that read the reviews.
     resolved_date DATE NOT NULL
 );
+
+-- A host gets a row on every day one of their listings was observed,
+-- including a day that listing's page failed, when the owner is known only
+-- from the carried-forward host_id. \`profile_read_ok\` says whether any of
+-- the host's listing pages yielded their card that day; the columns below it
+-- are NULL when it is false.
+CREATE TABLE IF NOT EXISTS host_observations (
+    host_id BIGINT NOT NULL,
+    scrape_date DATE NOT NULL,
+    profile_read_ok BOOLEAN NOT NULL,
+    -- A first name or a business name. Airbnb shows no surnames.
+    name VARCHAR,
+    -- The bio as the host wrote it. NULL on a read row means none.
+    about VARCHAR,
+    -- Airbnb's \`timeAsHost\` as of scrape_date. Airbnb publishes no start
+    -- date; \`host_activity\` derives one.
+    time_as_host_years INTEGER,
+    time_as_host_months INTEGER,
+
+    PRIMARY KEY (host_id, scrape_date)
+);
 `;
+
+/**
+ * The start date one `timeAsHost` reading implies. Airbnb reports whole
+ * months, so this lands up to a month after the true start depending on the
+ * day of the month it was read. `host_activity` takes the minimum over all
+ * readings, which is why the start date is an aggregate rather than part of
+ * the host version key.
+ */
+const IMPLIED_HOSTING_START_SQL =
+  '(scrape_date - to_months(12 * time_as_host_years + time_as_host_months))::DATE';
 
 /**
  * Attributes whose change opens a new listing version. Excludes values that
@@ -369,10 +408,219 @@ FROM calendar_status c
 JOIN listing_activity a USING (listing_id)
 WHERE c.is_current
   AND (a.is_current OR c.night_date <= a.last_seen_date);
+
+-- Per host: first and last seen, last card read, and whether current, on
+-- the same rule as \`listing_activity\`. \`hosting_started_on\` is the earliest
+-- start date any reading implies, and \`hosting_start_spread_days\` how far
+-- the readings disagree. Month rounding alone keeps the spread under about a
+-- month; the \`host_start_date_stable\` check warns beyond that.
+CREATE OR REPLACE VIEW host_activity AS
+SELECT
+    host_id,
+    min(scrape_date) AS first_seen_date,
+    max(scrape_date) AS last_seen_date,
+    max(scrape_date) FILTER (WHERE profile_read_ok) AS profile_seen_date,
+    min({hosting_start}) FILTER (WHERE profile_read_ok) AS hosting_started_on,
+    date_diff(
+        'day',
+        min({hosting_start}) FILTER (WHERE profile_read_ok),
+        max({hosting_start}) FILTER (WHERE profile_read_ok)
+    )::INTEGER AS hosting_start_spread_days,
+    -- Whole years of \`timeAsHost\` at the latest reading.
+    arg_max(time_as_host_years, scrape_date)
+        FILTER (WHERE profile_read_ok AND time_as_host_years IS NOT NULL) AS years_hosting,
+    max(scrape_date) >= (
+        SELECT scrape_date FROM latest_scrape_date
+    ) - INTERVAL {grace} DAY AS is_current
+FROM host_observations
+GROUP BY host_id;
+
+-- Gaps-and-islands over (name, about), as in \`listing_versions\`. A day
+-- whose card was not read contributes a NULL profile, which the carry-forward
+-- skips, so a failed read neither blanks the host nor opens a version.
+-- \`timeAsHost\` grows monthly, so it is summarized in \`host_activity\`
+-- rather than versioned.
+CREATE OR REPLACE VIEW host_versions AS
+WITH observed AS (
+    SELECT
+        host_id,
+        scrape_date,
+        CASE WHEN profile_read_ok THEN {'name': name, 'about': about} END AS profile
+    FROM host_observations
+),
+carried AS (
+    SELECT
+        host_id,
+        scrape_date,
+        last_value(profile IGNORE NULLS) OVER (
+            PARTITION BY host_id ORDER BY scrape_date
+        ) AS profile
+    FROM observed
+),
+-- Wrapped so "no card read yet" (a NULL profile) differs from lag()'s NULL
+-- on the first row.
+marked AS (
+    SELECT *,
+        CASE WHEN {'p': profile} IS DISTINCT FROM lag({'p': profile}) OVER w
+             THEN 1 ELSE 0 END AS opens_version
+    FROM carried
+    WINDOW w AS (PARTITION BY host_id ORDER BY scrape_date)
+),
+numbered AS (
+    SELECT *,
+        sum(opens_version) OVER (PARTITION BY host_id ORDER BY scrape_date) AS version_no
+    FROM marked
+),
+aggregated AS (
+    SELECT
+        host_id,
+        version_no,
+        min(scrape_date) AS valid_from,
+        max(scrape_date) AS version_last_seen_date,
+        any_value(profile) AS profile
+    FROM numbered
+    GROUP BY host_id, version_no
+)
+SELECT
+    host_id,
+    version_no,
+    valid_from,
+    version_last_seen_date,
+    profile.name AS name,
+    profile.about AS about,
+    lead(valid_from) OVER (PARTITION BY host_id ORDER BY version_no) AS valid_to
+FROM aggregated;
+
+-- The host dimension. Join to \`listings\` on host_id; filter \`is_current\`
+-- for one row per host.
+CREATE OR REPLACE VIEW hosts AS
+SELECT
+    v.host_id,
+    v.name,
+    v.about,
+    a.hosting_started_on,
+    year(a.hosting_started_on)::INTEGER AS hosting_started_year,
+    a.years_hosting,
+    a.hosting_start_spread_days,
+    a.profile_seen_date,
+    a.first_seen_date,
+    a.last_seen_date,
+    v.version_no,
+    v.version_last_seen_date,
+    v.valid_from,
+    v.valid_to,
+    v.valid_to IS NULL AND a.is_current AS is_current
+FROM host_versions v
+JOIN host_activity a USING (host_id);
+
+-- Listings per host per completed run date. Counts only: no threshold or
+-- owner/operator label is stored; that line is drawn downstream.
+--
+-- listings_live       listings held by the host that were live on
+--                     scrape_date: the \`listing_activity.is_current\` rule
+--                     evaluated as of that date.
+-- listings_ever_seen  distinct listings observed under the host on or before
+--                     scrape_date, live or not.
+--
+-- A row exists for every run date from the host's first observation on, so
+-- a portfolio winding down reads as zeros rather than missing rows. A
+-- listing's host is carried forward past failed page fetches as in
+-- \`listing_versions\`, so the latest date agrees with
+-- \`listings_current.host_id\`. A listing whose page was never read has no
+-- known host and is counted under nobody.
+--
+-- Only listings in the Anchorage search area are counted, not a host's
+-- listings elsewhere.
+CREATE OR REPLACE VIEW host_portfolios AS
+WITH held AS (
+    SELECT
+        listing_id,
+        scrape_date,
+        -- A struct, so "read the page, no host" is not skipped over the way
+        -- "page not read" is.
+        last_value(
+            CASE WHEN page_fetch_ok THEN {'host_id': host_id} END IGNORE NULLS
+        ) OVER (PARTITION BY listing_id ORDER BY scrape_date).host_id AS host_id
+    FROM listing_observations
+),
+-- Completed runs, by \`latest_scrape_date\`'s definition.
+run_dates AS (
+    SELECT scrape_date FROM listing_observations
+    UNION
+    SELECT scrape_date FROM scrape_runs WHERE listings_seen IS NOT NULL
+),
+-- Each listing live on each run date, held by whoever its latest observation
+-- on or before that date names.
+live AS (
+    SELECT d.scrape_date, h.listing_id, h.host_id
+    FROM run_dates d
+    JOIN held h
+      ON h.scrape_date BETWEEN d.scrape_date - INTERVAL {grace} DAY AND d.scrape_date
+    QUALIFY row_number() OVER (
+        PARTITION BY d.scrape_date, h.listing_id ORDER BY h.scrape_date DESC
+    ) = 1
+),
+live_counts AS (
+    SELECT host_id, scrape_date, count(*) AS listings_live
+    FROM live
+    WHERE host_id IS NOT NULL
+    GROUP BY host_id, scrape_date
+),
+first_held AS (
+    SELECT host_id, listing_id, min(scrape_date) AS scrape_date
+    FROM held
+    WHERE host_id IS NOT NULL
+    GROUP BY host_id, listing_id
+),
+newly_seen AS (
+    SELECT host_id, scrape_date, count(*) AS listings_new
+    FROM first_held
+    GROUP BY host_id, scrape_date
+),
+panel AS (
+    SELECT f.host_id, d.scrape_date
+    FROM (SELECT host_id, min(scrape_date) AS since FROM first_held GROUP BY host_id) f
+    JOIN run_dates d ON d.scrape_date >= f.since
+)
+SELECT
+    p.host_id,
+    p.scrape_date,
+    coalesce(l.listings_live, 0)::INTEGER AS listings_live,
+    sum(coalesce(n.listings_new, 0)) OVER (
+        PARTITION BY p.host_id ORDER BY p.scrape_date
+    )::INTEGER AS listings_ever_seen
+FROM panel p
+LEFT JOIN live_counts l USING (host_id, scrape_date)
+LEFT JOIN newly_seen n USING (host_id, scrape_date);
+
+-- \`listings_current\` plus the owning host's profile and portfolio as of the
+-- latest run, so "is this Girdwood room part of a large portfolio?" needs no
+-- join. The host columns are NULL when the host is unknown.
+CREATE OR REPLACE VIEW listings_current_with_host AS
+SELECT
+    l.*,
+    h.name AS host_name,
+    h.years_hosting AS host_years_hosting,
+    h.hosting_started_on AS host_hosting_started_on,
+    p.listings_live AS host_listings_live,
+    p.listings_ever_seen AS host_listings_ever_seen
+FROM listings_current l
+LEFT JOIN hosts h
+  ON h.host_id = l.host_id AND h.valid_to IS NULL
+LEFT JOIN host_portfolios p
+  ON p.host_id = l.host_id
+ AND p.scrape_date = (SELECT scrape_date FROM latest_scrape_date);
+
+-- Stored in the file, so readers of the published .duckdb see the scope.
+COMMENT ON VIEW host_portfolios IS 'Listings per Airbnb host account per scrape date. Counts only listings in the Anchorage search area, not a host''s listings elsewhere. No owner/operator threshold is stored.';
+COMMENT ON COLUMN host_portfolios.listings_live IS 'Listings held by this host that were live on scrape_date (seen within the retirement grace window ending that day).';
+COMMENT ON COLUMN host_portfolios.listings_ever_seen IS 'Distinct listings observed under this host on or before scrape_date, live or retired.';
+COMMENT ON VIEW listings_current_with_host IS 'listings_current plus the host''s name, tenure, and host_portfolios counts as of the latest run. NULL when the host is unknown. Portfolio counts cover only the Anchorage search area.';
 `;
 
 function viewsSql(): string {
-  return VIEWS_SQL.replace('{grace}', String(config.RETIREMENT_GRACE_DAYS))
+  return VIEWS_SQL.replaceAll('{grace}', String(config.RETIREMENT_GRACE_DAYS))
+    .replaceAll('{hosting_start}', IMPLIED_HOSTING_START_SQL)
     .replace('{page_attrs}', PAGE_ATTRS_SQL)
     .replace('{version_key}', VERSION_KEY_SQL);
 }
@@ -729,6 +977,88 @@ export function summarizeQuotes(quotes: readonly PriceQuote[]): QuoteStats {
 }
 
 // --------------------------------------------------------------------------
+// hosts
+
+export interface HostProfileStats {
+  /** Distinct hosts owning a listing observed today. */
+  attempted: number;
+  /** Of those, how many had no card read today. */
+  failed: number;
+  new: number;
+  changed: number;
+}
+
+const HOST_OBSERVATION_TYPES = [
+  BIGINT,
+  DATE,
+  BOOLEAN,
+  VARCHAR,
+  VARCHAR,
+  INTEGER,
+  INTEGER,
+] satisfies DuckDBType[];
+
+/**
+ * Write one day's host observations: a row for every host owning a listing
+ * observed today, whether or not their card was read.
+ *
+ * Runs after `recordObservations` for the same date, in the same transaction:
+ * today's owners are read back from `listings`, so a listing whose page failed
+ * today still names its owner through the carried-forward `host_id`.
+ *
+ * `cards` is `collectHostCards`' output. Idempotent per scrape date.
+ */
+export async function recordHostObservations(
+  db: Database,
+  scrapeDate: IsoDate,
+  cards: ReadonlyMap<string, HostCard>,
+): Promise<HostProfileStats> {
+  await db.run('DELETE FROM host_observations WHERE scrape_date = CAST(? AS DATE)', [scrapeDate]);
+  const previouslySeen = new Set(
+    (
+      await db.rows<{ host_id: string }>('SELECT DISTINCT host_id FROM host_observations')
+    ).map((row) => row.host_id),
+  );
+  const owners = (
+    await db.rows<{ host_id: string }>(
+      'SELECT DISTINCT host_id FROM listings ' +
+        'WHERE valid_to IS NULL AND last_seen_date = CAST(? AS DATE) AND host_id IS NOT NULL',
+      [scrapeDate],
+    )
+  ).map((row) => row.host_id);
+  const hostIds = [...new Set([...owners, ...cards.keys()])];
+
+  if (hostIds.length > 0) {
+    const appender = await db.appender('host_observations');
+    const day = dateValue(epochDays(scrapeDate));
+    for (const hostId of hostIds) {
+      const card = cards.get(hostId);
+      appendRow(appender, HOST_OBSERVATION_TYPES, [
+        BigInt(hostId),
+        day,
+        card !== undefined,
+        card?.name ?? null,
+        card?.about ?? null,
+        card?.timeAsHostYears ?? null,
+        card?.timeAsHostMonths ?? null,
+      ]);
+    }
+    appender.flushSync();
+    appender.closeSync();
+  }
+
+  return {
+    attempted: hostIds.length,
+    failed: hostIds.filter((hostId) => !cards.has(hostId)).length,
+    new: hostIds.filter((hostId) => !previouslySeen.has(hostId)).length,
+    changed: await db.count(
+      'SELECT count(*) FROM host_versions WHERE valid_from = CAST(? AS DATE)',
+      [scrapeDate],
+    ),
+  };
+}
+
+// --------------------------------------------------------------------------
 // calendar
 
 export interface CalendarMergeStats {
@@ -930,6 +1260,8 @@ export interface RunRow {
   firstReviewFetchFailed: number | null;
   quoteFetchAttempted: number | null;
   quoteFetchFailed: number | null;
+  hostProfileAttempted: number | null;
+  hostProfileFailed: number | null;
   errorSummary: string | null;
 }
 
@@ -940,9 +1272,10 @@ export async function logRun(db: Database, run: RunRow): Promise<void> {
       ' listings_changed, listings_retired, calendar_fetch_attempted, calendar_fetch_failed, ' +
       ' calendar_nights_changed, page_fetch_attempted, page_fetch_failed, ' +
       ' first_review_fetch_attempted, first_review_fetch_failed, ' +
-      ' quote_fetch_attempted, quote_fetch_failed, error_summary) ' +
+      ' quote_fetch_attempted, quote_fetch_failed, ' +
+      ' host_profile_attempted, host_profile_failed, error_summary) ' +
       'VALUES (CAST(? AS DATE), CAST(? AS TIMESTAMP), CAST(? AS TIMESTAMP), ' +
-      '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [
       run.scrapeDate,
       run.runStartedAt,
@@ -960,6 +1293,8 @@ export async function logRun(db: Database, run: RunRow): Promise<void> {
       run.firstReviewFetchFailed,
       run.quoteFetchAttempted,
       run.quoteFetchFailed,
+      run.hostProfileAttempted,
+      run.hostProfileFailed,
       run.errorSummary,
     ],
     // Date and timestamp parameters are bound as strings and cast in SQL,
@@ -968,6 +1303,8 @@ export async function logRun(db: Database, run: RunRow): Promise<void> {
       VARCHAR,
       VARCHAR,
       VARCHAR,
+      INTEGER,
+      INTEGER,
       INTEGER,
       INTEGER,
       INTEGER,

@@ -5,12 +5,12 @@ Queries run in the browser with
 [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview); there is no server.
 
 - **Overview**: active listings, booked tonight, distinct STRs over the last
-  year, near-term booked/vacant nights, monthly distinct-STR trend, and
-  bedroom mix.
+  year, host concentration, near-term booked/vacant nights, monthly
+  distinct-STR trend, and bedroom mix.
 - **Map**: current listings, colored by pin precision or price.
 - **Listings**: a searchable table of current listings with a cover-photo
-  thumbnail, room type, and their latest rating, review count and price
-  quote.
+  thumbnail, room type, their latest rating, review count and price quote,
+  host name, years hosting, and the host's portfolio size.
 
 ## Running locally
 

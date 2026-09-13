@@ -75,6 +75,22 @@ data-quality checks.
     Private and shared rooms usually have no bedroom line.
   - These, like `host_id`, come from the listing page: a change opens a new
     version, and a failed page fetch carries the previous value forward.
+- `host_observations`: one row per host per scrape date for every host with
+  a listing observed that day: the public profile card from the listing page
+  (display name, bio, `timeAsHost`), and whether it was read
+  (`profile_read_ok`)
+- `hosts` *(view)*: one row per host version, derived from
+  `host_observations` the way `listings` is derived from
+  `listing_observations`. A name or bio change opens a version; a failed read
+  carries the last one forward. `hosting_started_on` is derived from
+  `timeAsHost`, which Airbnb reports in whole months, so it can be up to a
+  month late.
+- `host_portfolios` *(view)*: per host per scrape date, `listings_live` and
+  `listings_ever_seen`. Counts only listings in the Anchorage search area: a
+  host with 2 listings here and 40 elsewhere has 2. No owner/operator
+  threshold is stored.
+- `listings_current_with_host` *(view)*: `listings_current` plus the host's
+  name, years hosting, and portfolio counts as of the latest run
 - `calendar_current` *(view)*: use this instead of `calendar_status` for
   "how many are operating/booked"; it drops the frozen future nights of
   retired listings

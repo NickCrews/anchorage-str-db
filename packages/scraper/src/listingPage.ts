@@ -1,8 +1,8 @@
 /**
  * Read a listing's own page for fields search results lack or report
  * unreliably: whether its coordinate is exact, its municipal STR registration
- * number, its host's Airbnb user id, its room type, guest, bed, bedroom and
- * bathroom counts, and its photo gallery.
+ * number, its host's Airbnb user id and public profile card (`HostCard`), its
+ * room type, guest, bed, bedroom and bathroom counts, and its photo gallery.
  *
  * Airbnb jitters the map pin unless the host shows the exact location. Search
  * returns a coordinate either way; the listing page's `isExactLocation` says
@@ -28,12 +28,13 @@
  *    `image` list stops at 8 photos and its `occupancy` is a bed count, so
  *    neither is read.
  * 2. **`state`**: the embedded GraphQL response, the only source of
- *    `isExactLocation` and photos. Found by searching every JSON script for an
- *    object with a boolean key matching `exact…location`, not by a fixed path,
- *    so renamed wrappers or script ids don't break it. The other fields are
- *    likewise found by key or value: the one GraphQL id that decodes to
- *    `DemandUser:<id>`, the `roomType`, `personCapacity` and `bedCount` keys,
- *    the overview `items` list, and the `mediaItems` gallery.
+ *    `isExactLocation`, photos and the host card. Found by searching every JSON
+ *    script for an object with a boolean key matching `exact…location`, not by
+ *    a fixed path, so renamed wrappers or script ids don't break it. The other
+ *    fields are likewise found by key or value: the one GraphQL id that decodes
+ *    to `DemandUser:<id>`, the `roomType`, `personCapacity` and `bedCount`
+ *    keys, the overview `items` list, the `mediaItems` gallery, and the host
+ *    card's `timeAsHost` key.
  * 3. **`raw-html`**: regexes over the raw document, for when the JSON does not
  *    parse. Returns nothing if a pattern matches more than one distinct value.
  */
@@ -89,6 +90,15 @@ function overviewLine(items: readonly unknown[], pattern: RegExp): string | null
   return null;
 }
 
+// The host card is the only object on the page with a `timeAsHost` key. There
+// is no raw-html fallback: the bio cannot be read reliably from undecoded
+// HTML, and a card without it would record "no bio" as a fact.
+const TIME_AS_HOST_KEY_RE = /^time_?as_?host$/i;
+const USER_ID_KEY_RE = /^user_?id$/i;
+// `UGCText` members, most preferred first: the text as the host wrote it,
+// then Airbnb's rendering of it.
+const BIO_TEXT_KEYS = ['source', 'localizedString', 'localizedStringWithTranslationPreference'];
+
 const PAGE_HEADERS = {
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language': config.LANGUAGE,
@@ -124,9 +134,36 @@ export interface PageFields {
   photoUrls: string[] | null;
 }
 
+/**
+ * The public profile card of the listing's primary host, at
+ * `pdpPresentation.hostInfo` in the embedded state:
+ *
+ *     hostInfo.passportData.{name, userId, timeAsHost{years, months}}
+ *     hostInfo.about -> UGCText{source, localizedString, ...} | null
+ *
+ * See `docs/research/airbnb-pdp-host-id.md`.
+ */
+export interface HostCard {
+  /** The account the card names, decoded from `userId`. Checked against `ListingPage.hostId`. */
+  hostId: string | null;
+  /** The display name: a first name or a business name. Airbnb shows no surnames. */
+  name: string;
+  /** The bio as the host wrote it. Null when the card's `about` is null. */
+  about: string | null;
+  /**
+   * Airbnb's `timeAsHost` as of the day the page was read. The "Years
+   * hosting" badge beside it is rounded (9 years 7 months shows as 10), so
+   * it is not used.
+   */
+  timeAsHostYears: number | null;
+  timeAsHostMonths: number | null;
+}
+
 /** What one listing's page yielded. Fields no layer found are null. */
 export interface ListingPage extends PageFields {
   roomId: string;
+  /** Only the `state` layer yields a card. Null if absent, ambiguous, or for another account. */
+  hostCard: HostCard | null;
   /**
    * Which extraction layers contributed, e.g. `"json-ld+state"`. Used for logs
    * and `PageFetchStats`; not stored in the database.
@@ -152,6 +189,7 @@ export function emptyListingPage(roomId: string, error: string | null = null): L
     bedrooms: null,
     bathrooms: null,
     photoUrls: null,
+    hostCard: null,
     locationSource: null,
     error,
   };
@@ -295,9 +333,8 @@ function findHostId(doc: unknown): string | null {
   const ids = new Set<string>();
   for (const obj of iterObjects(doc)) {
     for (const value of Object.values(obj)) {
-      if (typeof value !== 'string' || !GRAPHQL_ID_RE.test(value)) continue;
-      const match = HOST_USER_RE.exec(Buffer.from(value, 'base64').toString('latin1'));
-      if (match) ids.add(match[1]!);
+      const id = decodeHostUserId(value);
+      if (id) ids.add(id);
     }
   }
   return ids.size === 1 ? [...ids][0]! : null;
@@ -346,10 +383,91 @@ function findPhotoUrls(doc: unknown): string[] | null {
   return best.length > 0 ? best : null;
 }
 
+function isObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** A non-negative integer, or null. */
+function asCount(value: unknown): number | null {
+  return Number.isInteger(value) && (value as number) >= 0 ? (value as number) : null;
+}
+
+/** The `DemandUser` id a GraphQL id decodes to, or null. */
+function decodeHostUserId(value: unknown): string | null {
+  if (typeof value !== 'string' || !GRAPHQL_ID_RE.test(value)) return null;
+  return HOST_USER_RE.exec(Buffer.from(value, 'base64').toString('latin1'))?.[1] ?? null;
+}
+
+/** The value of the first key matching `pattern` that holds an object. */
+function objectKey(obj: JsonObject, pattern: RegExp): JsonObject | null {
+  for (const [key, value] of Object.entries(obj)) {
+    if (pattern.test(key) && isObject(value)) return value;
+  }
+  return null;
+}
+
+/**
+ * A card from the passport object and the `about` beside it, or null if
+ * either has an unrecognized shape. An `about` object with no known text
+ * member is a reshaped bio, not a missing one, so it yields no card rather
+ * than recording "no bio".
+ */
+function hostCardFrom(passport: JsonObject, about: unknown): HostCard | null {
+  const name = passport['name'];
+  if (typeof name !== 'string' || !name.trim()) return null;
+  let bio: string | null;
+  if (about === null) {
+    bio = null;
+  } else if (isObject(about)) {
+    const text = BIO_TEXT_KEYS.map((key) => about[key]).find((value) => typeof value === 'string');
+    if (typeof text !== 'string') return null;
+    bio = text.trim() ? text : null;
+  } else {
+    return null;
+  }
+  const tenure = objectKey(passport, TIME_AS_HOST_KEY_RE) ?? {};
+  const userIdKey = Object.keys(passport).find((key) => USER_ID_KEY_RE.test(key));
+  return {
+    hostId: userIdKey === undefined ? null : decodeHostUserId(passport[userIdKey]),
+    name: name.trim(),
+    about: bio,
+    timeAsHostYears: asCount(tenure['years']),
+    timeAsHostMonths: asCount(tenure['months']),
+  };
+}
+
+/**
+ * The host card, found by shape: an object holding a `timeAsHost` object (the
+ * passport) whose parent has an `about` key. Requiring the `about` key, even
+ * when its value is null, is what makes "no bio" trustworthy. Two distinct
+ * cards yield null.
+ */
+function findHostCard(doc: unknown): HostCard | null {
+  const cards = new Map<string, HostCard>();
+  for (const obj of iterObjects(doc)) {
+    if (!('about' in obj)) continue;
+    for (const value of Object.values(obj)) {
+      if (!isObject(value) || objectKey(value, TIME_AS_HOST_KEY_RE) === null) continue;
+      const card = hostCardFrom(value, obj['about']);
+      if (card) cards.set(JSON.stringify(card), card);
+    }
+  }
+  return cards.size === 1 ? [...cards.values()][0]! : null;
+}
+
 function dropNulls(fields: Partial<PageFields>): Partial<PageFields> {
   return Object.fromEntries(
     Object.entries(fields).filter(([, value]) => value !== null && value !== undefined),
   ) as Partial<PageFields>;
+}
+
+/** The host card from whichever JSON script has one. */
+function hostCardFromState(html: string): HostCard | null {
+  for (const doc of jsonScripts(html)) {
+    const card = findHostCard(doc);
+    if (card) return card;
+  }
+  return null;
 }
 
 /** Takes each field from whichever JSON script has it. */
@@ -482,6 +600,7 @@ export function parseListingPage(html: string, roomId: string): ListingPage {
 
   warnOnDisagreement(byLayer, roomId);
   page.locationSource = contributors.join('+');
+  page.hostCard = checkedHostCard(hostCardFromState(html), page.hostId, roomId);
   return page;
 }
 
@@ -497,6 +616,54 @@ const COMPARED_FIELDS = [
   'bedrooms',
   'bathrooms',
 ] as const satisfies ReadonlyArray<keyof PageFields>;
+
+/**
+ * The card, unless it names an account other than the listing's host, in
+ * which case filing it under the host would record a stranger's profile.
+ */
+function checkedHostCard(
+  card: HostCard | null,
+  hostId: string | null,
+  roomId: string,
+): HostCard | null {
+  if (card !== null && card.hostId !== null && hostId !== null && card.hostId !== hostId) {
+    log.warn(
+      `room ${roomId}: host card is for account ${card.hostId} but the listing's host is ` +
+        `${hostId}; not recording the card`,
+    );
+    return null;
+  }
+  return card;
+}
+
+/**
+ * One card per distinct host, from a run's listing pages. A host with twelve
+ * listings was read twelve times; readings should match, since they are the
+ * same account read minutes apart. If they differ (a profile edited mid-run,
+ * or `timeAsHost` crossing a month), the lowest room id's reading wins so a
+ * re-run records the same thing.
+ */
+export function collectHostCards(pages: readonly ListingPage[]): Map<string, HostCard> {
+  const readings = new Map<string, Array<{ roomId: bigint; card: HostCard }>>();
+  for (const page of pages) {
+    if (page.error || page.hostId === null || page.hostCard === null) continue;
+    const list = readings.get(page.hostId) ?? [];
+    list.push({ roomId: BigInt(page.roomId), card: page.hostCard });
+    readings.set(page.hostId, list);
+  }
+  const cards = new Map<string, HostCard>();
+  for (const [hostId, seen] of readings) {
+    seen.sort((a, b) => (a.roomId < b.roomId ? -1 : a.roomId > b.roomId ? 1 : 0));
+    if (new Set(seen.map(({ card }) => JSON.stringify(card))).size > 1) {
+      log.warn(
+        `host ${hostId}: ${seen.length} listing pages disagree about the host card; ` +
+          `keeping room ${seen[0]!.roomId}'s`,
+      );
+    }
+    cards.set(hostId, seen[0]!.card);
+  }
+  return cards;
+}
 
 /** Warn when layers disagree, which means one is matching the wrong thing. */
 function warnOnDisagreement(byLayer: Record<Layer, Partial<PageFields>>, roomId: string): void {

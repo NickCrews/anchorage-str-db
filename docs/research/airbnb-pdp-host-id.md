@@ -42,6 +42,42 @@ presentation.stayProductDetailPage.sections.sbuiData.sectionConfiguration.root.s
 
 The schema.org JSON-LD block has no host.
 
+## The host card
+
+`passportData` is the host's profile card. Its parent, `hostInfo`, holds the
+bio beside it. Measured 2026-09-12 on 2618 Anchorage listing pages (abridged):
+
+```json
+{
+  "passportData": {
+    "name": "Gwen",
+    "userId": "RGVtYW5kVXNlcjoxMTE2NzU0ODY=",
+    "timeAsHost": { "__typename": "TimeAsUser", "years": 9, "months": 7 },
+    "stats": [{ "label": "Years hosting", "value": "10", "type": "YEARS_HOSTING" }]
+  },
+  "about": {
+    "__typename": "UGCText",
+    "source": "Mark and Gwen have lived in Alaska for 20 years. ...",
+    "localizedString": "..."
+  }
+}
+```
+
+- `about` is `null` for a host with no bio.
+- The "Years hosting" stat is rounded (9y7m shows "10", 5y10m shows "6"), so
+  the parser stores `timeAsHost`.
+- Airbnb publishes no start date. `timeAsHost` in whole months implies one
+  up to a month late.
+- `timeAsHost` appears once per page, so the `state` layer finds the card by
+  that key. There is no `raw-html` fallback, because the bio can't be read
+  reliably from undecoded HTML.
+
+| Finding | Result |
+| --- | --- |
+| Pages with a host card | 2616/2618; the other 2 also had no host id |
+| Card `userId` equals the page's host id | all 2616 |
+| Distinct hosts | 1286 |
+
 ### Other user ids on the page
 
 - `contextualUserId` and `node.contextualPrimaryHost.id` decode to
@@ -81,4 +117,4 @@ leaves the other working. Both ignore key names and paths except the
 the carried-forward `page_attrs` and of the version key: a room changing
 hosts opens a new version in `listings`. The `host_id_coverage` check fails
 the run when fewer than `MIN_PAGE_FIELD_SHARE` of current, page-read listings
-have one.
+have one. The host card populates `host_observations`; see README.

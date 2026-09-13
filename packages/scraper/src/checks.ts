@@ -277,6 +277,70 @@ export async function runChecks(
     }
   }
 
+  // Warnings, not errors: the views carry every host's last good read
+  // forward, so a day without fresh profiles is thinner, not wrong.
+  // `listing_page_failure_rate` already errors when pages stop arriving, so
+  // these isolate the host card's extraction breaking.
+  const hostRuns = await db.rows<{
+    host_profile_attempted: number | null;
+    host_profile_failed: number | null;
+  }>(
+    'SELECT host_profile_attempted, host_profile_failed FROM scrape_runs ' +
+      'WHERE scrape_date = CAST(? AS DATE) ORDER BY run_started_at DESC LIMIT 1',
+    [scrapeDate],
+  );
+  const hostAttempted = hostRuns[0]?.host_profile_attempted ?? 0;
+  if (hostAttempted) {
+    const hostFailed = hostRuns[0]?.host_profile_failed ?? 0;
+    const rate = hostFailed / hostAttempted;
+    check(
+      'host_profile_failure_rate',
+      'warn',
+      rate <= config.MAX_HOST_PROFILE_FAILURE_RATE,
+      `${hostFailed}/${hostAttempted} hosts with a listing observed today had no host card ` +
+        `read (${percent(rate)}, max ${percent(config.MAX_HOST_PROFILE_FAILURE_RATE)})`,
+    );
+  }
+
+  // Listings with no host_id at all are `host_id_coverage`'s concern.
+  const owned = await db.count(
+    'SELECT count(*) FROM listings WHERE is_current AND host_id IS NOT NULL',
+  );
+  if (owned) {
+    const resolved = await db.count(
+      'SELECT count(*) FROM listings l ' +
+        'JOIN hosts h ON h.host_id = l.host_id AND h.valid_to IS NULL ' +
+        'WHERE l.is_current AND h.profile_seen_date IS NOT NULL',
+    );
+    const share = resolved / owned;
+    check(
+      'host_profile_coverage',
+      'warn',
+      share >= config.MIN_HOST_PROFILE_SHARE,
+      `${resolved}/${owned} current listings with a host_id resolve to a read host profile ` +
+        `(${percent(share)}, min ${percent(config.MIN_HOST_PROFILE_SHARE)})`,
+    );
+  }
+
+  // A hosting start date should never move. Month rounding is within the
+  // threshold; beyond it is an account change or a parse reading the wrong
+  // number.
+  const moved = await db.rows<{ host_id: string; spread: number }>(
+    'SELECT host_id, hosting_start_spread_days AS spread FROM hosts ' +
+      'WHERE is_current AND hosting_start_spread_days > ? ORDER BY spread DESC',
+    [config.HOST_START_MAX_SPREAD_DAYS],
+  );
+  check(
+    'host_start_date_stable',
+    'warn',
+    moved.length === 0,
+    `${moved.length} current hosts whose hosting start date moved by more than ` +
+      `${config.HOST_START_MAX_SPREAD_DAYS} days between readings` +
+      (moved.length
+        ? `; e.g. ${moved.slice(0, 5).map((row) => `${row.host_id} (${row.spread}d)`).join(', ')}`
+        : ''),
+  );
+
   // Airbnb emits exact coordinates at 4 decimal places and jittered ones at
   // 5+ (41/41 measured; see docs/research/airbnb-pdp-location-payload.md).
   // This is undocumented, so a mismatch warns rather than fails.

@@ -10,6 +10,9 @@ import type { StateCreator } from 'zustand';
 export const LAKE_TABLES = [
   'listings',
   'listings_current',
+  'listings_current_with_host',
+  'hosts',
+  'host_portfolios',
   'listing_observations',
   'listing_photos',
   'listing_photos_current',

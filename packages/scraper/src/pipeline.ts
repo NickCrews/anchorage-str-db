@@ -9,7 +9,7 @@ import { fetchCalendars, liveCalendarFetcher } from './calendars.ts';
 import { report, runChecks } from './checks.ts';
 import { addDays, toSqlTimestamp, todayUtc, type IsoDate } from './dates.ts';
 import { fetchFirstReviews, liveReviewPageFetcher } from './firstReviews.ts';
-import { fetchListingPages, livePageFetcher } from './listingPage.ts';
+import { collectHostCards, fetchListingPages, livePageFetcher } from './listingPage.ts';
 import { describeError, log } from './log.ts';
 import { parseListing, type ParsedListing } from './parse.ts';
 import { fetchPriceQuotes, liveQuoteFetcher } from './priceQuotes.ts';
@@ -21,6 +21,7 @@ import {
   mergeCalendar,
   pendingFirstReviews,
   recordFirstReviews,
+  recordHostObservations,
   recordObservations,
   summarizeFirstReviews,
   summarizePages,
@@ -88,6 +89,15 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
         `bedrooms, ${pageStats.withBathrooms} with bathrooms, ${pageStats.withPhotos} with photos`,
     );
 
+    // The host pass makes no requests: every listing page carries its
+    // owner's card, so this collapses the cards already fetched to one per
+    // distinct host.
+    const hostCards = collectHostCards(pages);
+    log.info(
+      `host profiles: ${hostCards.size} distinct hosts read from ` +
+        `${pageStats.attempted - pageStats.failed} listing pages`,
+    );
+
     const calendarResults = await fetchCalendars(roomIds, {
       minDate: scrapeDate,
       fetchOne: liveCalendarFetcher(apiKey),
@@ -119,6 +129,8 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
     // ---- write phase -----------------------------------------------------
     const stats = await db.transaction(async () => {
       const listingStats = await recordObservations(db, scrapeDate, parsed, pages, quotes);
+      // After the listings: it reads today's owners back from them.
+      const hostStats = await recordHostObservations(db, scrapeDate, hostCards);
       const calendarStats = await mergeCalendar(db, scrapeDate, calendarResults);
       await recordFirstReviews(db, scrapeDate, firstReviews);
       await logRun(db, {
@@ -138,6 +150,8 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
         firstReviewFetchFailed: firstReviewStats.failed,
         quoteFetchAttempted: quoteStats.attempted,
         quoteFetchFailed: quoteStats.failed,
+        hostProfileAttempted: hostStats.attempted,
+        hostProfileFailed: hostStats.failed,
         errorSummary: null,
       });
       return { pageStats, quoteStats, searchResult, coverage };
@@ -177,6 +191,8 @@ function failedRunRow(scrapeDate: IsoDate, startedAt: string, errorSummary: stri
     firstReviewFetchFailed: null,
     quoteFetchAttempted: null,
     quoteFetchFailed: null,
+    hostProfileAttempted: null,
+    hostProfileFailed: null,
     errorSummary,
   };
 }

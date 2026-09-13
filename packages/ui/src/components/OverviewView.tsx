@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle, SpinnerPane } from '@sqlrooms
 import type { FC } from 'react';
 import { useRoomStore } from '../store';
 import { DataStatusGate } from './DataStatusGate';
+import { HostConcentrationCard } from './HostConcentrationCard';
 import { StatCard } from './StatCard';
 
 // DuckDB DATE columns come back from useSql as epoch-millisecond numbers,
@@ -177,6 +178,8 @@ export const OverviewView: FC = () => {
           detail="UTC calendar date"
         />
       </div>
+
+      <HostConcentrationCard />
 
       <Card>
         <CardHeader>

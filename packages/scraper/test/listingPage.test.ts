@@ -48,11 +48,21 @@ interface PageOptions {
   overviewItems?: string[] | null;
   /** The gallery's `mediaItems` base URLs; null omits the gallery. */
   photoUrls?: string[] | null;
+  /** Replaces the card's `about`; `undefined` removes the key. */
+  about?: unknown;
+  timeAsHost?: Record<string, unknown> | null;
 }
 
 const PHOTOS = [...Array(12).keys()].map(
   (i) => `https://a0.muscache.com/im/pictures/hosting/Hosting-1/original/photo-${i}.jpeg`,
 );
+
+const BIO = {
+  __typename: 'UGCText',
+  localizedStringWithTranslationPreference: 'Mark and Gwen have lived in Alaska for 20 years.',
+  localizedString: 'Mark and Gwen have lived in Alaska for 20 years.',
+  source: 'Mark and Gwen have lived in Alaska for 20 years.',
+};
 
 /** A page shaped like Airbnb's: a schema.org block and a nested GraphQL blob. */
 function makePage(options: PageOptions = {}): string {
@@ -71,7 +81,9 @@ function makePage(options: PageOptions = {}): string {
     bedCount = 3,
     overviewItems = ['5 guests', '2 bedrooms', '3 beds', '1.5 baths'],
     photoUrls = PHOTOS,
+    timeAsHost = { __typename: 'TimeAsUser', years: 9, months: 7 },
   } = options;
+  const about = 'about' in options ? options.about : BIO;
 
   const parts: string[] = [];
   if (jsonLd) {
@@ -113,7 +125,9 @@ function makePage(options: PageOptions = {}): string {
                     name: 'Rachel',
                     userId: graphqlId('DemandUser', cardHostId),
                     contextualUserId: graphqlId('ContextualUser', '1462636974849197760'),
+                    ...(timeAsHost && { timeAsHost }),
                   },
+                  ...(about !== undefined && { about }),
                 },
                 location: stateLocation,
                 overview: overviewItems && { __typename: 'StaysPdpOverview', items: overviewItems },
@@ -420,5 +434,65 @@ describe('photos', () => {
 
     expect(page.photoUrls).toBeNull();
     expect(page.locationIsExact).toBe(true);
+  });
+});
+
+// --- host card --------------------------------------------------------------
+
+describe('the host card', () => {
+  it('reads name, bio and time as a host', () => {
+    expect(parseListingPage(makePage(), '1').hostCard).toEqual({
+      hostId: HOST_ID,
+      name: 'Rachel',
+      about: 'Mark and Gwen have lived in Alaska for 20 years.',
+      timeAsHostYears: 9,
+      timeAsHostMonths: 7,
+    });
+  });
+
+  it('records no bio when about is null', () => {
+    const card = parseListingPage(makePage({ about: null }), '1').hostCard;
+
+    expect(card?.name).toBe('Rachel');
+    expect(card?.about).toBeNull();
+  });
+
+  it('prefers the text as the host wrote it', () => {
+    const about = { ...BIO, source: 'Original', localizedString: 'Translated' };
+
+    expect(parseListingPage(makePage({ about }), '1').hostCard?.about).toBe('Original');
+  });
+
+  it('is null without an about key, rather than recording no bio', () => {
+    expect(parseListingPage(makePage({ about: undefined }), '1').hostCard).toBeNull();
+  });
+
+  it('is null when about has no text member it recognizes', () => {
+    const about = { __typename: 'UGCText', richText: 'reshaped' };
+
+    expect(parseListingPage(makePage({ about }), '1').hostCard).toBeNull();
+  });
+
+  it('is null without timeAsHost, which is how the card is found', () => {
+    expect(parseListingPage(makePage({ timeAsHost: null }), '1').hostCard).toBeNull();
+  });
+
+  it('is dropped when it names a different account than the listing’s host', () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    try {
+      // A second DemandUser elsewhere leaves the state layer without a host
+      // id, so the analytics context supplies it, and the card is someone else's.
+      const html = makePage({ cardHostId: '999999999' }).replace(
+        '"cohosts":[]',
+        `"cohosts":[],"reviewer":{"id":"${graphqlId('DemandUser', HOST_ID)}"}`,
+      );
+      const page = parseListingPage(html, '1');
+
+      expect(page.hostId).toBe(HOST_ID);
+      expect(page.hostCard).toBeNull();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('not recording the card'));
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
