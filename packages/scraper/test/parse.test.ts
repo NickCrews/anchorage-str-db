@@ -4,35 +4,6 @@ import { parseListing } from '../src/parse.ts';
 import { makeSearchListing } from './fixtures.ts';
 
 describe('parseListing', () => {
-  it('reads counts out of the free-text primary lines', () => {
-    const parsed = parseListing(
-      makeSearchListing(7, { primaryLines: ['2 bedrooms', '3 beds', '1.5 baths', '6 guests'] }),
-    );
-
-    expect(parsed.bedrooms).toBe(2);
-    expect(parsed.beds).toBe(3);
-    expect(parsed.bathrooms).toBe(1.5);
-    expect(parsed.guestCapacity).toBe(6);
-  });
-
-  it('does not invent a bedroom count from a studio’s bed line', () => {
-    const parsed = parseListing(makeSearchListing(7, { primaryLines: ['1 bed', '1 bath'] }));
-
-    expect(parsed.bedrooms).toBeNull();
-    expect(parsed.beds).toBe(1);
-  });
-
-  it('leaves every count null when the lines say nothing', () => {
-    const parsed = parseListing(makeSearchListing(7, { primaryLines: ['Sep 18 – 23'] }));
-
-    expect([parsed.bedrooms, parsed.beds, parsed.bathrooms, parsed.guestCapacity]).toEqual([
-      null,
-      null,
-      null,
-      null,
-    ]);
-  });
-
   it('takes the nightly rate out of the breakdown’s own arithmetic', () => {
     const parsed = parseListing(
       makeSearchListing(7, {

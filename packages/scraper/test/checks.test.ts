@@ -14,6 +14,7 @@ import { emptyAudit, PriceBand, type CoverageAudit, type SearchResult } from '..
 import {
   connect,
   emptyPageStats,
+  type QuoteStats,
   logRun,
   mergeCalendar,
   recordObservations,
@@ -58,6 +59,8 @@ async function seedMinimal(
     pageFetchFailed: null,
     firstReviewFetchAttempted: firstReviews.attempted,
     firstReviewFetchFailed: firstReviews.failed,
+    quoteFetchAttempted: null,
+    quoteFetchFailed: null,
     errorSummary: null,
   });
   return db;
@@ -66,10 +69,11 @@ async function seedMinimal(
 /** Run the checks with healthy in-memory pass stats unless overridden. */
 async function check(
   db: Database,
-  overrides: { searchResult?: SearchResult; coverage?: CoverageAudit } = {},
+  overrides: { searchResult?: SearchResult; coverage?: CoverageAudit; quoteStats?: QuoteStats } = {},
 ): Promise<{ byName: Record<string, CheckResult>; all: CheckResult[] }> {
   const all = await runChecks(db, DAY, {
     pageStats: emptyPageStats(),
+    quoteStats: overrides.quoteStats ?? { attempted: 0, failed: 0, priced: 0 },
     searchResult: overrides.searchResult ?? { listings: [], queries: 9, unresolved: [] },
     coverage: overrides.coverage ?? { boxes: 6, seen: 100, missedIds: [] },
   });
@@ -78,7 +82,7 @@ async function check(
 
 it('passes no_backdated_calendar_rows on clean data', async () => {
   const db = await seedMinimal();
-  await mergeCalendar(db, DAY, [calendarResultFor('0', '2026-08-18', true, 1, 100)]);
+  await mergeCalendar(db, DAY, [calendarResultFor('0', '2026-08-18', true, 1)]);
 
   const { byName } = await check(db);
   expect(byName['no_backdated_calendar_rows']!.passed).toBe(true);
@@ -87,7 +91,7 @@ it('passes no_backdated_calendar_rows on clean data', async () => {
 it('fails no_backdated_calendar_rows for a night before its valid_from', async () => {
   const db = await seedMinimal();
   // Bypasses `toNights`, which normally drops such nights.
-  await mergeCalendar(db, DAY, [calendarResultFor('0', '2026-08-01', false, 1, null)]);
+  await mergeCalendar(db, DAY, [calendarResultFor('0', '2026-08-01', false, 1)]);
 
   const { byName, all } = await check(db);
   expect(byName['no_backdated_calendar_rows']!.passed).toBe(false);
@@ -152,37 +156,123 @@ it('fails search_single_page when a band needed more than one page', async () =>
   expect(report(all)).toBe(false);
 });
 
-/** A page read for each of the first `count` seeded listings, `withHost` of them with a host id. */
-function pagesRead(count: number, withHost: number): ListingPage[] {
+/** A complete page read for each of the first `count` seeded listings. */
+function pagesRead(count: number, fields: (i: number) => Partial<ListingPage> = () => ({})): ListingPage[] {
   return [...Array(count).keys()].map((i) => ({
     ...emptyListingPage(String(i)),
-    hostId: i < withHost ? String(1000 + i) : null,
+    hostId: String(1000 + i),
+    roomType: 'Entire home/apt',
+    guestCapacity: 4,
+    beds: 2,
+    bedrooms: '1 bedroom',
+    bathrooms: '1 bath',
+    photoUrls: [`https://a0.muscache.com/im/pictures/${i}.jpeg`],
+    ...fields(i),
   }));
 }
 
-it('passes host_id_coverage when every page read has a host', async () => {
+const PAGE_FIELD_CHECKS = [
+  'host_id_coverage',
+  'room_type_coverage',
+  'guest_capacity_coverage',
+  'beds_coverage',
+  'bedrooms_coverage',
+  'bathrooms_coverage',
+];
+
+it('passes the page field checks when every page read has every field', async () => {
   const [floor] = config.PLAUSIBLE_LISTING_COUNT;
-  const db = await seedMinimal(pagesRead(floor, floor));
+  const db = await seedMinimal(pagesRead(floor));
 
   const { byName } = await check(db);
-  expect(byName['host_id_coverage']!.passed).toBe(true);
+  for (const name of PAGE_FIELD_CHECKS) expect(byName[name]!.passed, name).toBe(true);
 });
 
-it('fails host_id_coverage when host ids go missing', async () => {
+it.each([
+  ['host_id_coverage', { hostId: null }],
+  ['room_type_coverage', { roomType: null }],
+  ['guest_capacity_coverage', { guestCapacity: null }],
+  ['beds_coverage', { beds: null }],
+  ['bathrooms_coverage', { bathrooms: null }],
+] as const)('fails %s when half the pages lack the field', async (name, missing) => {
   const [floor] = config.PLAUSIBLE_LISTING_COUNT;
-  const db = await seedMinimal(pagesRead(floor, Math.floor(floor / 2)));
+  const db = await seedMinimal(pagesRead(floor, (i) => (i % 2 ? missing : {})));
 
   const { byName, all } = await check(db);
-  expect(byName['host_id_coverage']!.passed).toBe(false);
-  expect(byName['host_id_coverage']!.severity).toBe('error');
+  expect(byName[name]!.passed).toBe(false);
+  expect(byName[name]!.severity).toBe('error');
   expect(report(all)).toBe(false);
 });
 
-it('skips host_id_coverage when no page was ever read', async () => {
+it('passes bedrooms_coverage when rooms omit the bedroom line', async () => {
+  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  const db = await seedMinimal(pagesRead(floor, (i) => (i % 4 === 0 ? { bedrooms: null } : {})));
+
+  const { byName } = await check(db);
+  expect(byName['bedrooms_coverage']!.passed).toBe(true);
+});
+
+it('fails bedrooms_coverage when bedroom lines go missing', async () => {
+  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  const db = await seedMinimal(pagesRead(floor, (i) => (i % 4 === 0 ? {} : { bedrooms: null })));
+
+  const { byName } = await check(db);
+  expect(byName['bedrooms_coverage']!.passed).toBe(false);
+});
+
+it('skips the page field checks when no page was ever read', async () => {
   const db = await seedMinimal();
 
   const { byName } = await check(db);
-  expect(byName['host_id_coverage']).toBeUndefined();
+  for (const name of PAGE_FIELD_CHECKS) expect(byName[name], name).toBeUndefined();
+});
+
+it('fails photo_coverage when this run’s pages yield no photos', async () => {
+  const db = await seedMinimal();
+  const pageStats = { ...emptyPageStats(), attempted: 100, withExactFlag: 100, withPhotos: 10 };
+
+  const all = await runChecks(db, DAY, {
+    pageStats,
+    quoteStats: { attempted: 0, failed: 0, priced: 0 },
+    searchResult: { listings: [], queries: 9, unresolved: [] },
+    coverage: { boxes: 6, seen: 100, missedIds: [] },
+  });
+  const photos = all.find((result) => result.name === 'photo_coverage')!;
+  expect(photos.passed).toBe(false);
+  expect(photos.severity).toBe('error');
+  expect(photos.detail).toContain('10/100');
+});
+
+it('passes the price quote checks when quotes are priced', async () => {
+  const db = await seedMinimal();
+
+  const { byName } = await check(db, { quoteStats: { attempted: 100, failed: 2, priced: 95 } });
+  expect(byName['price_quote_failure_rate']!.passed).toBe(true);
+  expect(byName['price_quote_priced']!.passed).toBe(true);
+});
+
+it('fails price_quote_failure_rate when quote requests fail', async () => {
+  const db = await seedMinimal();
+
+  const { byName, all } = await check(db, { quoteStats: { attempted: 100, failed: 60, priced: 40 } });
+  expect(byName['price_quote_failure_rate']!.passed).toBe(false);
+  expect(report(all)).toBe(false);
+});
+
+it('fails price_quote_priced when quotes come back without a price', async () => {
+  const db = await seedMinimal();
+
+  const { byName, all } = await check(db, { quoteStats: { attempted: 100, failed: 0, priced: 10 } });
+  expect(byName['price_quote_priced']!.passed).toBe(false);
+  expect(byName['price_quote_priced']!.detail).toContain('10/100');
+  expect(report(all)).toBe(false);
+});
+
+it('skips the price quote checks when nothing was quoted', async () => {
+  const db = await seedMinimal();
+
+  const { byName } = await check(db);
+  expect(byName['price_quote_failure_rate']).toBeUndefined();
 });
 
 it('passes first_review_failure_rate when few first-review fetches failed', async () => {

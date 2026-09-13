@@ -5,6 +5,10 @@
  * The response starts on the 1st of the current month and marks elapsed days
  * `available: false`. This module returns them unfiltered; `toNights` in
  * `../calendars.ts` drops them.
+ *
+ * Every day also has a `price.localPriceFormatted`, which is null for an
+ * unauthenticated caller, so no price is read; `../priceQuotes.ts` prices a
+ * stay instead. See `docs/research/airbnb-calendar-price.md`.
  */
 
 import { requestJson } from './http.ts';
@@ -18,9 +22,11 @@ export interface CalendarDay {
   /** ISO `YYYY-MM-DD`. */
   calendarDate: string;
   available: boolean;
+  /** Whether a stay may start or end on this day, which `available` alone doesn't say. */
+  availableForCheckin: boolean;
+  availableForCheckout: boolean;
   minNights: number | null;
-  /** A display string like `"$269"`, or null on days Airbnb prices nothing. */
-  localPriceFormatted: string | null;
+  maxNights: number | null;
 }
 
 export interface FetchCalendarOptions {
@@ -47,16 +53,13 @@ function toDay(raw: unknown): CalendarDay | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const day = raw as Record<string, unknown>;
   if (typeof day['calendarDate'] !== 'string') return null;
-  const price = day['price'];
-  const formatted =
-    typeof price === 'object' && price !== null
-      ? (price as Record<string, unknown>)['localPriceFormatted']
-      : null;
   return {
     calendarDate: day['calendarDate'],
     available: day['available'] === true,
+    availableForCheckin: day['availableForCheckin'] === true,
+    availableForCheckout: day['availableForCheckout'] === true,
     minNights: typeof day['minNights'] === 'number' ? day['minNights'] : null,
-    localPriceFormatted: typeof formatted === 'string' ? formatted : null,
+    maxNights: typeof day['maxNights'] === 'number' ? day['maxNights'] : null,
   };
 }
 

@@ -75,7 +75,6 @@ describe('standardizeSearchResponse', () => {
         title: 'Apartment in Wasilla',
         latitude: 61.443,
         longitude: -149.8749,
-        primaryLines: ['2 bedrooms', '3 beds', '1 bath'],
         ratingValue: 4.96,
         reviewCount: 50,
         badges: ['TOP_X_GUEST_FAVORITE'],

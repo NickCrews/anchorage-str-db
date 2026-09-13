@@ -9,6 +9,7 @@ file per endpoint plus the shared HTTP client.
 | `apiKey.ts` | `www.airbnb.com/` | the public web API key, read from the homepage HTML |
 | `search.ts` | `POST /api/v3/StaysSearch/<hash>` | map search, and the standardizer for its response |
 | `calendar.ts` | `GET /api/v3/PdpAvailabilityCalendar/<hash>` | twelve months of nightly availability |
+| `priceQuote.ts` | `GET /api/v3/StaysPdpSections/<hash>` | the booking sidebar's price for one stay, given check-in and check-out |
 | `reviews.ts` | `GET /api/v3/StaysPdpReviewsQuery/<hash>` | a page of reviews, newest first, and the total count; only review dates are read |
 
 Each endpoint is pinned to a persisted-query hash, which Airbnb rotates. If an

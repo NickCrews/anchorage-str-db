@@ -80,5 +80,5 @@ leaves the other working. Both ignore key names and paths except the
 `host_id BIGINT` is a page field on `listing_observations`, so it is part of
 the carried-forward `page_attrs` and of the version key: a room changing
 hosts opens a new version in `listings`. The `host_id_coverage` check fails
-the run when fewer than `MIN_HOST_ID_SHARE` of current, page-read listings
+the run when fewer than `MIN_PAGE_FIELD_SHARE` of current, page-read listings
 have one.

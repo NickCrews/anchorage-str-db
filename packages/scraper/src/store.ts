@@ -11,11 +11,15 @@
  *   has been resolved (see `firstReviews.ts`). Keyed by `listing_id` rather
  *   than a column on `listing_observations`, because it is resolved once:
  *   as a daily column it would be NULL on every row but one per listing.
+ * - `listing_photos`: each listing's photo gallery, one row per distinct set,
+ *   written only when the set differs from the listing's previous one.
  * - `scrape_runs`: one row per run.
  *
  * `calendar_status` is stored change-only because a daily snapshot would be
- * ~950k rows/day. Listings are ~2600 rows/day, so they are stored daily and
- * `listings` is a view: `listing_versions` rebuilds `valid_from`/`valid_to`
+ * ~950k rows/day, and `listing_photos` because a gallery of ~20 URLs on every
+ * daily row would grow the published database by hundreds of MB a year.
+ * Listings are ~2600 rows/day, so they are stored daily and `listings` is a
+ * view: `listing_versions` rebuilds `valid_from`/`valid_to`
  * with gaps-and-islands, and `listing_activity` derives first/last/page-seen
  * dates. Deriving keeps those dates consistent with the observations
  * (including for relisted listings) and lets a version-logic bug be fixed by
@@ -49,6 +53,7 @@ import type { FirstReviewCandidate, FirstReviewResult } from './firstReviews.ts'
 import type { Layer, ListingPage } from './listingPage.ts';
 import { LAYERS } from './listingPage.ts';
 import type { ParsedListing } from './parse.ts';
+import type { PriceQuote } from './priceQuotes.ts';
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS listing_observations (
@@ -58,10 +63,6 @@ CREATE TABLE IF NOT EXISTS listing_observations (
     -- From the search response; present for every observed listing.
     name VARCHAR,
     property_title VARCHAR,
-    bedrooms INTEGER,
-    beds INTEGER,
-    bathrooms DOUBLE,
-    guest_capacity INTEGER,
     location_lat DOUBLE,
     location_lng DOUBLE,
     url VARCHAR,
@@ -84,6 +85,25 @@ CREATE TABLE IF NOT EXISTS listing_observations (
     str_registration_id VARCHAR,
     -- The primary host's Airbnb user id (airbnb.com/users/show/<host_id>).
     host_id BIGINT,
+    -- Airbnb's text, verbatim: 'Entire home/apt', 'Private room', ...
+    room_type VARCHAR,
+    guest_capacity INTEGER,
+    -- Airbnb's bedCount; a bunk bed counts as 2.
+    beds INTEGER,
+    -- Overview lines, verbatim: '2 bedrooms', 'Studio'; '1.5 baths',
+    -- 'Shared bathroom'.
+    bedrooms VARCHAR,
+    bathrooms VARCHAR,
+
+    -- The price of one bookable stay (priceQuotes.ts): quote_total for
+    -- quote_nights nights from quote_check_in. NULL when no stay was quoted.
+    -- quote_label is Airbnb's text ('$241 for 2 nights, originally $269', or
+    -- why there is no price); quote_breakdown its price-detail lines.
+    quote_check_in DATE,
+    quote_nights INTEGER,
+    quote_total DOUBLE,
+    quote_label VARCHAR,
+    quote_breakdown VARCHAR[],
 
     PRIMARY KEY (listing_id, scrape_date)
 );
@@ -93,11 +113,20 @@ CREATE TABLE IF NOT EXISTS calendar_status (
     night_date DATE NOT NULL,
     available BOOLEAN NOT NULL,
     min_nights INTEGER,
-    price_amount DOUBLE,
     status_hash VARCHAR NOT NULL,
     valid_from DATE NOT NULL,
     valid_to DATE,
     is_current BOOLEAN NOT NULL
+);
+
+-- The first URL is the cover photo. A set is current from valid_from until
+-- the listing's next row.
+CREATE TABLE IF NOT EXISTS listing_photos (
+    listing_id BIGINT NOT NULL,
+    valid_from DATE NOT NULL,
+    photo_urls VARCHAR[] NOT NULL,
+
+    PRIMARY KEY (listing_id, valid_from)
 );
 
 CREATE TABLE IF NOT EXISTS scrape_runs (
@@ -120,6 +149,8 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
 -- NULL on runs that predate the first-review pass.
 ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS first_review_fetch_attempted INTEGER;
 ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS first_review_fetch_failed INTEGER;
+ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS quote_fetch_attempted INTEGER;
+ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS quote_fetch_failed INTEGER;
 
 -- A row means the listing's reviews were read; a missing row means they
 -- have not been yet. Failed fetches write no row and are retried next run.
@@ -137,16 +168,16 @@ CREATE TABLE IF NOT EXISTS listing_first_reviews (
  * Attributes whose change opens a new listing version. Excludes values that
  * change most days (rating, review count, price hint) and `url`, which is
  * derived from `listing_id`. Coordinates are rounded to 6dp so float noise
- * doesn't open a version. `page` includes `host_id`, so a room changing hands
- * opens a version.
+ * doesn't open a version. `page` holds the listing-page fields, so a room
+ * changing hands, converting from a whole home to a rented room, or changing
+ * its guest, bed, bedroom or bathroom count opens a version. The price quote
+ * changes most days and is not part of it. Photos are stored separately
+ * and never open one: hosts reorder and replace photos far more often than
+ * the listing itself changes.
  */
 const VERSION_KEY_SQL = `{
     'name': name,
     'property_title': property_title,
-    'bedrooms': bedrooms,
-    'beds': beds,
-    'bathrooms': bathrooms,
-    'guest_capacity': guest_capacity,
     'lat': round(location_lat, 6),
     'lng': round(location_lng, 6),
     'badges': list_sort(badges),
@@ -159,7 +190,12 @@ const PAGE_ATTRS_SQL = `{
     'location_subtitle': location_subtitle,
     'location_verified': location_verified,
     'str_registration_id': str_registration_id,
-    'host_id': host_id
+    'host_id': host_id,
+    'room_type': room_type,
+    'guest_capacity': guest_capacity,
+    'beds': beds,
+    'bedrooms': bedrooms,
+    'bathrooms': bathrooms
 }`;
 
 /**
@@ -201,7 +237,8 @@ WITH observed AS (
     SELECT
         * EXCLUDE (
             location_is_exact, location_exact_address, location_subtitle,
-            location_verified, str_registration_id, host_id
+            location_verified, str_registration_id, host_id,
+            room_type, guest_capacity, beds, bedrooms, bathrooms
         ),
         -- NULL when the page fetch failed, so the carry-forward skips it.
         -- Carrying the whole struct keeps "read the page, no registration
@@ -243,10 +280,6 @@ aggregated AS (
         max(scrape_date) AS version_last_seen_date,
         any_value(name) AS name,
         any_value(property_title) AS property_title,
-        any_value(bedrooms) AS bedrooms,
-        any_value(beds) AS beds,
-        any_value(bathrooms) AS bathrooms,
-        any_value(guest_capacity) AS guest_capacity,
         any_value(location_lat) AS location_lat,
         any_value(location_lng) AS location_lng,
         any_value(url) AS url,
@@ -263,6 +296,11 @@ SELECT
     page_attrs.location_verified AS location_verified,
     page_attrs.str_registration_id AS str_registration_id,
     page_attrs.host_id AS host_id,
+    page_attrs.room_type AS room_type,
+    page_attrs.guest_capacity AS guest_capacity,
+    page_attrs.beds AS beds,
+    page_attrs.bedrooms AS bedrooms,
+    page_attrs.bathrooms AS bathrooms,
     lead(valid_from) OVER (PARTITION BY listing_id ORDER BY version_no) AS valid_to
 FROM aggregated;
 
@@ -272,10 +310,11 @@ SELECT
     v.listing_id,
     v.name,
     v.property_title,
-    v.bedrooms,
-    v.beds,
-    v.bathrooms,
+    v.room_type,
     v.guest_capacity,
+    v.beds,
+    v.bedrooms,
+    v.bathrooms,
     v.location_lat,
     v.location_lng,
     v.url,
@@ -308,6 +347,16 @@ LEFT JOIN listing_first_reviews r USING (listing_id);
 
 CREATE OR REPLACE VIEW listings_current AS
 SELECT * FROM listings WHERE is_current;
+
+-- Each listing's most recent photo set.
+CREATE OR REPLACE VIEW listing_photos_current AS
+SELECT
+    listing_id,
+    photo_urls,
+    len(photo_urls)::INTEGER AS photo_count,
+    valid_from AS photos_valid_from
+FROM listing_photos
+QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY valid_from DESC) = 1;
 
 -- Current calendar rows, minus the future nights of retired listings.
 --
@@ -359,7 +408,7 @@ async function rejectLegacySchema(db: Database): Promise<void> {
     "SELECT column_name FROM duckdb_columns() WHERE table_name = 'listing_observations'",
   );
   if (columns.length === 0) return;
-  for (const required of ['page_fetch_ok', 'host_id']) {
+  for (const required of ['page_fetch_ok', 'host_id', 'quote_total']) {
     if (!columns.some((row) => row.column_name === required)) {
       throw new LegacySchemaError(
         `\`listing_observations\` has no \`${required}\` column. ${NO_MIGRATION}`,
@@ -393,10 +442,6 @@ const OBSERVATION_COLUMNS = [
   ['scrape_date', DATE],
   ['name', VARCHAR],
   ['property_title', VARCHAR],
-  ['bedrooms', INTEGER],
-  ['beds', INTEGER],
-  ['bathrooms', DOUBLE],
-  ['guest_capacity', INTEGER],
   ['location_lat', DOUBLE],
   ['location_lng', DOUBLE],
   ['url', VARCHAR],
@@ -412,6 +457,16 @@ const OBSERVATION_COLUMNS = [
   ['location_verified', BOOLEAN],
   ['str_registration_id', VARCHAR],
   ['host_id', BIGINT],
+  ['room_type', VARCHAR],
+  ['guest_capacity', INTEGER],
+  ['beds', INTEGER],
+  ['bedrooms', VARCHAR],
+  ['bathrooms', VARCHAR],
+  ['quote_check_in', DATE],
+  ['quote_nights', INTEGER],
+  ['quote_total', DOUBLE],
+  ['quote_label', VARCHAR],
+  ['quote_breakdown', LIST(VARCHAR)],
 ] as const satisfies ReadonlyArray<readonly [string, DuckDBType]>;
 
 const OBSERVATION_TYPES = OBSERVATION_COLUMNS.map(([, type]) => type);
@@ -422,7 +477,8 @@ const OBSERVATION_TYPES = OBSERVATION_COLUMNS.map(([, type]) => type);
  * Idempotent per scrape date: re-running a day replaces its rows.
  *
  * A listing with no successful entry in `pages` records `page_fetch_ok =
- * false` and NULL page columns.
+ * false` and NULL page columns. One with no successful entry in `quotes`
+ * records NULL quote columns.
  *
  * `changed` and `retired` are read from the views so the run log matches
  * what later queries see.
@@ -432,10 +488,15 @@ export async function recordObservations(
   scrapeDate: IsoDate,
   parsed: readonly ParsedListing[],
   pages: readonly ListingPage[] = [],
+  quotes: readonly PriceQuote[] = [],
 ): Promise<ObservationStats> {
   const byRoom = new Map<bigint, ListingPage>();
   for (const page of pages) {
     if (!page.error) byRoom.set(BigInt(page.roomId), page);
+  }
+  const quoteByRoom = new Map<bigint, PriceQuote>();
+  for (const quote of quotes) {
+    if (!quote.error) quoteByRoom.set(BigInt(quote.roomId), quote);
   }
 
   await db.run('DELETE FROM listing_observations WHERE scrape_date = CAST(? AS DATE)', [scrapeDate]);
@@ -455,15 +516,12 @@ export async function recordObservations(
     const day = dateValue(epochDays(scrapeDate));
     for (const listing of parsed) {
       const page = byRoom.get(listing.listingId);
+      const quote = quoteByRoom.get(listing.listingId);
       appendRow(appender, OBSERVATION_TYPES, [
         listing.listingId,
         day,
         listing.name,
         listing.propertyTitle,
-        listing.bedrooms,
-        listing.beds,
-        listing.bathrooms,
-        listing.guestCapacity,
         listing.lat,
         listing.lng,
         listing.url,
@@ -479,11 +537,30 @@ export async function recordObservations(
         page?.locationVerified ?? null,
         page?.strRegistrationId ?? null,
         page?.hostId == null ? null : BigInt(page.hostId),
+        page?.roomType ?? null,
+        page?.guestCapacity ?? null,
+        page?.beds ?? null,
+        page?.bedrooms ?? null,
+        page?.bathrooms ?? null,
+        quote ? dateValue(epochDays(quote.checkIn)) : null,
+        quote?.nights ?? null,
+        quote?.total ?? null,
+        quote?.label ?? null,
+        quote ? listValue(quote.breakdown) : null,
       ] satisfies DuckDBValue[]);
     }
     appender.flushSync();
     appender.closeSync();
   }
+
+  await recordPhotos(
+    db,
+    scrapeDate,
+    parsed.flatMap((listing) => {
+      const urls = byRoom.get(listing.listingId)?.photoUrls;
+      return urls ? [{ listingId: listing.listingId, urls }] : [];
+    }),
+  );
 
   return {
     seen: parsed.length,
@@ -495,6 +572,50 @@ export async function recordObservations(
     retired: await countNewlyRetired(db, scrapeDate, config.RETIREMENT_GRACE_DAYS),
   };
 }
+
+/**
+ * Write each listing's photo set if it differs from the listing's previous
+ * one, including a change of order. A page read without photos writes
+ * nothing, so the previous set stays current.
+ *
+ * Idempotent per scrape date: re-running a day replaces its rows.
+ */
+async function recordPhotos(
+  db: Database,
+  scrapeDate: IsoDate,
+  sets: ReadonlyArray<{ listingId: bigint; urls: readonly string[] }>,
+): Promise<void> {
+  await db.run('DELETE FROM listing_photos WHERE valid_from = CAST(? AS DATE)', [scrapeDate]);
+  if (sets.length === 0) return;
+
+  await db.run(
+    'CREATE OR REPLACE TEMP TABLE stg_photos (listing_id BIGINT, photo_urls VARCHAR[])',
+  );
+  const staging = await db.appender('stg_photos');
+  for (const set of sets) {
+    appendRow(staging, PHOTO_STAGING_TYPES, [set.listingId, listValue([...set.urls])]);
+  }
+  staging.flushSync();
+  staging.closeSync();
+
+  await db.run(
+    `
+    INSERT INTO listing_photos (listing_id, valid_from, photo_urls)
+    SELECT s.listing_id, CAST(? AS DATE), s.photo_urls
+    FROM stg_photos s
+    LEFT JOIN (
+        SELECT listing_id, photo_urls FROM listing_photos
+        WHERE valid_from < CAST(? AS DATE)
+        QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY valid_from DESC) = 1
+    ) prev USING (listing_id)
+    WHERE prev.photo_urls IS DISTINCT FROM s.photo_urls
+    `,
+    [scrapeDate, scrapeDate],
+  );
+  await db.run('DROP TABLE stg_photos');
+}
+
+const PHOTO_STAGING_TYPES = [BIGINT, LIST(VARCHAR)] satisfies DuckDBType[];
 
 /**
  * How many listings became retired on this date: those last observed
@@ -529,6 +650,12 @@ export interface PageFetchStats {
   exactLocated: number;
   registered: number;
   withHostId: number;
+  withRoomType: number;
+  withGuestCapacity: number;
+  withBeds: number;
+  withBedrooms: number;
+  withBathrooms: number;
+  withPhotos: number;
   /**
    * How many fetched pages yielded the exact-location flag, and how many
    * each extraction layer contributed to. The checks use these to detect a
@@ -545,6 +672,12 @@ export function emptyPageStats(): PageFetchStats {
     exactLocated: 0,
     registered: 0,
     withHostId: 0,
+    withRoomType: 0,
+    withGuestCapacity: 0,
+    withBeds: 0,
+    withBedrooms: 0,
+    withBathrooms: 0,
+    withPhotos: 0,
     withExactFlag: 0,
     layerUsed: { 'json-ld': 0, state: 0, 'raw-html': 0 },
   };
@@ -564,8 +697,34 @@ export function summarizePages(pages: readonly ListingPage[]): PageFetchStats {
     exactLocated: ok.filter((page) => page.locationIsExact === true).length,
     registered: ok.filter((page) => page.strRegistrationId !== null).length,
     withHostId: ok.filter((page) => page.hostId !== null).length,
+    withRoomType: ok.filter((page) => page.roomType !== null).length,
+    withGuestCapacity: ok.filter((page) => page.guestCapacity !== null).length,
+    withBeds: ok.filter((page) => page.beds !== null).length,
+    withBedrooms: ok.filter((page) => page.bedrooms !== null).length,
+    withBathrooms: ok.filter((page) => page.bathrooms !== null).length,
+    withPhotos: ok.filter((page) => page.photoUrls !== null).length,
     withExactFlag: ok.filter((page) => page.locationIsExact !== null).length,
     layerUsed,
+  };
+}
+
+// --------------------------------------------------------------------------
+// price-quote pass statistics
+
+export interface QuoteStats {
+  /** Listings with a bookable stay to quote. */
+  attempted: number;
+  failed: number;
+  /** Quotes read without error that carry a price. */
+  priced: number;
+}
+
+export function summarizeQuotes(quotes: readonly PriceQuote[]): QuoteStats {
+  const ok = quotes.filter((quote) => !quote.error);
+  return {
+    attempted: quotes.length,
+    failed: quotes.length - ok.length,
+    priced: ok.filter((quote) => quote.total !== null).length,
   };
 }
 
@@ -578,14 +737,13 @@ export interface CalendarMergeStats {
   nightsChanged: number;
 }
 
-const STAGING_TYPES = [BIGINT, DATE, BOOLEAN, INTEGER, DOUBLE] satisfies DuckDBType[];
+const STAGING_TYPES = [BIGINT, DATE, BOOLEAN, INTEGER] satisfies DuckDBType[];
 
 const CALENDAR_INSERT_TYPES = [
   BIGINT,
   DATE,
   BOOLEAN,
   INTEGER,
-  DOUBLE,
   VARCHAR,
   DATE,
   DATE,
@@ -597,7 +755,6 @@ interface ChangedNight {
   night_date: string;
   available: boolean;
   min_nights: number | null;
-  price_amount: number | null;
   status_hash: string;
 }
 
@@ -617,8 +774,7 @@ export async function mergeCalendar(
 
   await db.run(
     'CREATE OR REPLACE TEMP TABLE stg_calendar ' +
-      '(listing_id BIGINT, night_date DATE, available BOOLEAN, min_nights INTEGER, ' +
-      'price_amount DOUBLE)',
+      '(listing_id BIGINT, night_date DATE, available BOOLEAN, min_nights INTEGER)',
   );
   const staging = await db.appender('stg_calendar');
   for (const result of usable) {
@@ -629,7 +785,6 @@ export async function mergeCalendar(
         dateValue(epochDays(night.nightDate)),
         night.available,
         night.minNights,
-        night.priceAmount,
       ]);
     }
   }
@@ -637,13 +792,15 @@ export async function mergeCalendar(
   staging.closeSync();
 
   await db.run('ALTER TABLE stg_calendar ADD COLUMN status_hash VARCHAR');
+  // The trailing '|' is part of the hash format of every stored row. Changing
+  // the format would re-version every current night on the next run.
   await db.run(
     "UPDATE stg_calendar SET status_hash = md5(available::VARCHAR || '|' || " +
-      "coalesce(min_nights::VARCHAR,'') || '|' || coalesce(price_amount::VARCHAR,''))",
+      "coalesce(min_nights::VARCHAR,'') || '|')",
   );
 
   const changed = await db.rows<ChangedNight>(
-    'SELECT s.listing_id, s.night_date, s.available, s.min_nights, s.price_amount, s.status_hash ' +
+    'SELECT s.listing_id, s.night_date, s.available, s.min_nights, s.status_hash ' +
       'FROM stg_calendar s ' +
       'LEFT JOIN calendar_status c ' +
       '  ON c.listing_id = s.listing_id AND c.night_date = s.night_date AND c.is_current ' +
@@ -673,7 +830,6 @@ export async function mergeCalendar(
       dateValue(epochDays(night.night_date)),
       night.available,
       night.min_nights,
-      night.price_amount,
       night.status_hash,
       validFrom,
       null,
@@ -772,6 +928,8 @@ export interface RunRow {
   pageFetchFailed: number | null;
   firstReviewFetchAttempted: number | null;
   firstReviewFetchFailed: number | null;
+  quoteFetchAttempted: number | null;
+  quoteFetchFailed: number | null;
   errorSummary: string | null;
 }
 
@@ -781,9 +939,10 @@ export async function logRun(db: Database, run: RunRow): Promise<void> {
       '(scrape_date, run_started_at, run_finished_at, listings_seen, listings_new, ' +
       ' listings_changed, listings_retired, calendar_fetch_attempted, calendar_fetch_failed, ' +
       ' calendar_nights_changed, page_fetch_attempted, page_fetch_failed, ' +
-      ' first_review_fetch_attempted, first_review_fetch_failed, error_summary) ' +
+      ' first_review_fetch_attempted, first_review_fetch_failed, ' +
+      ' quote_fetch_attempted, quote_fetch_failed, error_summary) ' +
       'VALUES (CAST(? AS DATE), CAST(? AS TIMESTAMP), CAST(? AS TIMESTAMP), ' +
-      '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [
       run.scrapeDate,
       run.runStartedAt,
@@ -799,6 +958,8 @@ export async function logRun(db: Database, run: RunRow): Promise<void> {
       run.pageFetchFailed,
       run.firstReviewFetchAttempted,
       run.firstReviewFetchFailed,
+      run.quoteFetchAttempted,
+      run.quoteFetchFailed,
       run.errorSummary,
     ],
     // Date and timestamp parameters are bound as strings and cast in SQL,
@@ -807,6 +968,8 @@ export async function logRun(db: Database, run: RunRow): Promise<void> {
       VARCHAR,
       VARCHAR,
       VARCHAR,
+      INTEGER,
+      INTEGER,
       INTEGER,
       INTEGER,
       INTEGER,

@@ -1,14 +1,22 @@
 /**
- * Read a listing's own page for fields search results lack: whether its
- * coordinate is exact, its municipal STR registration number, and its host's
- * Airbnb user id.
+ * Read a listing's own page for fields search results lack or report
+ * unreliably: whether its coordinate is exact, its municipal STR registration
+ * number, its host's Airbnb user id, its room type, guest, bed, bedroom and
+ * bathroom counts, and its photo gallery.
  *
  * Airbnb jitters the map pin unless the host shows the exact location. Search
  * returns a coordinate either way; the listing page's `isExactLocation` says
  * which. See `docs/research/airbnb-pdp-location-payload.md`. The registration
  * number is required in listings from 2026-07-31 under AO 2025-115(S-2). The
  * host id is the account id in `airbnb.com/users/show/<id>`, stable for the
- * life of the account; see `docs/research/airbnb-pdp-host-id.md`.
+ * life of the account; see `docs/research/airbnb-pdp-host-id.md`. Room type,
+ * the counts and photos are described in
+ * `docs/research/airbnb-pdp-listing-attributes.md`.
+ *
+ * Airbnb publishes guest capacity and bed count as integers. Room type,
+ * bedrooms and bathrooms exist only as display text ("Entire home/apt",
+ * "Studio", "Shared bathroom"), so they are stored verbatim rather than
+ * parsed into categories or numbers.
  *
  * The page is not a documented API, so fields are extracted by three
  * independent layers. Each field takes the first layer that produces it, and
@@ -16,13 +24,16 @@
  * can detect a layer that stops working:
  *
  * 1. **`json-ld`**: the schema.org `VacationRental` block Airbnb publishes for
- *    search engines. The most stable source, but has no `isExactLocation` or
- *    host.
+ *    search engines. The most stable source, but has only the coordinate. Its
+ *    `image` list stops at 8 photos and its `occupancy` is a bed count, so
+ *    neither is read.
  * 2. **`state`**: the embedded GraphQL response, the only source of
- *    `isExactLocation`. Found by searching every JSON script for an object
- *    with a boolean key matching `exact…location`, not by a fixed path, so
- *    renamed wrappers or script ids don't break it. The host id is likewise
- *    found by value: the one GraphQL id that decodes to `DemandUser:<id>`.
+ *    `isExactLocation` and photos. Found by searching every JSON script for an
+ *    object with a boolean key matching `exact…location`, not by a fixed path,
+ *    so renamed wrappers or script ids don't break it. The other fields are
+ *    likewise found by key or value: the one GraphQL id that decodes to
+ *    `DemandUser:<id>`, the `roomType`, `personCapacity` and `bedCount` keys,
+ *    the overview `items` list, and the `mediaItems` gallery.
  * 3. **`raw-html`**: regexes over the raw document, for when the JSON does not
  *    parse. Returns nothing if a pattern matches more than one distinct value.
  */
@@ -58,6 +69,26 @@ const HOST_USER_RE = /^DemandUser:(\d+)$/;
 // The decimal host id in the page's analytics context, e.g. `"hostId":"3682901"`.
 const RAW_HOST_ID_RE_G = /"host_?id"\s*:\s*"?(\d+)/gi;
 
+// e.g. `"roomType":"Entire home/apt"` in the page's analytics context.
+const RAW_ROOM_TYPE_RE_G = /"roomType"\s*:\s*"([^"]+)"/g;
+const RAW_PERSON_CAPACITY_RE_G = /"personCapacity"\s*:\s*(\d+)/g;
+const RAW_BED_COUNT_RE_G = /"bedCount"\s*:\s*(\d+)/g;
+// The overview's `"items":["5 guests","2 bedrooms","3 beds","1 bath"]`.
+const RAW_STRING_LIST_RE_G = /"items"\s*:\s*(\["(?:[^"\\]|\\.)*"(?:\s*,\s*"(?:[^"\\]|\\.)*")*\])/g;
+
+// Which overview line is which. Only the line is picked out; its text is
+// stored as is.
+const BATHROOM_LINE_RE = /\bbath/i;
+const BEDROOM_LINE_RE = /\bbedroom|\bstudio\b/i;
+
+/** The first string in `items` matching `pattern`. */
+function overviewLine(items: readonly unknown[], pattern: RegExp): string | null {
+  for (const item of items) {
+    if (typeof item === 'string' && pattern.test(item)) return item.trim();
+  }
+  return null;
+}
+
 const PAGE_HEADERS = {
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language': config.LANGUAGE,
@@ -79,6 +110,18 @@ export interface PageFields {
    * digits, which a JS number would round.
    */
   hostId: string | null;
+  /** Airbnb's room type, verbatim: `"Entire home/apt"`, `"Private room"`, … */
+  roomType: string | null;
+  /** Airbnb's `personCapacity`: the most guests the listing allows. */
+  guestCapacity: number | null;
+  /** Airbnb's `bedCount`. A bunk bed counts as 2. */
+  beds: number | null;
+  /** The overview's bedroom line, verbatim: `"2 bedrooms"`, `"Studio"`. */
+  bedrooms: string | null;
+  /** The overview's bathroom line, verbatim: `"1.5 baths"`, `"Shared bathroom"`. */
+  bathrooms: string | null;
+  /** The gallery's image URLs in the host's order; the first is the cover photo. */
+  photoUrls: string[] | null;
 }
 
 /** What one listing's page yielded. Fields no layer found are null. */
@@ -103,6 +146,12 @@ export function emptyListingPage(roomId: string, error: string | null = null): L
     locationVerified: null,
     strRegistrationId: null,
     hostId: null,
+    roomType: null,
+    guestCapacity: null,
+    beds: null,
+    bedrooms: null,
+    bathrooms: null,
+    photoUrls: null,
     locationSource: null,
     error,
   };
@@ -254,6 +303,49 @@ function findHostId(doc: unknown): string | null {
   return ids.size === 1 ? [...ids][0]! : null;
 }
 
+/** The one distinct value of `key` of type `kind` anywhere in `doc`, else null. */
+function soleValue(doc: unknown, key: string, kind: 'string'): string | null;
+function soleValue(doc: unknown, key: string, kind: 'number'): number | null;
+function soleValue(doc: unknown, key: string, kind: 'string' | 'number'): string | number | null {
+  const values = new Set<string | number>();
+  for (const obj of iterObjects(doc)) {
+    const value = obj[key];
+    if (typeof value === kind) values.add(value as string | number);
+  }
+  return values.size === 1 ? [...values][0]! : null;
+}
+
+/** The one distinct overview line matching `pattern` across every `items` string list. */
+function findOverviewLine(doc: unknown, pattern: RegExp): string | null {
+  const lines = new Set<string>();
+  for (const obj of iterObjects(doc)) {
+    const items = obj['items'];
+    if (!Array.isArray(items)) continue;
+    const line = overviewLine(items, pattern);
+    if (line !== null) lines.add(line);
+  }
+  return lines.size === 1 ? [...lines][0]! : null;
+}
+
+/**
+ * The gallery: the longest `mediaItems` list's `baseUrl`s, de-duplicated in
+ * order. Null when there is none.
+ */
+function findPhotoUrls(doc: unknown): string[] | null {
+  let best: string[] = [];
+  for (const obj of iterObjects(doc)) {
+    const media = obj['mediaItems'];
+    if (!Array.isArray(media)) continue;
+    const urls = new Set<string>();
+    for (const item of media) {
+      const url = typeof item === 'object' && item !== null ? (item as JsonObject)['baseUrl'] : null;
+      if (typeof url === 'string' && url.startsWith('https://')) urls.add(url);
+    }
+    if (urls.size > best.length) best = [...urls];
+  }
+  return best.length > 0 ? best : null;
+}
+
 function dropNulls(fields: Partial<PageFields>): Partial<PageFields> {
   return Object.fromEntries(
     Object.entries(fields).filter(([, value]) => value !== null && value !== undefined),
@@ -273,6 +365,17 @@ function fromEmbeddedState(html: string): Partial<PageFields> {
       const hostId = findHostId(doc);
       if (hostId) found.hostId = hostId;
     }
+    Object.assign(
+      found,
+      dropNulls({
+        roomType: found.roomType ?? soleValue(doc, 'roomType', 'string'),
+        guestCapacity: found.guestCapacity ?? soleValue(doc, 'personCapacity', 'number'),
+        beds: found.beds ?? soleValue(doc, 'bedCount', 'number'),
+        bedrooms: found.bedrooms ?? findOverviewLine(doc, BEDROOM_LINE_RE),
+        bathrooms: found.bathrooms ?? findOverviewLine(doc, BATHROOM_LINE_RE),
+        photoUrls: found.photoUrls ?? findPhotoUrls(doc),
+      }),
+    );
   }
   return found;
 }
@@ -298,6 +401,29 @@ function fromRawHtml(html: string): Partial<PageFields> {
   if (number !== null) found.strRegistrationId = `STR${number}`;
   const hostId = soleMatch(RAW_HOST_ID_RE_G, html);
   if (hostId !== null) found.hostId = hostId;
+  const roomType = soleMatch(RAW_ROOM_TYPE_RE_G, html);
+  if (roomType !== null) found.roomType = roomType;
+  const capacity = soleMatch(RAW_PERSON_CAPACITY_RE_G, html);
+  if (capacity !== null) found.guestCapacity = Number(capacity);
+  const beds = soleMatch(RAW_BED_COUNT_RE_G, html);
+  if (beds !== null) found.beds = Number(beds);
+  const lists: unknown[][] = [];
+  for (const match of html.matchAll(RAW_STRING_LIST_RE_G)) {
+    try {
+      const items: unknown = JSON.parse(match[1]!);
+      if (Array.isArray(items)) lists.push(items);
+    } catch {
+      continue;
+    }
+  }
+  const soleLine = (pattern: RegExp): string | null => {
+    const lines = new Set(lists.map((items) => overviewLine(items, pattern)).filter((l) => l !== null));
+    return lines.size === 1 ? [...lines][0]! : null;
+  };
+  const bedrooms = soleLine(BEDROOM_LINE_RE);
+  if (bedrooms !== null) found.bedrooms = bedrooms;
+  const bathrooms = soleLine(BATHROOM_LINE_RE);
+  if (bathrooms !== null) found.bathrooms = bathrooms;
   return found;
 }
 
@@ -315,6 +441,12 @@ const PAGE_FIELD_NAMES = [
   'locationVerified',
   'strRegistrationId',
   'hostId',
+  'roomType',
+  'guestCapacity',
+  'beds',
+  'bedrooms',
+  'bathrooms',
+  'photoUrls',
 ] as const satisfies ReadonlyArray<keyof PageFields>;
 
 /**
@@ -353,9 +485,22 @@ export function parseListingPage(html: string, roomId: string): ListingPage {
   return page;
 }
 
+const COMPARED_FIELDS = [
+  'lat',
+  'lng',
+  'locationIsExact',
+  'strRegistrationId',
+  'hostId',
+  'roomType',
+  'guestCapacity',
+  'beds',
+  'bedrooms',
+  'bathrooms',
+] as const satisfies ReadonlyArray<keyof PageFields>;
+
 /** Warn when layers disagree, which means one is matching the wrong thing. */
 function warnOnDisagreement(byLayer: Record<Layer, Partial<PageFields>>, roomId: string): void {
-  for (const name of ['lat', 'lng', 'locationIsExact', 'strRegistrationId', 'hostId'] as const) {
+  for (const name of COMPARED_FIELDS) {
     const reported = new Map<Layer, unknown>();
     for (const layer of LAYERS) {
       const value = byLayer[layer][name];

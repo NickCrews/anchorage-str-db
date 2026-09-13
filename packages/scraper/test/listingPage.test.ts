@@ -38,7 +38,21 @@ interface PageOptions {
   /** The analytics context's decimal `hostId`; null omits it. */
   contextHostId?: string | null;
   cohostIds?: string[];
+  /** The analytics context's `roomType`; null omits it. */
+  roomType?: string | null;
+  /** The share card's `personCapacity`; null omits it. */
+  personCapacity?: number | null;
+  /** The listing node's `bedCount`; null omits it. */
+  bedCount?: number | null;
+  /** The overview's `items`; null omits the overview. */
+  overviewItems?: string[] | null;
+  /** The gallery's `mediaItems` base URLs; null omits the gallery. */
+  photoUrls?: string[] | null;
 }
+
+const PHOTOS = [...Array(12).keys()].map(
+  (i) => `https://a0.muscache.com/im/pictures/hosting/Hosting-1/original/photo-${i}.jpeg`,
+);
 
 /** A page shaped like Airbnb's: a schema.org block and a nested GraphQL blob. */
 function makePage(options: PageOptions = {}): string {
@@ -52,6 +66,11 @@ function makePage(options: PageOptions = {}): string {
     cardHostId = HOST_ID,
     contextHostId = HOST_ID,
     cohostIds = [],
+    roomType = 'Entire home/apt',
+    personCapacity = 5,
+    bedCount = 3,
+    overviewItems = ['5 guests', '2 bedrooms', '3 beds', '1.5 baths'],
+    photoUrls = PHOTOS,
   } = options;
 
   const parts: string[] = [];
@@ -64,6 +83,9 @@ function makePage(options: PageOptions = {}): string {
           latitude: 60.9568,
           longitude: -149.1294,
           address: { addressLocality: 'Anchorage' },
+          // Airbnb's JSON-LD lists at most 8 photos, and its occupancy is a bed count.
+          image: PHOTOS.slice(0, 8),
+          containsPlace: { '@type': 'Accommodation', occupancy: { value: 3 } },
         }) +
         '</script>',
     );
@@ -80,6 +102,7 @@ function makePage(options: PageOptions = {}): string {
         {
           data: {
             node: {
+              bedCount: bedCount ?? undefined,
               cohosts: cohostIds.map((id) => ({
                 __typename: 'ContextualUser',
                 id: graphqlId('ContextualUser', id),
@@ -93,6 +116,7 @@ function makePage(options: PageOptions = {}): string {
                   },
                 },
                 location: stateLocation,
+                overview: overviewItems && { __typename: 'StaysPdpOverview', items: overviewItems },
                 descriptions: {
                   longDescriptionHtml: {
                     localizedStringWithTranslationPreference: description,
@@ -103,8 +127,17 @@ function makePage(options: PageOptions = {}): string {
             presentation: {
               stayProductDetailPage: {
                 sections: {
+                  metadata: {
+                    loggingContext: { eventDataLogging: roomType && { roomType } },
+                  },
                   sections: [
                     { section: { items } },
+                    {
+                      section: photoUrls && {
+                        mediaItems: photoUrls.map((baseUrl) => ({ baseUrl, accessibilityLabel: 'x' })),
+                        shareSave: { embedData: personCapacity && { personCapacity } },
+                      },
+                    },
                     {
                       loggingData: {
                         eventData: {
@@ -288,5 +321,104 @@ describe('the host id', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+// --- room type and counts ---------------------------------------------------
+
+describe('room type and counts', () => {
+  it('are read from the state, the text fields verbatim', () => {
+    const page = parseListingPage(makePage(), '1');
+
+    expect(page.roomType).toBe('Entire home/apt');
+    expect(page.guestCapacity).toBe(5);
+    expect(page.beds).toBe(3);
+    expect(page.bedrooms).toBe('2 bedrooms');
+    expect(page.bathrooms).toBe('1.5 baths');
+  });
+
+  it.each(['Private room', 'Shared room', 'Hotel room', 'A room type Airbnb adds later'])(
+    'store any room type as written: %s',
+    (roomType) => {
+      expect(parseListingPage(makePage({ roomType }), '1').roomType).toBe(roomType);
+    },
+  );
+
+  it('store a room’s overview lines as written', () => {
+    const page = parseListingPage(
+      makePage({ overviewItems: ['1 queen bed', 'Shared half bathroom'] }),
+      '1',
+    );
+
+    expect(page.bathrooms).toBe('Shared half bathroom');
+    expect(page.bedrooms).toBeNull();
+  });
+
+  it('read a studio as its bedroom line', () => {
+    const page = parseListingPage(makePage({ overviewItems: ['3 guests', 'Studio', '1 bed', '1 bath'] }), '1');
+
+    expect(page.bedrooms).toBe('Studio');
+  });
+
+  it('take guest capacity from personCapacity, not the overview’s capped guest line', () => {
+    const page = parseListingPage(
+      makePage({ personCapacity: 18, overviewItems: ['16+ guests', '7 bedrooms', '3 baths'] }),
+      '1',
+    );
+
+    expect(page.guestCapacity).toBe(18);
+  });
+
+  it('come from raw html when the json will not parse', () => {
+    const html = makePage().replace('type="application/json">', 'type="application/json">{{{');
+
+    const page = parseListingPage(html, '1');
+
+    expect([page.roomType, page.guestCapacity, page.beds, page.bedrooms, page.bathrooms]).toEqual([
+      'Entire home/apt',
+      5,
+      3,
+      '2 bedrooms',
+      '1.5 baths',
+    ]);
+  });
+
+  it('are null, not an error, when the page has none', () => {
+    const page = parseListingPage(
+      makePage({ roomType: null, personCapacity: null, bedCount: null, overviewItems: null }),
+      '1',
+    );
+
+    expect([page.roomType, page.guestCapacity, page.beds, page.bedrooms, page.bathrooms]).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+    expect(page.locationIsExact).toBe(true);
+  });
+});
+
+// --- photos -------------------------------------------------------------------
+
+describe('photos', () => {
+  it('are the whole gallery, in order, not the truncated JSON-LD list', () => {
+    const page = parseListingPage(makePage(), '1');
+
+    expect(page.photoUrls).toEqual(PHOTOS);
+  });
+
+  it('are de-duplicated', () => {
+    const page = parseListingPage(makePage({ photoUrls: [PHOTOS[0]!, PHOTOS[1]!, PHOTOS[0]!] }), '1');
+
+    expect(page.photoUrls).toEqual([PHOTOS[0], PHOTOS[1]]);
+  });
+
+  it('are null when the page has no gallery', () => {
+    const page = parseListingPage(makePage({ photoUrls: null }), '1');
+
+    expect(page.photoUrls).toBeNull();
+    expect(page.locationIsExact).toBe(true);
   });
 });

@@ -4,7 +4,6 @@ import type { SearchListing } from '../src/airbnb/search.ts';
 import type { ParsedListing } from '../src/parse.ts';
 
 export interface MakeListingOptions {
-  bedrooms?: number;
   lat?: number;
   badges?: string[];
 }
@@ -18,10 +17,6 @@ export function makeListing(
     listingId: BigInt(id),
     name,
     propertyTitle: 'Tiny home',
-    bedrooms: options.bedrooms ?? 1,
-    beds: 1,
-    bathrooms: 1,
-    guestCapacity: 2,
     lat: options.lat ?? 60.95,
     lng: -149.1,
     url: `https://airbnb.com/rooms/${id}`,
@@ -43,7 +38,6 @@ export function makeSearchListing(
     title: 'Home in Anchorage',
     latitude: 61.19,
     longitude: -149.89,
-    primaryLines: [],
     ratingValue: null,
     reviewCount: null,
     badges: [],

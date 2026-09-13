@@ -281,3 +281,82 @@ FROM
     per_year
 ORDER BY
     year_first_available;
+
+-- ============================================================
+-- Q: What share of listings are whole homes, and how has it changed?
+-- A whole home rented as an STR is off the long-term market; a private or
+-- shared room usually is not. Counts each day's observed listings at the
+-- room type of the version covering that day. `room_type` is Airbnb's text
+-- ('Entire home/apt', 'Private room', 'Shared room', 'Hotel room'), NULL for
+-- listings whose page was never read.
+-- ============================================================
+SELECT
+    o.scrape_date,
+    count(l.room_type) AS listings_with_room_type,
+    count(*) FILTER (WHERE l.room_type = 'Entire home/apt') AS entire_homes,
+    round(entire_homes / listings_with_room_type, 3) AS entire_home_share
+FROM
+    listing_observations o
+    JOIN listings l ON l.listing_id = o.listing_id
+    AND o.scrape_date >= l.valid_from
+    AND (l.valid_to IS NULL OR o.scrape_date < l.valid_to)
+GROUP BY
+    o.scrape_date
+ORDER BY
+    o.scrape_date;
+
+-- ============================================================
+-- Q: Which listings changed room type, e.g. a whole cabin now rented by
+-- the room?
+-- ============================================================
+SELECT
+    listing_id,
+    url,
+    prev_room_type,
+    room_type,
+    valid_from AS changed_on
+FROM (
+    SELECT
+        *,
+        lag(room_type) OVER (PARTITION BY listing_id ORDER BY valid_from) AS prev_room_type
+    FROM listings
+)
+WHERE
+    prev_room_type IS DISTINCT FROM room_type
+    AND prev_room_type IS NOT NULL
+ORDER BY
+    changed_on DESC;
+
+-- ============================================================
+-- Q: What do current whole-home STRs sleep, and what do they ask per night?
+-- `bedrooms` is Airbnb's text ('2 bedrooms', 'Studio'). The nightly rate is
+-- each listing's latest quote divided by its nights: the asking price of its
+-- earliest open stay, so it leans toward nights that were still unbooked.
+-- ============================================================
+WITH latest_quote AS (
+    SELECT
+        listing_id,
+        quote_total / quote_nights AS quoted_nightly
+    FROM
+        listing_observations
+    WHERE
+        quote_total IS NOT NULL
+    QUALIFY
+        row_number() OVER (PARTITION BY listing_id ORDER BY scrape_date DESC) = 1
+)
+SELECT
+    coalesce(l.bedrooms, 'Not listed') AS bedrooms_line,
+    count(*) AS entire_homes,
+    sum(l.guest_capacity) AS total_guest_capacity,
+    round(median(q.quoted_nightly)) AS median_quoted_nightly
+FROM
+    listings l
+    LEFT JOIN latest_quote q USING (listing_id)
+WHERE
+    l.is_current
+    AND l.room_type = 'Entire home/apt'
+GROUP BY
+    l.bedrooms
+ORDER BY
+    try_cast(regexp_extract(l.bedrooms, '^\d+') AS INTEGER) NULLS FIRST,
+    l.bedrooms;

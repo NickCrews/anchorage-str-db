@@ -128,6 +128,21 @@ export const REQUESTS_PER_SECOND = 1.8;
 export const CALENDAR_CONCURRENCY = 6;
 export const CALENDAR_MAX_RETRIES = 3;
 
+/** Concurrency, attempts and timeout for price quotes (`priceQuotes.ts`). */
+export const QUOTE_CONCURRENCY = 6;
+export const QUOTE_MAX_RETRIES = 3;
+export const QUOTE_TIMEOUT_MS = 15_000;
+
+/** A price-quote failure rate above this fails the run. */
+export const MAX_QUOTE_FAILURE_RATE = 0.25;
+
+/**
+ * The share of quotes read without error that carry a price, below which the
+ * run fails. A quote can lack one when a stay was booked between the calendar
+ * fetch and the quote, or Airbnb's advance-notice rules block it.
+ */
+export const MIN_QUOTE_PRICE_SHARE = 0.8;
+
 export const DEFAULT_DB_PATH = 'data/anchorage_str.duckdb';
 
 /**
@@ -160,11 +175,19 @@ export const PAGE_TIMEOUT_MS = 15_000;
 export const MAX_PAGE_FAILURE_RATE = 0.25;
 
 /**
- * The share of current, page-read listings with a `host_id` below which the
- * run fails. Every listing has a host, and a sample of 41 Girdwood pages
- * yielded one from both layers, so a shortfall means both layers broke.
+ * The share of current, page-read listings with a value below which the run
+ * fails, for each page field every listing has: `host_id`, `room_type`,
+ * `guest_capacity`, `beds`, `bathrooms`, and photos. Every real page sampled
+ * (41 for the host, 44 for the rest) yielded each one, so a shortfall means
+ * the extraction broke.
  */
-export const MIN_HOST_ID_SHARE = 0.95;
+export const MIN_PAGE_FIELD_SHARE = 0.95;
+
+/**
+ * The same for `bedrooms`, which rooms and some campers omit: 33 of 44
+ * sampled pages had a bedroom or studio line.
+ */
+export const MIN_BEDROOMS_SHARE = 0.6;
 
 /**
  * Listings whose earliest review date is resolved per run (`firstReviews.ts`).

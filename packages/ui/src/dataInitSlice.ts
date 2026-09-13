@@ -11,6 +11,8 @@ export const LAKE_TABLES = [
   'listings',
   'listings_current',
   'listing_observations',
+  'listing_photos',
+  'listing_photos_current',
   'calendar_status',
   'calendar_current',
   'scrape_runs',

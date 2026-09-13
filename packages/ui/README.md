@@ -8,8 +8,9 @@ Queries run in the browser with
   year, near-term booked/vacant nights, monthly distinct-STR trend, and
   bedroom mix.
 - **Map**: current listings, colored by pin precision or price.
-- **Listings**: a searchable table of current listings with their latest
-  rating, review count and price.
+- **Listings**: a searchable table of current listings with a cover-photo
+  thumbnail, room type, and their latest rating, review count and price
+  quote.
 
 ## Running locally
 

@@ -61,6 +61,9 @@ So downstream repos can pull this data and join it against other sources
 - Airbnb only (no Vrbo/Expedia yet)
 - History starts when you start collecting; no retroactive backfill
 - Some map points are intentionally blurred by Airbnb for privacy
+- No price for booked nights (Rooms #6). Airbnb prices a stay only while it
+  is bookable, so each day records a quote for one open stay per listing.
+  See [`research/airbnb-calendar-price.md`](research/airbnb-calendar-price.md).
 - No schema stability guarantee yet. This is alpha; the schema may change at
   any time.
 - A host can delete a listing and relist the same physical unit under a new

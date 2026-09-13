@@ -8,7 +8,7 @@ import type { IsoDate } from './dates.ts';
 import type { Database } from './db.ts';
 import { log } from './log.ts';
 import { missRate, type CoverageAudit, type SearchResult } from './search.ts';
-import type { PageFetchStats } from './store.ts';
+import type { PageFetchStats, QuoteStats } from './store.ts';
 
 export type Severity = 'error' | 'warn';
 
@@ -22,6 +22,7 @@ export interface CheckResult {
 export interface CheckInputs {
   /** In-memory stats from this run's passes, which are not stored in the database. */
   pageStats: PageFetchStats;
+  quoteStats: QuoteStats;
   searchResult: SearchResult;
   coverage: CoverageAudit;
 }
@@ -194,6 +195,18 @@ export async function runChecks(
       `${pageStats.withExactFlag}/${fetched} pages read this run carried isExactLocation`,
     );
 
+    // Read from this run's pages rather than `listing_photos`, which keeps the
+    // previous set current when a page yields none and so would hide a broken
+    // extraction.
+    const photoShare = pageStats.withPhotos / fetched;
+    check(
+      'photo_coverage',
+      'error',
+      photoShare >= config.MIN_PAGE_FIELD_SHARE,
+      `${pageStats.withPhotos}/${fetched} pages read this run had photos ` +
+        `(${percent(photoShare)}, min ${percent(config.MIN_PAGE_FIELD_SHARE)})`,
+    );
+
     // Warn when an extraction layer contributed to no pages. See listingPage.ts.
     for (const layer of ['json-ld', 'state'] as const) {
       const live = pageStats.layerUsed[layer];
@@ -206,26 +219,62 @@ export async function runChecks(
     }
   }
 
-  // An error, not a warning: a parse that finds no host id stores NULL, which
-  // opens a spurious version for every affected listing, and again when the
-  // parser is fixed. Failing the run keeps that day out of the published
-  // archive.
+  // Errors, not warnings: these fields are in the version key, so a parse that
+  // stops finding one stores NULL, which opens a spurious version for every
+  // affected listing, and again when the parser is fixed. Failing the run
+  // keeps that day out of the published archive.
+  const minShare = config.MIN_PAGE_FIELD_SHARE;
   const pageRead = await db.count(
     'SELECT count(*) FROM listings WHERE is_current AND page_seen_date IS NOT NULL',
   );
   if (pageRead) {
-    const withHost = await db.count(
-      'SELECT count(*) FROM listings ' +
-        'WHERE is_current AND page_seen_date IS NOT NULL AND host_id IS NOT NULL',
-    );
-    const share = withHost / pageRead;
+    const minimums = [
+      ['host_id', minShare],
+      ['room_type', minShare],
+      ['guest_capacity', minShare],
+      ['beds', minShare],
+      ['bedrooms', config.MIN_BEDROOMS_SHARE],
+      ['bathrooms', minShare],
+    ] as const;
+    for (const [column, min] of minimums) {
+      const present = await db.count(
+        'SELECT count(*) FROM listings ' +
+          `WHERE is_current AND page_seen_date IS NOT NULL AND ${column} IS NOT NULL`,
+      );
+      const share = present / pageRead;
+      check(
+        `${column}_coverage`,
+        'error',
+        share >= min,
+        `${present}/${pageRead} current listings with a page read have a ${column} ` +
+          `(${percent(share)}, min ${percent(min)})`,
+      );
+    }
+  }
+
+  // From this run's quotes, like the page-pass checks. A quote is not part of
+  // the version key, so a broken pass costs only that day's prices; failing
+  // the run still keeps it from going unnoticed.
+  const quoteStats = inputs.quoteStats;
+  if (quoteStats.attempted) {
+    const failureRate = quoteStats.failed / quoteStats.attempted;
     check(
-      'host_id_coverage',
+      'price_quote_failure_rate',
       'error',
-      share >= config.MIN_HOST_ID_SHARE,
-      `${withHost}/${pageRead} current listings with a page read have a host_id ` +
-        `(${percent(share)}, min ${percent(config.MIN_HOST_ID_SHARE)})`,
+      failureRate <= config.MAX_QUOTE_FAILURE_RATE,
+      `${quoteStats.failed}/${quoteStats.attempted} price quotes failed (${percent(failureRate)})`,
     );
+    const read = quoteStats.attempted - quoteStats.failed;
+    if (read) {
+      const pricedShare = quoteStats.priced / read;
+      check(
+        'price_quote_priced',
+        'error',
+        pricedShare >= config.MIN_QUOTE_PRICE_SHARE,
+        `${quoteStats.priced}/${read} price quotes read carried a price ` +
+          `(${percent(pricedShare)}, min ${percent(config.MIN_QUOTE_PRICE_SHARE)})`,
+      );
+    }
   }
 
   // Airbnb emits exact coordinates at 4 decimal places and jittered ones at

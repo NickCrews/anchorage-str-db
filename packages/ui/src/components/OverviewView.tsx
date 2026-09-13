@@ -116,21 +116,23 @@ export const OverviewView: FC = () => {
     `,
   });
 
+  // `bedrooms` is Airbnb's text ("2 bedrooms", "Studio"); rooms usually have none.
   const { data: bedroomMixData, isLoading: bedroomMixLoading } = useSql<{
-    bedrooms: number | null;
     bedroomsLabel: string;
     nListings: number;
   }>({
     enabled,
     query: `
       SELECT
-        bedrooms,
-        coalesce(bedrooms::VARCHAR, 'Studio/unknown') AS "bedroomsLabel",
+        coalesce(bedrooms, 'Not listed') AS "bedroomsLabel",
         count(*)::INT AS "nListings"
       FROM listings
       WHERE is_current
-      GROUP BY ALL
-      ORDER BY bedrooms NULLS FIRST
+      GROUP BY bedrooms
+      ORDER BY
+        bedrooms IS NULL,
+        try_cast(regexp_extract(bedrooms, '^\\d+') AS INTEGER) NULLS FIRST,
+        bedrooms
     `,
   });
 

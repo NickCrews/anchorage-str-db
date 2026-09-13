@@ -91,7 +91,7 @@ const createLayers = (colorMode: ColorMode) => [
 
 type ListingRow = {
   name: string | null;
-  bedrooms: number | null;
+  bedrooms: string | null;
   rating_value: number | null;
   review_count: number | null;
   price_hint_per_night: number | null;
@@ -128,7 +128,7 @@ export const MapView: FC = () => {
         const row = object as ListingRow;
         const lines: string[] = [];
         if (row.name) lines.push(row.name);
-        if (row.bedrooms != null) lines.push(`${row.bedrooms} br`);
+        if (row.bedrooms != null) lines.push(row.bedrooms);
         if (row.price_hint_per_night != null) {
           lines.push(`~$${Math.round(row.price_hint_per_night)}/night`);
         }

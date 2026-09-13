@@ -18,6 +18,7 @@ import {
   recordObservations,
   type RunRow,
 } from '../src/store.ts';
+import type { PriceQuote } from '../src/priceQuotes.ts';
 import { makeListing } from './fixtures.ts';
 
 const temporary: string[] = [];
@@ -58,18 +59,22 @@ function runRow(scrapeDate: IsoDate, overrides: Partial<RunRow> = {}): RunRow {
     pageFetchFailed: null,
     firstReviewFetchAttempted: null,
     firstReviewFetchFailed: null,
+    quoteFetchAttempted: null,
+    quoteFetchFailed: null,
     errorSummary: null,
     ...overrides,
   };
 }
 
-function night(
-  nightDate: IsoDate,
-  available: boolean,
-  minNights: number | null,
-  priceAmount: number | null,
-): CalendarNight {
-  return { nightDate, available, minNights, priceAmount };
+function night(nightDate: IsoDate, available: boolean, minNights: number | null): CalendarNight {
+  return {
+    nightDate,
+    available,
+    minNights,
+    availableForCheckin: available,
+    availableForCheckout: true,
+    maxNights: null,
+  };
 }
 
 function calendar(roomId: string, nights: CalendarNight[], error: string | null = null): CalendarResult {
@@ -434,6 +439,202 @@ describe('listing-page fields', () => {
   });
 });
 
+describe('room type and counts', () => {
+  const entireHome = {
+    roomType: 'Entire home/apt',
+    guestCapacity: 6,
+    beds: 3,
+    bedrooms: '2 bedrooms',
+    bathrooms: '1.5 baths',
+  } as const;
+
+  it('land on the listing row', async () => {
+    const { db } = await freshDb();
+    await recordObservations(db, '2026-08-26', [makeListing(1, 'Cabin A')], [page('1', entireHome)]);
+
+    expect(
+      await db.rows(
+        'SELECT room_type, guest_capacity, beds, bedrooms, bathrooms FROM listings WHERE is_current',
+      ),
+    ).toEqual([
+      {
+        room_type: 'Entire home/apt',
+        guest_capacity: 6,
+        beds: 3,
+        bedrooms: '2 bedrooms',
+        bathrooms: '1.5 baths',
+      },
+    ]);
+  });
+
+  it('carry forward past a failed page fetch', async () => {
+    const { db } = await freshDb();
+    const parsed = [makeListing(1, 'Cabin A')];
+    await recordObservations(db, '2026-08-26', parsed, [page('1', entireHome)]);
+
+    const stats = await recordObservations(db, '2026-08-27', parsed, [
+      page('1', { error: 'HttpError: HTTP 503' }),
+    ]);
+
+    expect(stats.changed).toBe(0);
+    expect(
+      await db.rows('SELECT room_type, beds, bathrooms FROM listings WHERE is_current'),
+    ).toEqual([{ room_type: 'Entire home/apt', beds: 3, bathrooms: '1.5 baths' }]);
+  });
+
+  it.each([
+    ['a whole home converting to a rented room', { roomType: 'Private room' }],
+    ['a change of guest capacity', { guestCapacity: 8 }],
+    ['a change of bed count', { beds: 4 }],
+    ['a change of bedrooms', { bedrooms: '3 bedrooms' }],
+    ['a change of bathrooms', { bathrooms: '2 baths' }],
+  ] as const)('open a new version for %s', async (_, change) => {
+    const { db } = await freshDb();
+    const parsed = [makeListing(1, 'Cabin A')];
+    await recordObservations(db, '2026-08-26', parsed, [page('1', entireHome)]);
+
+    const stats = await recordObservations(db, '2026-08-27', parsed, [
+      page('1', { ...entireHome, ...change }),
+    ]);
+
+    expect(stats.changed).toBe(1);
+    expect(
+      await db.rows('SELECT valid_from, valid_to FROM listings ORDER BY valid_from'),
+    ).toEqual([
+      { valid_from: '2026-08-26', valid_to: '2026-08-27' },
+      { valid_from: '2026-08-27', valid_to: null },
+    ]);
+  });
+});
+
+describe('price quotes', () => {
+  function quote(roomId: string, fields: Partial<PriceQuote> = {}): PriceQuote {
+    return {
+      roomId,
+      checkIn: '2026-09-01',
+      nights: 2,
+      label: '$241 for 2 nights, originally $269',
+      total: 241,
+      breakdown: ['2 nights x $120.50: $241.00'],
+      error: null,
+      ...fields,
+    };
+  }
+
+  it('land on the observation row', async () => {
+    const { db } = await freshDb();
+    await recordObservations(db, '2026-08-26', [makeListing(1, 'Cabin A')], [], [quote('1')]);
+
+    expect(
+      await db.rows(
+        'SELECT quote_check_in, quote_nights, quote_total, quote_label, quote_breakdown ' +
+          'FROM listing_observations',
+      ),
+    ).toEqual([
+      {
+        quote_check_in: '2026-09-01',
+        quote_nights: 2,
+        quote_total: 241,
+        quote_label: '$241 for 2 nights, originally $269',
+        quote_breakdown: ['2 nights x $120.50: $241.00'],
+      },
+    ]);
+  });
+
+  it('keep Airbnb’s reason when a stay has no price', async () => {
+    const { db } = await freshDb();
+    await recordObservations(db, '2026-08-26', [makeListing(1, 'Cabin A')], [], [
+      quote('1', { total: null, label: 'Those dates are not available', breakdown: [] }),
+    ]);
+
+    expect(await db.rows('SELECT quote_total, quote_label FROM listing_observations')).toEqual([
+      { quote_total: null, quote_label: 'Those dates are not available' },
+    ]);
+  });
+
+  it('are NULL for a failed quote', async () => {
+    const { db } = await freshDb();
+    await recordObservations(db, '2026-08-26', [makeListing(1, 'Cabin A')], [], [
+      quote('1', { total: null, label: null, breakdown: [], error: 'HttpError: HTTP 503' }),
+    ]);
+
+    expect(await db.rows('SELECT quote_check_in, quote_total FROM listing_observations')).toEqual([
+      { quote_check_in: null, quote_total: null },
+    ]);
+  });
+
+  it('never open a listing version', async () => {
+    const { db } = await freshDb();
+    const parsed = [makeListing(1, 'Cabin A')];
+    await recordObservations(db, '2026-08-26', parsed, [], [quote('1')]);
+
+    const stats = await recordObservations(db, '2026-08-27', parsed, [], [quote('1', { total: 999 })]);
+
+    expect(stats.changed).toBe(0);
+  });
+});
+
+describe('listing_photos', () => {
+  const urls = (...ids: number[]): string[] =>
+    ids.map((id) => `https://a0.muscache.com/im/pictures/${id}.jpeg`);
+
+  async function photoRows(db: Database): Promise<unknown[]> {
+    return db.rows(
+      'SELECT valid_from, photo_urls FROM listing_photos WHERE listing_id = 1 ORDER BY valid_from',
+    );
+  }
+
+  it('stores a set only when it differs from the listing’s previous one', async () => {
+    const { db } = await freshDb();
+    const parsed = [makeListing(1, 'Cabin A')];
+    await recordObservations(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1, 2) })]);
+    await recordObservations(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(1, 2) })]);
+    await recordObservations(db, '2026-08-28', parsed, [page('1', { photoUrls: urls(2, 1) })]);
+
+    expect(await photoRows(db)).toEqual([
+      { valid_from: '2026-08-26', photo_urls: urls(1, 2) },
+      // A reorder changes the cover photo, so it is a new set.
+      { valid_from: '2026-08-28', photo_urls: urls(2, 1) },
+    ]);
+  });
+
+  it('keeps the previous set current when a page yields none', async () => {
+    const { db } = await freshDb();
+    const parsed = [makeListing(1, 'Cabin A')];
+    await recordObservations(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1, 2) })]);
+    await recordObservations(db, '2026-08-27', parsed, [page('1')]);
+    await recordObservations(db, '2026-08-28', parsed, [page('1', { error: 'timeout' })]);
+
+    expect(
+      await db.rows('SELECT photo_urls, photo_count, photos_valid_from FROM listing_photos_current'),
+    ).toEqual([{ photo_urls: urls(1, 2), photo_count: 2, photos_valid_from: '2026-08-26' }]);
+  });
+
+  it('never opens a listing version', async () => {
+    const { db } = await freshDb();
+    const parsed = [makeListing(1, 'Cabin A')];
+    await recordObservations(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1) })]);
+
+    const stats = await recordObservations(db, '2026-08-27', parsed, [
+      page('1', { photoUrls: urls(3, 4, 5) }),
+    ]);
+
+    expect(stats.changed).toBe(0);
+    expect(await db.count('SELECT count(*) FROM listings')).toBe(1);
+  });
+
+  it('is idempotent per day', async () => {
+    const { db } = await freshDb();
+    const parsed = [makeListing(1, 'Cabin A')];
+    await recordObservations(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1) })]);
+    await recordObservations(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(2) })]);
+    // Re-running the second day with the first day's set writes nothing new.
+    await recordObservations(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(1) })]);
+
+    expect(await photoRows(db)).toEqual([{ valid_from: '2026-08-26', photo_urls: urls(1) }]);
+  });
+});
+
 // --------------------------------------------------------------------------
 // calendar
 
@@ -441,14 +642,14 @@ describe('mergeCalendar', () => {
   it('detects changes and closes the previous version', async () => {
     const { db } = await freshDb();
 
-    const open = [calendar('1', [night('2026-09-01', true, 2, 150)])];
+    const open = [calendar('1', [night('2026-09-01', true, 2)])];
     expect((await mergeCalendar(db, '2026-08-01', open)).nightsChanged).toBe(1);
 
     // Same value again: no new version.
     expect((await mergeCalendar(db, '2026-08-02', open)).nightsChanged).toBe(0);
 
     // Flips to booked: new version, old one closed.
-    const booked = [calendar('1', [night('2026-09-01', false, 2, null)])];
+    const booked = [calendar('1', [night('2026-09-01', false, 2)])];
     expect((await mergeCalendar(db, '2026-08-03', booked)).nightsChanged).toBe(1);
 
     expect(
@@ -462,10 +663,19 @@ describe('mergeCalendar', () => {
     ]);
   });
 
+  it('hashes a night as available|min_nights|, the format of every stored row', async () => {
+    const { db } = await freshDb();
+    await mergeCalendar(db, '2026-08-01', [calendar('1', [night('2026-09-01', true, 2)])]);
+
+    expect(await db.value('SELECT status_hash FROM calendar_status')).toBe(
+      await db.value("SELECT md5('true|2|')"),
+    );
+  });
+
   it('excludes a failed fetch', async () => {
     const { db } = await freshDb();
     const stats = await mergeCalendar(db, '2026-08-01', [
-      calendar('1', [night('2026-09-01', true, 1, 100)]),
+      calendar('1', [night('2026-09-01', true, 1)]),
       calendar('2', [], 'timeout'),
     ]);
 
@@ -476,7 +686,7 @@ describe('mergeCalendar', () => {
 });
 
 describe('calendar_current', () => {
-  const nights = [night('2026-08-05', true, 2, 100), night('2027-01-01', true, 2, 100)];
+  const nights = [night('2026-08-05', true, 2), night('2027-01-01', true, 2)];
 
   it('drops a retired listing’s unconfirmed future', async () => {
     const { db } = await freshDb();
@@ -504,7 +714,7 @@ describe('calendar_current', () => {
   it('keeps a retired listing’s nights up to its last sighting', async () => {
     const { db } = await freshDb();
     const start = '2026-08-01';
-    const past = [night('2026-08-01', false, 2, 100)];
+    const past = [night('2026-08-01', false, 2)];
     await recordObservations(db, start, [makeListing(1, 'A'), makeListing(2, 'B')]);
     await mergeCalendar(db, start, [calendar('1', past), calendar('2', past)]);
     for (let i = 1; i < 10; i++) {
@@ -596,6 +806,22 @@ describe('the store itself', () => {
 
     await expect(connect(path)).rejects.toThrow(LegacySchemaError);
     await expect(connect(path)).rejects.toThrow(/as a table rather than a view/);
+  });
+
+  it('rejects listing_observations without the price quote columns', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
+    temporary.push(dir);
+    const path = join(dir, 'legacy.duckdb');
+
+    const { Database } = await import('../src/db.ts');
+    const legacy = await Database.open(path);
+    await legacy.run(
+      'CREATE TABLE listing_observations ' +
+        '(listing_id BIGINT, scrape_date DATE, page_fetch_ok BOOLEAN, host_id BIGINT)',
+    );
+    legacy.close();
+
+    await expect(connect(path)).rejects.toThrow(/no `quote_total` column/);
   });
 
   it('rejects listing_observations without host_id', async () => {

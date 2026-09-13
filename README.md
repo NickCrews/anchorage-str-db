@@ -43,12 +43,20 @@ data-quality checks.
 ## Tables
 
 - `listing_observations`: one row per listing per scrape date, including
-  whether its page was read (`page_fetch_ok`)
-- `calendar_status`: nightly availability, stored change-only with
-  `valid_from`/`valid_to`
+  whether its page was read (`page_fetch_ok`) and a price quote: Airbnb's
+  price (`quote_total`) for a stay of `quote_nights` nights from
+  `quote_check_in`, the listing's earliest bookable stay that day.
+  `quote_label` is Airbnb's text (`$241 for 2 nights, originally $269`, or
+  why there is no price) and `quote_breakdown` its price-detail lines, which
+  show cents, discounts and fees. `quote_total` is the rounded displayed total.
+- `calendar_status`: nightly availability and minimum stay, stored
+  change-only with `valid_from`/`valid_to`. The calendar has no prices.
 - `listing_first_reviews`: one row per listing whose reviews have been read,
   with the date of its oldest review (NULL if it had none). A listing with
   no row has not been read yet.
+- `listing_photos`: each listing's photo URLs, one row per distinct set, cover
+  photo first. `listing_photos_current` *(view)* has each listing's latest
+  set. Photos never open a listing version.
 - `scrape_runs`: one row per run, with counts and errors
 - `listings` *(view)*: one row per listing version, derived from the
   observations. `listings_current` filters to `is_current`. `host_id` is the
@@ -58,11 +66,26 @@ data-quality checks.
   `first_review_date` and `first_seen_date`: the room was listed on or before
   it. It is an estimate that can only be late: a room with no reviews from
   before `first_seen_date` looks as new as the day it was first scraped.
+  - `room_type`: Airbnb's text, as written: `Entire home/apt`,
+    `Private room`, `Shared room`, `Hotel room`. `property_title`
+    (`Cabin in Palmer`) is a property type, not a room type.
+  - `guest_capacity` and `beds`: Airbnb's integers. A bunk bed counts as 2.
+  - `bedrooms` and `bathrooms`: the listing page's text, as written:
+    `2 bedrooms`, `Studio`; `1.5 baths`, `Shared bathroom`, `Half-bath`.
+    Private and shared rooms usually have no bedroom line.
+  - These, like `host_id`, come from the listing page: a change opens a new
+    version, and a failed page fetch carries the previous value forward.
 - `calendar_current` *(view)*: use this instead of `calendar_status` for
   "how many are operating/booked"; it drops the frozen future nights of
   retired listings
 
 ## Known gaps
+
+- **Prices are quotes for open stays, not a nightly series.** Airbnb prices a
+  stay only while it can be booked, so booked nights, which revenue is made
+  of, have no price. Each day's quote is the listing's earliest bookable
+  stay. See
+  [`docs/research/airbnb-calendar-price.md`](docs/research/airbnb-calendar-price.md).
 
 - **Most listings have no street address.** `location_exact_address` is null
   unless the host published one. Join on `location_lat`/`location_lng`, and

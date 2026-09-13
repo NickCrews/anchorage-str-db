@@ -136,8 +136,6 @@ export interface SearchListing {
   /** `null`, not `0`, when Airbnb gave no coordinate. See this directory's README. */
   latitude: number | null;
   longitude: number | null;
-  /** The "2 bedrooms" / "3 beds" / "1 bath" lines, verbatim. */
-  primaryLines: string[];
   ratingValue: number | null;
   reviewCount: number | null;
   badges: string[];
@@ -259,9 +257,6 @@ export function standardizeSearchResponse(raw: unknown): SearchResponse {
       title: asString(dig(result, 'title')),
       latitude: asNumber(dig(result, 'demandStayListing.location.coordinate.latitude')),
       longitude: asNumber(dig(result, 'demandStayListing.location.coordinate.longitude')),
-      primaryLines: asArray(dig(result, 'structuredContent.primaryLine'))
-        .map((line) => asString(dig(line, 'body')))
-        .filter((body): body is string => body !== null),
       ratingValue: rating.value,
       reviewCount: rating.reviewCount,
       badges: asArray(dig(result, 'badges'))

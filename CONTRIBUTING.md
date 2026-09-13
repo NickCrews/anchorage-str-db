@@ -74,17 +74,29 @@ aggregate.
 ### Listing-page pass
 
 Every run fetches each listing's own page for fields the search response
-lacks: Airbnb's `isExactLocation` flag (whether `location_lat`/`location_lng`
-is the real position or jittered), the municipal STR registration number, and
-the primary host's user id. They are stored on the same `listing_observations` row as the search fields.
-When a page fetch fails, the `listings` view carries the previous values
-forward.
+lacks or reports unreliably: Airbnb's `isExactLocation` flag (whether
+`location_lat`/`location_lng` is the real position or jittered), the
+municipal STR registration number, the primary host's user id, room type,
+guest, bed, bedroom and bathroom counts, and photos. All but photos are
+stored on the same `listing_observations` row as the search fields. When a
+page fetch fails, the `listings` view carries the previous values forward.
 
 The pass has no flag to skip it. A skipped pass would write rows whose page
 fields are carried forward from an earlier day, and nothing in the database
 could tell those rows from freshly read ones. See
-[`docs/research/airbnb-pdp-location-payload.md`](docs/research/airbnb-pdp-location-payload.md)
-and [`docs/research/airbnb-pdp-host-id.md`](docs/research/airbnb-pdp-host-id.md).
+[`docs/research/airbnb-pdp-location-payload.md`](docs/research/airbnb-pdp-location-payload.md),
+[`docs/research/airbnb-pdp-host-id.md`](docs/research/airbnb-pdp-host-id.md)
+and [`docs/research/airbnb-pdp-listing-attributes.md`](docs/research/airbnb-pdp-listing-attributes.md).
+
+### Price-quote pass
+
+After the calendar pass, each run asks `StaysPdpSections` for the price of
+one stay per listing: the earliest stay the calendar says is bookable,
+checking in tomorrow or later, for the listing's minimum number of nights
+(`priceQuotes.ts`). A fully booked listing gets no quote. The response is
+stored as Airbnb displays it, on the day's `listing_observations` row;
+nightly rates are left to analysis. See
+[`docs/research/airbnb-calendar-price.md`](docs/research/airbnb-calendar-price.md).
 
 ### First-review pass
 
@@ -112,11 +124,11 @@ listings, which can't be scraped after the fact.
 
 ### Request budget
 
-A run makes about `2N + 200` requests for N listings: a page and a calendar
-per listing, plus one `StaysSearch` request per price band (see
+A run makes about `3N + 200` requests for N listings: a page, a calendar and
+a price quote per listing, plus one `StaysSearch` request per price band (see
 [`docs/research/airbnb-search-pagination.md`](docs/research/airbnb-search-pagination.md)
-for why the search never paginates). At ~2600 listings that is ~5400 requests
-and about 50 minutes. The first-review pass adds about one request per
+for why the search never paginates). At ~2600 listings that is ~8000 requests
+and about 75 minutes. The first-review pass adds about one request per
 unresolved listing, at most ~1030 (~10 minutes) while backfilling and a handful
 once caught up. The per-listing passes dominate.
 
@@ -165,6 +177,11 @@ Every run fails with `LegacySchemaError` until someone:
 - **Change-only storage for the calendar, a row per day for listings.**
   - `calendar_status` stores only changed nights (via `status_hash`). A full
     daily snapshot would be ~2600 listings × ~365 nights = ~950k rows/day.
+  - `listing_photos` stores a listing's gallery only when it differs from
+    the previous one. A median of ~17 URLs on every daily row would dominate
+    the published file, which the viewer downloads whole.
+  - Photos are not in the version key. Hosts reorder and replace photos far
+    more often than a listing changes.
   - `listing_observations` is ~2600 rows/day and compresses well, so it
     stores every day and `listings` is a view: `listing_versions` rebuilds
     `valid_from`/`valid_to` with gaps-and-islands, and `listing_activity`
@@ -213,8 +230,20 @@ Every run fails with `LegacySchemaError` until someone:
   documented API. Each page records which layers contributed
   (`ListingPage.locationSource`, in memory only), and the
   `extraction_layer_*_alive` checks fail when a layer stops producing values.
-  JSON-LD has no host, so `host_id` comes from `state` and `raw-html`, and
-  `host_id_coverage` fails the run when both stop producing it.
+  JSON-LD has only the coordinate, so the other fields come from `state` and
+  `raw-html`, and photos from `state` alone (JSON-LD lists at most 8). The
+  `*_coverage` and `photo_coverage` checks fail the run when a field stops
+  being produced.
+- **Room counts and type come from the listing page, not search.** Search
+  cards show them only as free text, carry no guest line, and drop the bath
+  line on some days, which would open a spurious version each time.
+- **Text is stored as Airbnb writes it.** Room type, bedrooms and bathrooms
+  exist only as display text (`Entire home/apt`, `Studio`, `Shared
+  bathroom`), so they are stored verbatim rather than mapped to categories or
+  numbers: a new wording can't be misread, and analysis can re-derive
+  anything from the original. The parser only picks out which line is which.
+  Guest capacity and beds are integers in Airbnb's data and are stored as
+  such.
 - **The bounding box is derived from parcel data.** See the docstring in
   `config.ts`; recompute it from `anchorage-property` rather than editing
   coordinates by hand.

@@ -7,11 +7,12 @@
 import { fetchApiKey } from './airbnb/apiKey.ts';
 import { fetchCalendars, liveCalendarFetcher } from './calendars.ts';
 import { report, runChecks } from './checks.ts';
-import { toSqlTimestamp, todayUtc, type IsoDate } from './dates.ts';
+import { addDays, toSqlTimestamp, todayUtc, type IsoDate } from './dates.ts';
 import { fetchFirstReviews, liveReviewPageFetcher } from './firstReviews.ts';
 import { fetchListingPages, livePageFetcher } from './listingPage.ts';
 import { describeError, log } from './log.ts';
 import { parseListing, type ParsedListing } from './parse.ts';
+import { fetchPriceQuotes, liveQuoteFetcher } from './priceQuotes.ts';
 import { pace, resetPace } from './pace.ts';
 import { auditCoverage, liveSearchFetcher, searchAnchorage } from './search.ts';
 import {
@@ -23,6 +24,7 @@ import {
   recordObservations,
   summarizeFirstReviews,
   summarizePages,
+  summarizeQuotes,
   type RunRow,
 } from './store.ts';
 
@@ -80,13 +82,27 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
     log.info(
       `listing pages: ${pageStats.attempted} fetched, ${pageStats.failed} failed, ` +
         `${pageStats.exactLocated} with an exact location, ${pageStats.registered} with an ` +
-        `STR registration number, ${pageStats.withHostId} with a host id`,
+        `STR registration number, ${pageStats.withHostId} with a host id, ` +
+        `${pageStats.withRoomType} with a room type, ${pageStats.withGuestCapacity} with a ` +
+        `guest capacity, ${pageStats.withBeds} with beds, ${pageStats.withBedrooms} with ` +
+        `bedrooms, ${pageStats.withBathrooms} with bathrooms, ${pageStats.withPhotos} with photos`,
     );
 
     const calendarResults = await fetchCalendars(roomIds, {
       minDate: scrapeDate,
       fetchOne: liveCalendarFetcher(apiKey),
     });
+
+    // Needs the calendars, to choose a stay that can be booked.
+    const quotes = await fetchPriceQuotes(calendarResults, {
+      firstCheckIn: addDays(scrapeDate, 1),
+      fetchOne: liveQuoteFetcher(apiKey),
+    });
+    const quoteStats = summarizeQuotes(quotes);
+    log.info(
+      `price quotes: ${quoteStats.attempted} listings with a bookable stay, ` +
+        `${quoteStats.failed} failed, ${quoteStats.priced} priced`,
+    );
 
     // Capped per run by FIRST_REVIEW_MAX_PER_RUN; the rest wait for later runs.
     const pendingReviews = await pendingFirstReviews(db, parsed);
@@ -102,7 +118,7 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
 
     // ---- write phase -----------------------------------------------------
     const stats = await db.transaction(async () => {
-      const listingStats = await recordObservations(db, scrapeDate, parsed, pages);
+      const listingStats = await recordObservations(db, scrapeDate, parsed, pages, quotes);
       const calendarStats = await mergeCalendar(db, scrapeDate, calendarResults);
       await recordFirstReviews(db, scrapeDate, firstReviews);
       await logRun(db, {
@@ -120,9 +136,11 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
         pageFetchFailed: pageStats.failed,
         firstReviewFetchAttempted: firstReviewStats.attempted,
         firstReviewFetchFailed: firstReviewStats.failed,
+        quoteFetchAttempted: quoteStats.attempted,
+        quoteFetchFailed: quoteStats.failed,
         errorSummary: null,
       });
-      return { pageStats, searchResult, coverage };
+      return { pageStats, quoteStats, searchResult, coverage };
     });
 
     // After commit, so the checks see what later queries will see.
@@ -157,6 +175,8 @@ function failedRunRow(scrapeDate: IsoDate, startedAt: string, errorSummary: stri
     pageFetchFailed: null,
     firstReviewFetchAttempted: null,
     firstReviewFetchFailed: null,
+    quoteFetchAttempted: null,
+    quoteFetchFailed: null,
     errorSummary,
   };
 }

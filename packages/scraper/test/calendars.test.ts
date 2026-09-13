@@ -1,20 +1,22 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { CalendarDay } from '../src/airbnb/calendar.ts';
-import {
-  fetchCalendars,
-  parseFormattedPrice,
-  toNights,
-  type CalendarResult,
-} from '../src/calendars.ts';
+import { fetchCalendars, toNights, type CalendarResult } from '../src/calendars.ts';
 import { resetPace } from '../src/pace.ts';
 
 beforeEach(() => {
   resetPace({ rate: 1e6 });
 });
 
-function day(calendarDate: string, available: boolean, price: string | null = null): CalendarDay {
-  return { calendarDate, available, minNights: 2, localPriceFormatted: price };
+function day(calendarDate: string, available: boolean): CalendarDay {
+  return {
+    calendarDate,
+    available,
+    availableForCheckin: available,
+    availableForCheckout: true,
+    minNights: 2,
+    maxNights: null,
+  };
 }
 
 describe('toNights', () => {
@@ -33,25 +35,19 @@ describe('toNights', () => {
     ]);
   });
 
-  it('carries availability, min nights and the parsed price', () => {
-    const nights = toNights([day('2026-08-15', true, '$1,269.50')], '2026-08-15');
+  it('carries availability and min nights', () => {
+    const nights = toNights([day('2026-08-15', true)], '2026-08-15');
 
     expect(nights).toEqual([
-      { nightDate: '2026-08-15', available: true, minNights: 2, priceAmount: 1269.5 },
+      {
+        nightDate: '2026-08-15',
+        available: true,
+        availableForCheckin: true,
+        availableForCheckout: true,
+        minNights: 2,
+        maxNights: null,
+      },
     ]);
-  });
-});
-
-describe('parseFormattedPrice', () => {
-  it.each([
-    ['$269', 269],
-    ['$1,269.50', 1269.5],
-    ['269 USD', 269],
-    [null, null],
-    ['', null],
-    ['free', null],
-  ])('parses %s', (formatted, expected) => {
-    expect(parseFormattedPrice(formatted)).toBe(expected);
   });
 });
 

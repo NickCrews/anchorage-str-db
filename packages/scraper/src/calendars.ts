@@ -12,22 +12,16 @@ export interface CalendarNight {
   nightDate: IsoDate;
   available: boolean;
   minNights: number | null;
-  priceAmount: number | null;
+  /** Used to choose a stay to price (`priceQuotes.ts`); not stored. */
+  availableForCheckin: boolean;
+  availableForCheckout: boolean;
+  maxNights: number | null;
 }
 
 export interface CalendarResult {
   roomId: string;
   nights: CalendarNight[];
   error: string | null;
-}
-
-/** `localPriceFormatted` is a display string like `"$269"`. Best-effort parse. */
-export function parseFormattedPrice(formatted: string | null): number | null {
-  if (!formatted) return null;
-  const digits = [...formatted].filter((c) => (c >= '0' && c <= '9') || c === '.').join('');
-  if (digits === '') return null;
-  const value = Number(digits);
-  return Number.isFinite(value) ? value : null;
 }
 
 /**
@@ -42,7 +36,9 @@ export function toNights(days: readonly CalendarDay[], minDate: IsoDate): Calend
       nightDate: day.calendarDate,
       available: day.available,
       minNights: day.minNights,
-      priceAmount: parseFormattedPrice(day.localPriceFormatted),
+      availableForCheckin: day.availableForCheckin,
+      availableForCheckout: day.availableForCheckout,
+      maxNights: day.maxNights,
     }));
 }
 

@@ -7,11 +7,19 @@ export function calendarResultFor(
   nightDate: IsoDate,
   available: boolean,
   minNights: number | null,
-  priceAmount: number | null,
 ): CalendarResult {
   return {
     roomId,
-    nights: [{ nightDate, available, minNights, priceAmount }],
+    nights: [
+      {
+        nightDate,
+        available,
+        minNights,
+        availableForCheckin: available,
+        availableForCheckout: true,
+        maxNights: null,
+      },
+    ],
     error: null,
   };
 }
