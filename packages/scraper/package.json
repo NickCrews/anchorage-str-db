@@ -3,20 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Daily Airbnb scrape of Anchorage, AK short-term rentals, merged into DuckDB",
+  "description": "Runs the Airbnb and Municipal scrapers for Anchorage, AK short-term rentals and merges them into DuckDB",
   "license": "MIT",
-  "bin": {
-    "anchorage-str-db": "dist/cli.js"
-  },
   "scripts": {
-    "build": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b && tsc -p tsconfig.test.json"
+    "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@duckdb/node-api": "1.5.5-r.4",
-    "impit": "0.14.5"
+    "@anchorage-str-db/muni-licenses": "workspace:*",
+    "@anchorage-str-db/scraper-airbnb": "workspace:*",
+    "@anchorage-str-db/scraper-muni-str": "workspace:*",
+    "@anchorage-str-db/utils": "workspace:*",
+    "@duckdb/node-api": "1.5.5-r.4"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

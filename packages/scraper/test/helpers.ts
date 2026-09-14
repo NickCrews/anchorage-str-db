@@ -1,5 +1,5 @@
-import type { CalendarResult } from '../src/calendars.ts';
-import type { IsoDate } from '../src/dates.ts';
+import type { CalendarResult } from '@anchorage-str-db/scraper-airbnb/calendars';
+import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
 /** One listing, one night — the smallest thing `mergeCalendar` will take. */
 export function calendarResultFor(

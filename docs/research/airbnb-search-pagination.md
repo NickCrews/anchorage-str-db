@@ -1,7 +1,7 @@
 # Why the search never paginates
 
 Measured 2026-09-09. Explains the design of `searchAnchorage` in
-`packages/scraper/src/search.ts`. Read it before changing how the search is
+`packages/scraper-airbnb/src/search.ts`. Read it before changing how the search is
 partitioned.
 
 **Summary:** Airbnb's paginated search is unreliable in two ways, both caused

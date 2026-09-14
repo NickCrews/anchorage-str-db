@@ -20,7 +20,7 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    # A run takes about 50 minutes (see "Request budget" in CONTRIBUTING.md).
+    # A run takes about an hour (see "Request budget" in CONTRIBUTING.md).
     timeout-minutes: 120
     permissions:
       contents: write # to upload the updated database as a release asset
@@ -41,9 +41,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Runs from dist/ rather than via Node's type stripping, so a type
-      # error fails here instead of mid-run.
-      - run: pnpm --filter @anchorage-str-db/scraper build
+      # Node runs the TypeScript sources directly and ignores types, so check
+      # them here; a type error then fails before the scrape instead of
+      # mid-run. `...` includes the workspace packages the scraper imports.
+      - run: pnpm --filter "@anchorage-str-db/scraper..." typecheck
 
       # The runner starts clean, so restore yesterday's database from the
       # release. A missing database fails the run unless `start_fresh` is set.
@@ -74,8 +75,16 @@ jobs:
             exit 1
           fi
 
+      # Its own step and transaction, so a Muni outage can't cost the day's
+      # Airbnb scrape, which can't be re-run later. A failure is reported
+      # after publishing, below.
+      - name: Municipal STR registry + quality gate
+        id: registry
+        continue-on-error: true
+        run: node packages/scraper/src/cli.ts --db "$DB_PATH" --verbose registry
+
       - name: Scrape + merge + quality gate
-        run: node packages/scraper/dist/cli.js --db "$DB_PATH" --verbose daily
+        run: node packages/scraper/src/cli.ts --db "$DB_PATH" --verbose daily
 
       # Reached only if the quality checks passed.
       - name: Publish updated database
@@ -103,6 +112,14 @@ jobs:
               --title "Backup $(date -u +%Y-%m-%d)" \
               --notes "Dated snapshot, kept indefinitely (unlike latest-data, which is overwritten daily)."
           fi
+
+      # After publishing, so the Airbnb day is kept; failing here opens the
+      # outage issue below.
+      - name: Fail if the registry run failed
+        if: steps.registry.outcome == 'failure'
+        run: |
+          echo "::error::the registry run failed; see the 'Municipal STR registry' step"
+          exit 1
 
       - name: Close the outage issue
         continue-on-error: true

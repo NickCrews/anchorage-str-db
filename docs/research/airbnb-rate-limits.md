@@ -2,7 +2,7 @@
 
 Measured 2026-09-09/10 from one residential IP against live Airbnb, cycling
 through 79 room ids from two Anchorage price-band queries. Explains
-`packages/scraper/src/pace.ts` and `config.REQUESTS_PER_SECOND`.
+`packages/scraper-airbnb/src/pace.ts` and `config.REQUESTS_PER_SECOND`.
 
 **Summary:** Airbnb allows about 130 requests per IP in a rolling window of
 roughly a minute, regardless of burst rate, so the sustainable rate is about

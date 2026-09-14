@@ -1,7 +1,7 @@
 # The host id on Airbnb's listing page
 
 Measured 2026-09-12 on 41 Girdwood listings. Explains the `hostId` extraction
-in `packages/scraper/src/listingPage.ts`. See also
+in `packages/scraper-airbnb/src/listingPage.ts`. See also
 [`airbnb-pdp-location-payload.md`](airbnb-pdp-location-payload.md) for the
 page's structure and the three parser layers.
 

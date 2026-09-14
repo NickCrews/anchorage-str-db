@@ -3,10 +3,7 @@
   "compilerOptions": {
     "lib": ["ES2023"],
     "types": ["node"],
-    "outDir": "dist",
-    "rootDir": "src",
-    "tsBuildInfoFile": "dist/.tsbuildinfo",
-    "sourceMap": true
+    "noEmit": true
   },
-  "include": ["src"]
+  "include": ["src", "test", "vitest.config.ts"]
 }

@@ -3,11 +3,13 @@
  * check makes the run exit non-zero, which blocks publishing.
  */
 
+import { BBOX } from '@anchorage-str-db/scraper-airbnb/config';
+import { missRate, type CoverageAudit, type SearchResult } from '@anchorage-str-db/scraper-airbnb/search';
+import type { IsoDate } from '@anchorage-str-db/utils/dates';
+import { log } from '@anchorage-str-db/utils/log';
+
 import * as config from './config.ts';
-import type { IsoDate } from './dates.ts';
 import type { Database } from './db.ts';
-import { log } from './log.ts';
-import { missRate, type CoverageAudit, type SearchResult } from './search.ts';
 import type { PageFetchStats, QuoteStats } from './store.ts';
 
 export type Severity = 'error' | 'warn';
@@ -105,7 +107,7 @@ export async function runChecks(
     `${overlap} overlapping SCD2 intervals`,
   );
 
-  const bbox = config.BBOX;
+  const bbox = BBOX;
   const outOfBbox = await db.count(
     'SELECT count(*) FROM listings WHERE is_current AND ' +
       '(location_lat IS NULL OR location_lng IS NULL OR location_lat < ? ' +

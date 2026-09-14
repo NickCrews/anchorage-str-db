@@ -49,15 +49,17 @@ import {
   type DuckDBValue,
 } from '@duckdb/node-api';
 
-import type { CalendarResult } from './calendars.ts';
+import type { CalendarResult } from '@anchorage-str-db/scraper-airbnb/calendars';
+import type { FirstReviewCandidate, FirstReviewResult } from '@anchorage-str-db/scraper-airbnb/firstReviews';
+import type { HostCard, Layer, ListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
+import { LAYERS } from '@anchorage-str-db/scraper-airbnb/listingPage';
+import type { ParsedListing } from '@anchorage-str-db/scraper-airbnb/parse';
+import type { PriceQuote } from '@anchorage-str-db/scraper-airbnb/priceQuotes';
+import { addDays, epochDays, type IsoDate } from '@anchorage-str-db/utils/dates';
+
 import * as config from './config.ts';
-import { addDays, epochDays, type IsoDate } from './dates.ts';
 import { appendRow, Database } from './db.ts';
-import type { FirstReviewCandidate, FirstReviewResult } from './firstReviews.ts';
-import type { HostCard, Layer, ListingPage } from './listingPage.ts';
-import { LAYERS } from './listingPage.ts';
-import type { ParsedListing } from './parse.ts';
-import type { PriceQuote } from './priceQuotes.ts';
+import { REGISTRY_SCHEMA_SQL, REGISTRY_VIEWS_SQL } from './registryStore.ts';
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS listing_observations (
@@ -665,12 +667,19 @@ async function rejectLegacySchema(db: Database): Promise<void> {
   }
 }
 
-/** Open (or create) the database, rejecting an incompatible file, and refresh the views. */
+/**
+ * Open (or create) the database, rejecting an incompatible file, and refresh
+ * the views. Creates the Municipal registry's tables and views too (see
+ * `registryStore.ts`), so both the daily and registry runs see one schema.
+ */
 export async function connect(path: string): Promise<Database> {
   const db = await Database.open(path);
   await rejectLegacySchema(db);
   await db.run(SCHEMA_SQL);
+  await db.run(REGISTRY_SCHEMA_SQL);
   await db.run(viewsSql());
+  // After the listing views, which `registrations` reads.
+  await db.run(REGISTRY_VIEWS_SQL);
   return db;
 }
 

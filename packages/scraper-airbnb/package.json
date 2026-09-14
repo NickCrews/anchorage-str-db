@@ -1,0 +1,24 @@
+{
+  "name": "@anchorage-str-db/scraper-airbnb",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fetches and parses Airbnb listings in Anchorage, in memory",
+  "license": "MIT",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@anchorage-str-db/utils": "workspace:*",
+    "impit": "0.14.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "5.9.2",
+    "vitest": "^4.1.11"
+  }
+}

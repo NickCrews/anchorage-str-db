@@ -12,7 +12,8 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
-    "daily": "node packages/scraper/src/cli.ts daily"
+    "daily": "node packages/scraper/src/cli.ts daily",
+    "registry": "node packages/scraper/src/cli.ts registry"
   },
   "devDependencies": {
     "typescript": "5.9.2"

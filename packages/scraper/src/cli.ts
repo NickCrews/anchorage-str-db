@@ -1,19 +1,23 @@
 #!/usr/bin/env node
-/** `anchorage-str-db [--db PATH] [--date YYYY-MM-DD] [-v] daily` */
+/** `anchorage-str-db [--db PATH] [--date YYYY-MM-DD] [-v] daily|registry` */
 
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { parseIsoDate } from '@anchorage-str-db/utils/dates';
+import { describeError, log, setLevel } from '@anchorage-str-db/utils/log';
+
 import { DEFAULT_DB_PATH } from './config.ts';
-import { parseIsoDate } from './dates.ts';
-import { describeError, log, setLevel } from './log.ts';
 import { runDaily } from './pipeline.ts';
+import { runRegistry } from './registry.ts';
 
-const USAGE = `usage: anchorage-str-db [options] daily
+const USAGE = `usage: anchorage-str-db [options] daily|registry
 
-  daily   search Anchorage, fetch each listing's calendar and page, merge,
-          run quality checks
+  daily     search Anchorage, fetch each listing's calendar and page, merge,
+            run quality checks
+  registry  snapshot the Municipality's STR registrations, read a batch of
+            license pages, run registry checks
 
 options:
   --db PATH     path to the DuckDB file (default: ${DEFAULT_DB_PATH})
@@ -49,7 +53,7 @@ export async function main(argv: string[]): Promise<number> {
   setLevel(values.verbose ? 'debug' : 'info');
 
   const command = positionals[0];
-  if (command !== 'daily') {
+  if (command !== 'daily' && command !== 'registry') {
     process.stderr.write(
       `${command === undefined ? 'no command given' : `unknown command: ${command}`}\n\n${USAGE}`,
     );
@@ -69,7 +73,8 @@ export async function main(argv: string[]): Promise<number> {
   await mkdir(dirname(dbPath), { recursive: true });
 
   try {
-    const ok = await runDaily({ dbPath, ...(scrapeDate === undefined ? {} : { scrapeDate }) });
+    const run = command === 'daily' ? runDaily : runRegistry;
+    const ok = await run({ dbPath, ...(scrapeDate === undefined ? {} : { scrapeDate }) });
     return ok ? 0 : 1;
   } catch (err) {
     log.error(describeError(err));

@@ -9,9 +9,8 @@
     "verbatimModuleSyntax": true,
 
     // Imports use `.ts` extensions so `node src/cli.ts` runs the sources
-    // directly; `tsc` rewrites them to `.js` in dist/.
+    // directly. Nothing is emitted; `tsc` only checks types.
     "allowImportingTsExtensions": true,
-    "rewriteRelativeImportExtensions": true,
     // Required for Node's type stripping: no enums, namespaces, or
     // parameter properties.
     "erasableSyntaxOnly": true,

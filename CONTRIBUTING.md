@@ -6,25 +6,40 @@
 pnpm install
 ```
 
-The workspace has two packages, `packages/scraper` and `packages/ui`, sharing
-the compiler options in `tsconfig.base.json`.
+The workspace packages share the compiler options in `tsconfig.base.json`:
 
-Relative imports use their real `.ts` extension, so `node src/cli.ts` runs the
-sources directly (Node strips the types) and `tsc` rewrites the extension to
-`.js` in `dist/`. For the same reason `erasableSyntaxOnly` is on: no enums,
-namespaces, or parameter properties.
+| package | does | runtime dependencies |
+| --- | --- | --- |
+| `packages/scraper` | runs the providers below, owns the DuckDB schema, writes, checks and the CLI | the four packages below, `@duckdb/node-api` |
+| `packages/scraper-airbnb` | searches Airbnb and fetches listing pages, calendars, price quotes and reviews | `utils`, `impit` |
+| `packages/scraper-muni-str` | fetches the Municipal Clerk's STR registration layers from ArcGIS | `utils` |
+| `packages/muni-licenses` | fetches and parses the Muni's CityView license pages | `utils` |
+| `packages/utils` | dates, logging, concurrency, request pacing and retries, `fetch` | none |
+| `packages/ui` | the browser viewer | |
+
+Provider packages (`scraper-airbnb`, `scraper-muni-str`, `muni-licenses`)
+work in memory: they return typed records and never touch DuckDB, so each
+can be tested and debugged without a database. Only `packages/scraper`
+decides what is stored.
+
+Nothing is compiled. Each package exports its sources
+(`"exports": {"./*": "./src/*.ts"}`, imported as
+`@anchorage-str-db/utils/dates`), relative imports use their real `.ts`
+extension, and Node strips the types when it runs them. For the same reason
+`erasableSyntaxOnly` is on: no enums, namespaces, or parameter properties.
+`pnpm typecheck` is the only type check.
 
 ## Running
 
 ```sh
-pnpm daily                 # writes data/anchorage_str.duckdb
+pnpm daily                 # Airbnb; writes data/anchorage_str.duckdb
 pnpm daily --verbose --db /tmp/scratch.duckdb
+pnpm registry              # the Municipal STR registry, same database
 ```
 
-Run from the repo root. The root `daily` script calls
-`packages/scraper/src/cli.ts` directly; `pnpm --filter` would set the working
-directory to the package and put the default `--db` under
-`packages/scraper/data/`.
+Run from the repo root. The root scripts call `packages/scraper/src/cli.ts`
+directly; `pnpm --filter` would set the working directory to the package and
+put the default `--db` under `packages/scraper/data/`.
 
 A run searches the Anchorage bounding box, fetches every listing's page and
 calendar and up to 1000 listings' earliest review dates, writes the day to the
@@ -32,26 +47,29 @@ database, and runs the data-quality checks.
 It exits non-zero if an error-severity check fails; the log names which one.
 `--verbose` logs passing checks too.
 
-A run against an empty database creates the schema. `store.SCHEMA_SQL` runs
-on every connect, so a new table (`CREATE TABLE IF NOT EXISTS`) or a nullable
+A run against an empty database creates the schema. `store.SCHEMA_SQL` and
+`registryStore.REGISTRY_SCHEMA_SQL` run on every connect, so a new table (`CREATE TABLE IF NOT EXISTS`) or a nullable
 column on `scrape_runs` (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) reaches
 the published database in place. Any other change has no migration and means
 rebuilding the database.
 
 ### Dependencies
 
-The scraper depends only on `impit` and `@duckdb/node-api`.
+The only third-party runtime dependencies are `impit` and
+`@duckdb/node-api`.
 
 Airbnb sits behind Akamai, which fingerprints the TLS ClientHello and refuses
 Node's built-in `fetch` regardless of `User-Agent`. `impit` replays a Chrome
-handshake (`chrome124`, set in `src/airbnb/http.ts`). If every request starts
-failing with 403, try a newer browser profile.
+handshake (`chrome124`, set in `scraper-airbnb/src/api/http.ts`). If every
+request starts failing with 403, try a newer browser profile. ArcGIS Online
+and the CityView portal accept Node's `fetch`.
 
 Arguments are parsed with `node:util.parseArgs`. The listing-page parser only
-needs the JSON in `<script>` tags, which `src/html.ts` extracts with a regex.
+needs the JSON in `<script>` tags, which `scraper-airbnb/src/html.ts` extracts
+with a regex; the license page parser reads server-rendered HTML the same way.
 
-`packages/scraper/src/airbnb/` has one file per Airbnb endpoint and its own
-README.
+`packages/scraper-airbnb/src/api/` has one file per Airbnb endpoint and its
+own README.
 
 ### Fetch everything, then write everything
 
@@ -146,9 +164,51 @@ every search and calendar request. It is a long-lived public value, and
 fetching it per request would re-download the ~600 KB homepage for each
 listing.
 
-The shared request rate is in `pace.ts`. `retry.ts` holds the attempt loop
-every pass uses: a 429 aborts the run, a streak of timeouts halves the
+The shared Airbnb request rate is in `scraper-airbnb/src/pace.ts`, and
+`scraper-airbnb/src/retry.ts` wraps the attempt loop from `utils/src/retry.ts`
+that every pass uses: a 429 aborts the run, a streak of timeouts halves the
 request rate, and any other error is retried.
+
+## The registry run
+
+`pnpm registry` (`packages/scraper/src/registry.ts`) records the
+Municipality's STR registrations. It is a separate command from `daily`, with
+its own transaction, run log (`registry_runs`) and checks
+(`registryChecks.ts`), so an outage at either source leaves the other's day
+intact. It takes 5 to 15 minutes, depending on how quickly the license
+portal responds.
+
+Each run:
+
+1. Fetches every registration from the Clerk's
+   [registration viewer](https://experience.arcgis.com/experience/22b40a78a9fc459e9950a16249b37ed2)
+   (`scraper-muni-str`). A layer that doesn't add up to the server's own
+   count fails the run, since a partial snapshot would read as registrations
+   lapsing.
+2. Reads up to `LICENSE_PAGE_MAX_PER_RUN` (500) CityView license pages
+   (`muni-licenses`), chosen by `chooseLicensePages`: never-read licenses
+   first, then licenses that left the layer and haven't been read since, then
+   current licenses whose latest read is `LICENSE_PAGE_REFRESH_DAYS` (7) old.
+   A failed read writes nothing and is retried next run.
+3. Writes the day's layer snapshot and the pages, then runs the checks.
+
+The layer lists only `Active` registrations and is republished about weekly
+(`published_at`). A registration missing from a run's snapshot has lapsed or
+been withdrawn; the license page read after it leaves records its final
+status.
+
+The license page is the only source for the licensee's own description of
+the business, the parcel id, and every certificate issued under the license.
+The layer's `StatusUrl` links to it; its `licenseId` keys `license_page_reads`.
+
+What the Muni publishes, and how it is cleaned:
+
+- `BusinessName` is the string `'None'` when none was given. Stored as
+  published; `registrations.business_name` is NULL.
+- A `Location` the Muni's geocoder couldn't match has `GeocodedAddress`
+  `'Incomplete address provided. No Match.'` and the placeholder point
+  (-150.20935, 61.153442). Stored as published; `registrations.geocoded_lat`/`lng`
+  are NULL.
 
 ## Inspecting the database
 
@@ -160,10 +220,15 @@ or run queries from [`docs/policy_questions.sql`](docs/policy_questions.sql).
 
 ## CI
 
-[`.github/workflows/daily.yml`](.github/workflows/daily.yml) runs the same
-pipeline daily from a `tsc` build of `packages/scraper`. Runners are
-ephemeral, so each run downloads the database from the `latest-data` release,
-scrapes, and re-uploads it if the checks pass. A `backup-YYYY-MM-DD` release
+[`.github/workflows/daily.yml`](.github/workflows/daily.yml) runs `registry`
+then `daily` every day, after `pnpm typecheck` on `packages/scraper` and the
+packages it imports. Runners are ephemeral, so each run downloads the
+database from the `latest-data` release, scrapes, and re-uploads it if the
+`daily` checks pass.
+
+A failed registry run doesn't stop the Airbnb scrape or the upload: it rolled
+back its own writes, and the Airbnb day can't be scraped later. The job
+fails after uploading, which opens the outage issue. A `backup-YYYY-MM-DD` release
 is created every Sunday and kept indefinitely.
 
 A failed run opens a `pipeline-down` issue; the next successful run closes
@@ -224,6 +289,14 @@ Every run fails with `LegacySchemaError` until someone:
   where `listings_seen IS NOT NULL`: the first alone stops advancing on a day
   with no listings, and the second alone would let a failed run retire every
   listing.
+- **Registrations are stored raw, and joined to listings in views.**
+  `registration_observations` and `license_page_reads` hold what the Muni publishes, with its field values
+  unchanged. `registrations` derives one row per registration from them, and
+  `listings_current_with_registration` joins Airbnb listings on
+  `str_registration_id`, so a cleaning or join rule is fixed by editing a
+  view. The registration snapshot is stored every run, like
+  `listing_observations`, rather than change-only: ~2500 rows compress to
+  ~50 KB a day, and a row per run gives exact first- and last-seen dates.
 - **Read `calendar_current`, not `calendar_status`.** A retired listing's
   calendar is no longer fetched, so its future nights stay `is_current` in
   the raw table for up to twelve months. `calendar_current` drops nights after
@@ -275,7 +348,8 @@ Every run fails with `LegacySchemaError` until someone:
 Not implemented. Vrbo's anti-scraping measures are stronger than Airbnb's,
 so start by investigating what is reachable. Then:
 
-- Add `src/vrbo/`, one file per endpoint, like `src/airbnb/`.
+- Add `packages/scraper-vrbo/`, in memory like `scraper-airbnb`, with one
+  file per endpoint, and call it from `packages/scraper`.
 - Add a `source` column (default `'airbnb'`) to `listing_observations` and
   `calendar_status`, and change the views' `PARTITION BY listing_id` to
   `PARTITION BY source, listing_id`, since room ids are unique only per
@@ -286,22 +360,30 @@ so start by investigating what is reachable. Then:
 ## Tests
 
 ```sh
-pnpm test        # vitest, both packages
+pnpm test        # vitest, every package
 pnpm typecheck
 ```
 
-- `test/listingPage.test.ts` and `test/standardize.test.ts` parse synthetic
-  Airbnb responses. They catch parser regressions but not changes on
-  Airbnb's side.
-- `test/store.test.ts` runs the merge logic against a real DuckDB file.
+- `scraper-airbnb/test/listingPage.test.ts` and `standardize.test.ts` parse
+  synthetic Airbnb responses. They catch parser regressions but not changes
+  on Airbnb's side.
+- `muni-licenses/test/licensePage.test.ts` reads real license pages from the
+  Muni's portal, one per markup case the parser handles (listed in that
+  package's README), so it fails when the portal's markup changes.
+- `scraper-muni-str/test/addresses.test.ts` and
+  `scraper/test/addressProvenance.test.ts` read the live registration layer
+  and license pages and check where each address field comes from:
+  `Location` is the license's address (a property record's, or typed text),
+  and the geocoded fields are derived from it.
+- `scraper/test/store.test.ts` and `registryStore.test.ts` run the merge
+  logic and views against a real DuckDB file.
 
-No test touches the network. Fetching is injected: `searchAnchorage` takes a
+The tests above need the network; no other test does. Fetching is injected: `searchAnchorage` takes a
 `fetchPage`, `fetchCalendars` takes a `fetchOne`, `fetchFirstReviews` takes a
-`fetchPage`, and `liveSearchFetcher`, `liveCalendarFetcher`,
-`livePageFetcher` and `liveReviewPageFetcher` are the only places real
-requests are made.
+`fetchPage`, and `fetchRegistrations` takes a `fetchJson`. The `live*Fetcher` functions are the
+only places real requests are made.
 
-When Airbnb changes something, `src/airbnb/` and `parse.ts` break without
-failing a test. To debug a production failure, run `searchAnchorage` over a
+When Airbnb changes something, `scraper-airbnb/src/api/` and `parse.ts` break
+without failing a test. To debug a production failure, run `searchAnchorage` over a
 small box and `livePageFetcher` against a few known room ids, and check the
 `extraction_layer_*_alive` results from the last run.

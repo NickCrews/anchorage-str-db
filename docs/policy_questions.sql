@@ -203,6 +203,85 @@ ORDER BY
     changed_on;
 
 -- ============================================================
+-- Q: Which listings show a registration number the Muni hasn't published?
+-- Either a typo, a lapsed registration, or one issued since the Muni's last
+-- publish (registrations.published_at).
+-- ============================================================
+SELECT
+    listing_id,
+    name,
+    url,
+    str_registration_id
+FROM
+    listings_current_with_registration
+WHERE
+    str_registration_id IS NOT NULL
+    AND NOT registration_found
+ORDER BY
+    str_registration_id;
+
+-- ============================================================
+-- Q: Which registration numbers appear on several Airbnb listings?
+-- Rooms of one home, duplicate listings, or one number shown on several
+-- properties; compare the listings' names and locations.
+-- ============================================================
+SELECT
+    registration_number,
+    business_name,
+    location,
+    airbnb_listings_current
+FROM
+    registrations_current
+WHERE
+    airbnb_listings_current > 1
+ORDER BY
+    airbnb_listings_current DESC;
+
+-- ============================================================
+-- Q: How many current registrations have no Airbnb listing showing them?
+-- They may be listed elsewhere (Vrbo, direct), listed without the number,
+-- or not operating.
+-- ============================================================
+SELECT
+    parcel_type,
+    count(*) AS registrations,
+    count(*) FILTER (WHERE airbnb_listings_current = 0) AS not_on_airbnb
+FROM
+    registrations_current
+GROUP BY
+    ALL
+ORDER BY
+    registrations DESC;
+
+-- ============================================================
+-- Q: How do registrants describe their business?
+-- The license page's free-text description, as the licensee wrote it.
+-- license_description is NULL until the page has been read.
+-- ============================================================
+SELECT
+    registration_number,
+    business_name,
+    license_description
+FROM
+    registrations_current
+WHERE
+    license_description IS NOT NULL
+ORDER BY
+    registration_number;
+
+-- ============================================================
+-- Q: Which registered STR parcels claim the owner's-primary-residence
+-- exemption? Joins on the license's parcel id, so no spatial match is needed.
+-- ============================================================
+-- ATTACH 'https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage-current.duckdb' AS parcels (READ_ONLY);
+-- SELECT r.registration_number, r.business_name, r.location, p.owner_name,
+--        r.airbnb_listings_current
+-- FROM registrations_current r
+-- JOIN parcels.parcels_current p ON p.parcel_id = r.parcel_id
+-- WHERE p.exemption_6_type = 'OWNERS PRIMARY RESIDENCE'
+-- ORDER BY r.registration_number;
+
+-- ============================================================
 -- Q: Parcel match for listings with an exact location.
 -- Run the ATTACH/LOAD lines from the parcel query above first.
 -- ============================================================

@@ -12,7 +12,7 @@ Anchorage, Alaska, for answering questions like:
 ## What you get
 
 - One DuckDB file, `anchorage_str.duckdb`, with daily snapshots of listings
-  and calendar availability
+  and calendar availability, and of the Municipality's STR registrations
 - Policy queries in `docs/policy_questions.sql`
 - A browser viewer in `packages/ui/`
 
@@ -39,6 +39,13 @@ pnpm daily
 This searches the Anchorage bounding box, fetches each listing's page and
 calendar, writes the day to the database in one transaction, and runs the
 data-quality checks.
+
+```sh
+pnpm registry
+```
+
+This records the Municipality's STR registrations and a batch of their
+license pages in the same database.
 
 ## Tables
 
@@ -95,6 +102,36 @@ data-quality checks.
   "how many are operating/booked"; it drops the frozen future nights of
   retired listings
 
+From the Municipal Clerk's
+[Short Term Rental Registration Viewer](https://experience.arcgis.com/experience/22b40a78a9fc459e9950a16249b37ed2)
+and the Muni's license portal, stored as published:
+
+- `registration_observations`: one row per registration per registry run.
+  The Muni publishes only active registrations, so a registration missing
+  from a run has lapsed or been withdrawn. `location` is the address on the
+  license: a Muni property record's address, or the applicant's typed text.
+  `geocoded_address`, the point, `community_council` and `parcel_type` are
+  the Muni's derivations from it.
+- `license_page_reads`: the CityView license page
+  ([example](https://www.muni.org/CityViewPortal/License/Status?licenseId=13923&category=B))
+  of each registration, re-read about weekly: the licensee's own
+  `description` of the business ("Provides short term rentals, logistics,
+  meeting space and overnight lodging."), `locations`, and every
+  certificate `issuances` records. A location with a `link` comes from the
+  Muni's property records (a parcel id, or that record's address); one
+  without is text the applicant typed.
+- `registry_runs`: one row per registry run
+- `registrations` *(view)*: one row per registration ever published, with
+  its latest license page. `parcel_id` joins to
+  [anchorage-property](https://github.com/NickCrews/anchorage-property)'s
+  parcels. `airbnb_listings_current` counts the current Airbnb listings
+  showing the number. `registrations_current` filters to `is_current`.
+- `listings_current_with_registration` *(view)*: `listings_current` plus
+  the registration matching `str_registration_id`: its address, parcel,
+  business name and description. `registration_found` is false when the
+  listing shows no number or one not in the registry, which includes numbers
+  issued since the Muni's last publish.
+
 ## Known gaps
 
 - **Prices are quotes for open stays, not a nightly series.** Airbnb prices a
@@ -103,20 +140,28 @@ data-quality checks.
   stay. See
   [`docs/research/airbnb-calendar-price.md`](docs/research/airbnb-calendar-price.md).
 
-- **Most listings have no street address.** `location_exact_address` is null
-  unless the host published one. Join on `location_lat`/`location_lng`, and
-  filter on `location_is_exact` first: about half those coordinates are
-  Airbnb's privacy jitter. Resolving the rest is a deferred follow-up; see
-  the PRD.
+- **Unregistered listings have no street address.** A listing showing a
+  registration number gets the registered address and parcel from
+  `listings_current_with_registration` (2047 of 2628 current listings on
+  2026-09-13). For the rest, `location_exact_address` is null unless the
+  host published one. Join on `location_lat`/`location_lng`, and filter on
+  `location_is_exact` first: about half those coordinates are Airbnb's
+  privacy jitter.
 
 ## Repo layout
 
 A pnpm workspace sharing `tsconfig.base.json`:
 
-- `packages/scraper`: the daily pipeline and DuckDB schema. Runtime
-  dependencies are `impit` (an HTTP client that impersonates Chrome's TLS
-  fingerprint, which Airbnb requires) and `@duckdb/node-api`. The Airbnb
-  endpoints are in `packages/scraper/src/airbnb/`.
+- `packages/scraper`: runs the providers below, and owns the DuckDB schema,
+  writes, quality checks and CLI.
+- `packages/scraper-airbnb`: fetches and parses Airbnb listings, in memory.
+  Uses `impit`, an HTTP client that impersonates Chrome's TLS fingerprint,
+  which Airbnb requires. The endpoints are in `src/api/`.
+- `packages/scraper-muni-str`: fetches the Muni's STR registration layers, in
+  memory.
+- `packages/muni-licenses`: fetches and parses the Muni's license pages, in
+  memory.
+- `packages/utils`: dependency-free helpers shared by the scrapers.
 - `packages/ui`: the browser viewer.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) to run or change the pipeline, and
