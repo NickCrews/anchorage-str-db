@@ -202,7 +202,7 @@ describe('auditCoverage', () => {
     const unlocated = [makeSearchListing(1, { latitude: null, longitude: null })];
     const audit = await auditCoverage(unlocated, '2026-08-18', {
       fetchPage: async () => {
-        throw new Error('must not search without a box to centre');
+        throw new Error('must not search without a box to center');
       },
     });
 

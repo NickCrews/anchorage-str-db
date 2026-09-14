@@ -218,7 +218,7 @@ export interface AuditOptions {
  * a few small boxes with no price filter and reports listings they return
  * that the bands did not.
  *
- * Boxes are centred on found listings, since most of the bbox is uninhabited.
+ * Boxes are centered on found listings, since most of the bbox is uninhabited.
  * A box needing more than one page is skipped because its results are
  * unreliable.
  */
@@ -235,11 +235,11 @@ export async function auditCoverage(
   if (located.length === 0) return audit;
 
   const random = seededRandom(epochDays(scrapeDate));
-  const centres = sample(located, options.sampleSize ?? config.COVERAGE_AUDIT_SAMPLE, random);
+  const centers = sample(located, options.sampleSize ?? config.COVERAGE_AUDIT_SAMPLE, random);
 
-  for (const centre of centres) {
-    const lat = centre.latitude!;
-    const lng = centre.longitude!;
+  for (const center of centers) {
+    const lat = center.latitude!;
+    const lng = center.longitude!;
     const box: BoundingBox = {
       swLat: lat - config.COVERAGE_AUDIT_BOX_LAT / 2,
       neLat: lat + config.COVERAGE_AUDIT_BOX_LAT / 2,
