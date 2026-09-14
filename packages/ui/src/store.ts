@@ -7,17 +7,21 @@ import {
   type RoomShellSliceState,
 } from '@sqlrooms/room-shell';
 import { createWasmDuckDbConnector } from '@sqlrooms/duckdb';
-import { LayoutDashboardIcon, ListIcon, MapIcon } from 'lucide-react';
+import { FileBadgeIcon, LayoutDashboardIcon, ListIcon, MapIcon, UsersIcon } from 'lucide-react';
 import { z } from 'zod';
+import { HostsView } from './components/HostsView';
 import { ListingsView } from './components/ListingsView';
 import { MapView } from './components/MapView';
 import { OverviewView } from './components/OverviewView';
+import { RegistrationsView } from './components/RegistrationsView';
 import { createDataInitSlice, type DataInitSliceState } from './dataInitSlice';
 
 export const RoomPanelTypes = z.enum([
   'overview',
   'listings',
   'map',
+  'hosts',
+  'registrations',
 ] as const);
 export type RoomPanelTypes = z.infer<typeof RoomPanelTypes>;
 
@@ -27,7 +31,7 @@ export type RoomState = RoomShellSliceState & DataInitSliceState;
 export const { roomStore, useRoomStore } = createRoomStore<RoomState>(
   persistSliceConfigs(
     {
-      name: 'anchorage-str-db-viewer-state-v3',
+      name: 'anchorage-str-db-viewer-state-v5',
       sliceConfigSchemas: {
         room: BaseRoomConfig,
         layout: LayoutConfig,
@@ -51,6 +55,8 @@ export const { roomStore, useRoomStore } = createRoomStore<RoomState>(
               RoomPanelTypes.enum.overview,
               RoomPanelTypes.enum.map,
               RoomPanelTypes.enum.listings,
+              RoomPanelTypes.enum.hosts,
+              RoomPanelTypes.enum.registrations,
             ],
             activeTabIndex: 0,
             defaultSize: '100%',
@@ -70,6 +76,16 @@ export const { roomStore, useRoomStore } = createRoomStore<RoomState>(
               title: 'Listings',
               icon: ListIcon,
               component: ListingsView,
+            },
+            [RoomPanelTypes.enum.hosts]: {
+              title: 'Hosts',
+              icon: UsersIcon,
+              component: HostsView,
+            },
+            [RoomPanelTypes.enum.registrations]: {
+              title: 'Registrations',
+              icon: FileBadgeIcon,
+              component: RegistrationsView,
             },
           },
         },

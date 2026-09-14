@@ -16,9 +16,16 @@ export const LAKE_TABLES = [
   'listing_observations',
   'listing_photos',
   'listing_photos_current',
+  'listing_first_reviews',
   'calendar_status',
   'calendar_current',
   'scrape_runs',
+  'registration_observations',
+  'license_page_reads',
+  'registry_runs',
+  'registrations',
+  'registrations_current',
+  'listings_current_with_registration',
 ] as const;
 
 const DB_FILE_URL = `${import.meta.env.BASE_URL}anchorage_str.duckdb`;

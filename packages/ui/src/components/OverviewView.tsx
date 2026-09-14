@@ -7,32 +7,28 @@ import {
   CartesianGrid,
   type ChartConfig,
   ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
   XAxis,
   YAxis,
 } from '@sqlrooms/recharts';
-import { Card, CardContent, CardHeader, CardTitle, SpinnerPane } from '@sqlrooms/ui';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  SpinnerPane,
+} from '@sqlrooms/ui';
 import type { FC } from 'react';
+import { monthLabel, pct, shortDate } from '../format';
 import { useRoomStore } from '../store';
 import { DataStatusGate } from './DataStatusGate';
 import { HostConcentrationCard } from './HostConcentrationCard';
+import { RegistrationCard } from './RegistrationCard';
 import { StatCard } from './StatCard';
-
-// DuckDB DATE columns come back from useSql as epoch-millisecond numbers,
-// not Date instances.
-const shortDate = (epochMs: number) =>
-  new Date(epochMs).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
-const monthLabel = (epochMs: number) =>
-  new Date(epochMs).toLocaleDateString(undefined, {
-    month: 'short',
-    year: '2-digit',
-    timeZone: 'UTC',
-  });
 
 const occupancyConfig = {
   booked: { label: 'Booked', color: 'hsl(var(--chart-1))' },
@@ -41,6 +37,11 @@ const occupancyConfig = {
 
 const strConfig = {
   distinctStrs: { label: 'Distinct STRs', color: 'hsl(var(--chart-3))' },
+} satisfies ChartConfig;
+
+const listingAgeConfig = {
+  fromReview: { label: 'Dated by first review', color: 'hsl(var(--chart-3))' },
+  fromFirstSeen: { label: 'Dated by first scrape', color: 'hsl(var(--chart-4))' },
 } satisfies ChartConfig;
 
 const bedroomConfig = {
@@ -57,6 +58,9 @@ export const OverviewView: FC = () => {
     bookedTonight: number | null;
     distinctStrsLastYear: number;
     latestScrapeDate: number | null;
+    registrationsCurrent: number;
+    listingsRegistered: number;
+    latestRegistryDate: number | null;
   }>({
     enabled,
     query: `
@@ -73,14 +77,27 @@ export const OverviewView: FC = () => {
         FROM listing_observations
         WHERE scrape_date >= CURRENT_DATE - INTERVAL 365 DAY
       ),
-      latest_run AS (SELECT max(scrape_date) AS d FROM scrape_runs)
+      latest_run AS (SELECT max(scrape_date) AS d FROM scrape_runs),
+      registry AS (
+        SELECT
+          (SELECT count(*) FROM registrations_current)::INT AS n,
+          (SELECT max(scrape_date) FROM registry_runs WHERE registrations_seen IS NOT NULL) AS d
+      ),
+      registered AS (
+        SELECT count(*)::INT AS n
+        FROM listings_current_with_registration
+        WHERE registration_is_current
+      )
       SELECT
         active.n AS "activeListings",
         tonight.operating_tonight AS "operatingTonight",
         tonight.booked_tonight AS "bookedTonight",
         last_year.n AS "distinctStrsLastYear",
-        latest_run.d AS "latestScrapeDate"
-      FROM active, tonight, last_year, latest_run
+        latest_run.d AS "latestScrapeDate",
+        registry.n AS "registrationsCurrent",
+        registered.n AS "listingsRegistered",
+        registry.d AS "latestRegistryDate"
+      FROM active, tonight, last_year, latest_run, registry, registered
     `,
   });
 
@@ -117,6 +134,31 @@ export const OverviewView: FC = () => {
     `,
   });
 
+  // A listing's `first_available_date_est` comes from its first review when
+  // that predates the first scrape, and is otherwise `first_seen_date`, which
+  // makes a listing look newer than it may be.
+  const { data: listingAgeData, isLoading: listingAgeLoading } = useSql<{
+    year: string;
+    fromReview: number;
+    fromFirstSeen: number;
+    reviewsUnread: number;
+  }>({
+    enabled,
+    query: `
+      SELECT
+        year(l.first_available_date_est)::VARCHAR AS "year",
+        count(*) FILTER (WHERE coalesce(l.first_review_date <= l.first_seen_date, false))::INT
+          AS "fromReview",
+        count(*) FILTER (WHERE NOT coalesce(l.first_review_date <= l.first_seen_date, false))::INT
+          AS "fromFirstSeen",
+        count(*) FILTER (WHERE r.listing_id IS NULL)::INT AS "reviewsUnread"
+      FROM listings_current l
+      LEFT JOIN listing_first_reviews r USING (listing_id)
+      GROUP BY ALL
+      ORDER BY "year"
+    `,
+  });
+
   // `bedrooms` is Airbnb's text ("2 bedrooms", "Studio"); rooms usually have none.
   const { data: bedroomMixData, isLoading: bedroomMixLoading } = useSql<{
     bedroomsLabel: string;
@@ -138,6 +180,8 @@ export const OverviewView: FC = () => {
   });
 
   const kpi = kpiData?.toArray()[0];
+  const listingAge = listingAgeData?.toArray() ?? [];
+  const reviewsUnread = listingAge.reduce((sum, row) => sum + row.reviewsUnread, 0);
   const pctBooked =
     kpi?.operatingTonight && kpi.bookedTonight != null
       ? Math.round((100 * kpi.bookedTonight) / kpi.operatingTonight)
@@ -146,7 +190,7 @@ export const OverviewView: FC = () => {
   return (
     <DataStatusGate>
     <div className="h-full space-y-4 overflow-auto p-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <StatCard
           label="Active STR listings"
           value={kpiLoading ? '…' : (kpi?.activeListings ?? '—')}
@@ -175,9 +219,29 @@ export const OverviewView: FC = () => {
                 ? shortDate(kpi.latestScrapeDate)
                 : '—'
           }
-          detail="UTC calendar date"
+          detail={
+            kpi?.latestRegistryDate
+              ? `UTC date. Registry last read ${shortDate(kpi.latestRegistryDate)}`
+              : 'UTC date. No registry run yet'
+          }
+        />
+        <StatCard
+          label="Current Muni STR registrations"
+          value={kpiLoading ? '…' : (kpi?.registrationsCurrent ?? '—')}
+          detail="Published by the Municipal Clerk"
+        />
+        <StatCard
+          label="Listings showing a current registration"
+          value={kpiLoading ? '…' : (kpi?.listingsRegistered ?? '—')}
+          detail={
+            kpi?.activeListings
+              ? `${pct(kpi.listingsRegistered, kpi.activeListings)} of active listings`
+              : undefined
+          }
         />
       </div>
+
+      <RegistrationCard />
 
       <HostConcentrationCard />
 
@@ -235,7 +299,7 @@ export const OverviewView: FC = () => {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium">
@@ -271,6 +335,44 @@ export const OverviewView: FC = () => {
                     dataKey="distinctStrs"
                     fill="var(--color-distinctStrs)"
                     radius={4}
+                  />
+                </BarChart>
+              </ChartContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">
+              Current listings by year first available
+            </CardTitle>
+            <CardDescription className="text-xs">
+              The year of a listing's first review, or of the first scrape that
+              saw it if that is earlier. Either can only be late, so older years
+              are under-counted.
+              {reviewsUnread > 0
+                ? ` ${reviewsUnread} listings' reviews are not read yet and are dated by first scrape.`
+                : ''}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {listingAgeLoading ? (
+              <SpinnerPane className="h-56" />
+            ) : (
+              <ChartContainer config={listingAgeConfig} className="h-56 w-full">
+                <BarChart data={listingAge}>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="year" tickLine={false} axisLine={false} />
+                  <YAxis tickLine={false} axisLine={false} width={40} />
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <ChartLegend content={<ChartLegendContent />} />
+                  <Bar dataKey="fromReview" stackId="age" fill="var(--color-fromReview)" />
+                  <Bar
+                    dataKey="fromFirstSeen"
+                    stackId="age"
+                    fill="var(--color-fromFirstSeen)"
+                    radius={[4, 4, 0, 0]}
                   />
                 </BarChart>
               </ChartContainer>

@@ -23,6 +23,7 @@ import {
   ToggleGroupItem,
 } from '@sqlrooms/ui';
 import { useState, type FC } from 'react';
+import { pct, shortDate } from '../format';
 import { useRoomStore } from '../store';
 
 /**
@@ -31,14 +32,6 @@ import { useRoomStore } from '../store';
  * the reader, and the card says so.
  */
 const CUTOFFS = [2, 3, 5, 10, 20] as const;
-
-// DuckDB DATE columns come back from useSql as epoch-millisecond numbers.
-const shortDate = (epochMs: number) =>
-  new Date(epochMs).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
 
 const distributionConfig = {
   listings: { label: 'Listings held', color: 'hsl(var(--chart-5))' },
@@ -126,7 +119,6 @@ export const HostConcentrationCard: FC = () => {
   });
 
   const s = summaryData?.toArray()[0];
-  const pct = (n: number, d: number) => (d ? `${Math.round((100 * n) / d)}%` : '—');
 
   return (
     <Card>
