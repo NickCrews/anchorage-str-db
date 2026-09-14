@@ -1,0 +1,29 @@
+{
+  "name": "@anchorage-str-db/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The DuckDB database: Drizzle schema, migrations, views and the connection",
+  "license": "MIT",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@anchorage-str-db/scraper-muni-str": "workspace:*",
+    "@anchorage-str-db/utils": "workspace:*",
+    "@duckdb/node-api": "1.5.5-r.4",
+    "@duckdbfan/drizzle-duckdb": "1.5.4-12",
+    "drizzle-orm": "0.45.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "drizzle-kit": "0.31.10",
+    "typescript": "5.9.2",
+    "vitest": "^4.1.11"
+  }
+}

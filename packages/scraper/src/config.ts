@@ -6,11 +6,8 @@
 
 export const DEFAULT_DB_PATH = 'data/anchorage_str.duckdb';
 
-/**
- * Days a listing may be absent from search before `listings.is_current` goes
- * false. Search occasionally omits a listing for a day.
- */
-export const RETIREMENT_GRACE_DAYS = 5;
+/** Defined with the views, whose `is_current` it sets. */
+export { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views';
 
 /**
  * A run fails if the current listing count is outside this range, which

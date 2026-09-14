@@ -49,22 +49,26 @@ license pages in the same database.
 
 ## Tables
 
-- `listing_observations`: one row per listing per scrape date, including
+Each table name starts with its source: `airbnb_`, `muni_str_` (the
+Municipal Clerk's STR registration layer) or `muni_license_` (the Muni's
+CityView license pages). Views have no prefix.
+
+- `airbnb_listing_observations`: one row per listing per scrape date, including
   whether its page was read (`page_fetch_ok`) and a price quote: Airbnb's
   price (`quote_total`) for a stay of `quote_nights` nights from
   `quote_check_in`, the listing's earliest bookable stay that day.
   `quote_label` is Airbnb's text (`$241 for 2 nights, originally $269`, or
   why there is no price) and `quote_breakdown` its price-detail lines, which
   show cents, discounts and fees. `quote_total` is the rounded displayed total.
-- `calendar_status`: nightly availability and minimum stay, stored
+- `airbnb_calendar_status`: nightly availability and minimum stay, stored
   change-only with `valid_from`/`valid_to`. The calendar has no prices.
-- `listing_first_reviews`: one row per listing whose reviews have been read,
+- `airbnb_listing_first_reviews`: one row per listing whose reviews have been read,
   with the date of its oldest review (NULL if it had none). A listing with
   no row has not been read yet.
-- `listing_photos`: each listing's photo URLs, one row per distinct set, cover
+- `airbnb_listing_photos`: each listing's photo URLs, one row per distinct set, cover
   photo first. `listing_photos_current` *(view)* has each listing's latest
   set. Photos never open a listing version.
-- `scrape_runs`: one row per run, with counts and errors
+- `airbnb_scrape_runs`: one row per run, with counts and errors
 - `listings` *(view)*: one row per listing version, derived from the
   observations. `listings_current` filters to `is_current`. `host_id` is the
   primary host's Airbnb user id (`airbnb.com/users/show/<host_id>`), stable
@@ -82,13 +86,13 @@ license pages in the same database.
     Private and shared rooms usually have no bedroom line.
   - These, like `host_id`, come from the listing page: a change opens a new
     version, and a failed page fetch carries the previous value forward.
-- `host_observations`: one row per host per scrape date for every host with
+- `airbnb_host_observations`: one row per host per scrape date for every host with
   a listing observed that day: the public profile card from the listing page
   (display name, bio, `timeAsHost`), and whether it was read
   (`profile_read_ok`)
 - `hosts` *(view)*: one row per host version, derived from
-  `host_observations` the way `listings` is derived from
-  `listing_observations`. A name or bio change opens a version; a failed read
+  `airbnb_host_observations` the way `listings` is derived from
+  `airbnb_listing_observations`. A name or bio change opens a version; a failed read
   carries the last one forward. `hosting_started_on` is derived from
   `timeAsHost`, which Airbnb reports in whole months, so it can be up to a
   month late.
@@ -98,7 +102,7 @@ license pages in the same database.
   threshold is stored.
 - `listings_current_with_host` *(view)*: `listings_current` plus the host's
   name, years hosting, and portfolio counts as of the latest run
-- `calendar_current` *(view)*: use this instead of `calendar_status` for
+- `calendar_current` *(view)*: use this instead of `airbnb_calendar_status` for
   "how many are operating/booked"; it drops the frozen future nights of
   retired listings
 
@@ -106,13 +110,13 @@ From the Municipal Clerk's
 [Short Term Rental Registration Viewer](https://experience.arcgis.com/experience/22b40a78a9fc459e9950a16249b37ed2)
 and the Muni's license portal, stored as published:
 
-- `registration_observations`: one row per registration per registry run.
+- `muni_str_registration_observations`: one row per registration per registry run.
   The Muni publishes only active registrations, so a registration missing
   from a run has lapsed or been withdrawn. `location` is the address on the
   license: a Muni property record's address, or the applicant's typed text.
   `geocoded_address`, the point, `community_council` and `parcel_type` are
   the Muni's derivations from it.
-- `license_page_reads`: the CityView license page
+- `muni_license_page_reads`: the CityView license page
   ([example](https://www.muni.org/CityViewPortal/License/Status?licenseId=13923&category=B))
   of each registration, re-read about weekly: the licensee's own
   `description` of the business ("Provides short term rentals, logistics,
@@ -120,7 +124,7 @@ and the Muni's license portal, stored as published:
   certificate `issuances` records. A location with a `link` comes from the
   Muni's property records (a parcel id, or that record's address); one
   without is text the applicant typed.
-- `registry_runs`: one row per registry run
+- `muni_str_registry_runs`: one row per registry run
 - `registrations` *(view)*: one row per registration ever published, with
   its latest license page. `parcel_id` joins to
   [anchorage-property](https://github.com/NickCrews/anchorage-property)'s
@@ -152,8 +156,10 @@ and the Muni's license portal, stored as published:
 
 A pnpm workspace sharing `tsconfig.base.json`:
 
-- `packages/scraper`: runs the providers below, and owns the DuckDB schema,
-  writes, quality checks and CLI.
+- `packages/scraper`: runs the providers below, and owns the writes, quality
+  checks and CLI.
+- `packages/db`: the DuckDB schema, defined with Drizzle, its migrations and
+  the views.
 - `packages/scraper-airbnb`: fetches and parses Airbnb listings, in memory.
   Uses `impit`, an HTTP client that impersonates Chrome's TLS fingerprint,
   which Airbnb requires. The endpoints are in `src/api/`.

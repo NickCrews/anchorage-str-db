@@ -64,7 +64,7 @@ const RENTALS_QUERY = `
     AND r.geocoded_lng IS NOT NULL
   LEFT JOIN (
     SELECT *
-    FROM listing_observations
+    FROM airbnb_listing_observations
     QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY scrape_date DESC) = 1
   ) o ON o.listing_id = l.listing_id
   WHERE coalesce(r.geocoded_lat, l.location_lat) IS NOT NULL

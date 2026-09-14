@@ -4,6 +4,7 @@
  * DuckDB, and run the quality checks.
  */
 
+import { connect } from '@anchorage-str-db/db/connect';
 import { fetchApiKey } from '@anchorage-str-db/scraper-airbnb/api/apiKey';
 import { fetchCalendars, liveCalendarFetcher } from '@anchorage-str-db/scraper-airbnb/calendars';
 import { fetchFirstReviews, liveReviewPageFetcher } from '@anchorage-str-db/scraper-airbnb/firstReviews';
@@ -17,7 +18,6 @@ import { describeError, log } from '@anchorage-str-db/utils/log';
 
 import { report, runChecks } from './checks.ts';
 import {
-  connect,
   logRun,
   mergeCalendar,
   pendingFirstReviews,
@@ -40,7 +40,7 @@ export interface RunDailyOptions {
  * error-severity check passed.
  *
  * All fetches happen first, then all writes in one transaction (see
- * `Database.transaction`). Fetches are paced by `pace.ts`; a 429 throws
+ * `Database.transaction` in `@anchorage-str-db/db`). Fetches are paced by `pace.ts`; a 429 throws
  * `RateLimitedError`, which aborts the run.
  *
  * The page pass always runs. Skipping it would write rows with page fields

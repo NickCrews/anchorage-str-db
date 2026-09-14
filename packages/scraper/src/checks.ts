@@ -3,13 +3,13 @@
  * check makes the run exit non-zero, which blocks publishing.
  */
 
+import type { Database } from '@anchorage-str-db/db/database';
 import { BBOX } from '@anchorage-str-db/scraper-airbnb/config';
 import { missRate, type CoverageAudit, type SearchResult } from '@anchorage-str-db/scraper-airbnb/search';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 import { log } from '@anchorage-str-db/utils/log';
 
 import * as config from './config.ts';
-import type { Database } from './db.ts';
 import type { PageFetchStats, QuoteStats } from './store.ts';
 
 export type Severity = 'error' | 'warn';
@@ -128,7 +128,7 @@ export async function runChecks(
     first_review_fetch_failed: number | null;
   }>(
     'SELECT calendar_fetch_attempted, calendar_fetch_failed, ' +
-      'first_review_fetch_attempted, first_review_fetch_failed FROM scrape_runs ' +
+      'first_review_fetch_attempted, first_review_fetch_failed FROM airbnb_scrape_runs ' +
       'WHERE scrape_date = CAST(? AS DATE) ORDER BY run_started_at DESC LIMIT 1',
     [scrapeDate],
   );
@@ -144,7 +144,7 @@ export async function runChecks(
       `${failed}/${attempted} calendar fetches failed (${percent(rate)})`,
     );
   } else {
-    check('calendar_failure_rate', 'error', false, 'no scrape_runs row found for this scrape_date');
+    check('calendar_failure_rate', 'error', false, 'no airbnb_scrape_runs row found for this scrape_date');
   }
 
   // A warning: a failed listing writes nothing and is retried next run, so
@@ -164,14 +164,14 @@ export async function runChecks(
   }
 
   const freshness = await db.count(
-    'SELECT count(*) FROM listing_observations WHERE scrape_date = CAST(? AS DATE)',
+    'SELECT count(*) FROM airbnb_listing_observations WHERE scrape_date = CAST(? AS DATE)',
     [scrapeDate],
   );
   check(
     'observations_written_today',
     'error',
     freshness > 0,
-    `${freshness} listing_observations rows for ${scrapeDate}`,
+    `${freshness} airbnb_listing_observations rows for ${scrapeDate}`,
   );
 
   // Zero attempts means no listings, which `listing_count_plausible` reports.
@@ -197,9 +197,9 @@ export async function runChecks(
       `${pageStats.withExactFlag}/${fetched} pages read this run carried isExactLocation`,
     );
 
-    // Read from this run's pages rather than `listing_photos`, which keeps the
-    // previous set current when a page yields none and so would hide a broken
-    // extraction.
+    // Read from this run's pages rather than `airbnb_listing_photos`, which
+    // keeps the previous set current when a page yields none and so would hide
+    // a broken extraction.
     const photoShare = pageStats.withPhotos / fetched;
     check(
       'photo_coverage',
@@ -287,7 +287,7 @@ export async function runChecks(
     host_profile_attempted: number | null;
     host_profile_failed: number | null;
   }>(
-    'SELECT host_profile_attempted, host_profile_failed FROM scrape_runs ' +
+    'SELECT host_profile_attempted, host_profile_failed FROM airbnb_scrape_runs ' +
       'WHERE scrape_date = CAST(? AS DATE) ORDER BY run_started_at DESC LIMIT 1',
     [scrapeDate],
   );
@@ -370,13 +370,13 @@ export async function runChecks(
   // A night before its own valid_from is an elapsed day that `toNights`
   // should have dropped.
   const backdated = await db.count(
-    'SELECT count(*) FROM calendar_status WHERE night_date < valid_from',
+    'SELECT count(*) FROM airbnb_calendar_status WHERE night_date < valid_from',
   );
   check(
     'no_backdated_calendar_rows',
     'error',
     backdated === 0,
-    `${backdated} calendar_status rows with night_date before their own valid_from`,
+    `${backdated} airbnb_calendar_status rows with night_date before their own valid_from`,
   );
 
   return results;

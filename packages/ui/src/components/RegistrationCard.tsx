@@ -72,7 +72,7 @@ export const RegistrationCard: FC = () => {
         (SELECT count(*) FROM registrations_current)::INT AS "registrations",
         (SELECT count(*) FROM registrations_current WHERE airbnb_listings_current = 0)::INT
           AS "registrationsWithoutListing",
-        (SELECT max(scrape_date) FROM registry_runs WHERE registrations_seen IS NOT NULL)
+        (SELECT max(scrape_date) FROM muni_str_registry_runs WHERE registrations_seen IS NOT NULL)
           AS "registryDate"
       FROM (${LISTINGS_WITH_STATUS})
     `,

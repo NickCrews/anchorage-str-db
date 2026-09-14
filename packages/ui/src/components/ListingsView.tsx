@@ -64,7 +64,7 @@ const BASE_QUERY = `
   LEFT JOIN listing_photos_current p ON p.listing_id = l.listing_id
   LEFT JOIN (
     SELECT *
-    FROM listing_observations
+    FROM airbnb_listing_observations
     QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY scrape_date DESC) = 1
   ) o ON o.listing_id = l.listing_id
   WHERE true

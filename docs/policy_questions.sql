@@ -46,7 +46,7 @@ SELECT
         1
     ) AS pct_booked
 FROM
-    calendar_current -- swap in calendar_status + a valid_from/valid_to filter
+    calendar_current -- swap in airbnb_calendar_status + a valid_from/valid_to filter
     -- to ask "as observed on date X"
 GROUP BY
     ALL
@@ -59,7 +59,7 @@ ORDER BY
 SELECT
     count(DISTINCT listing_id) AS distinct_strs_last_365_days
 FROM
-    listing_observations
+    airbnb_listing_observations
 WHERE
     scrape_date >= CURRENT_DATE - INTERVAL 365 DAY;
 
@@ -68,7 +68,7 @@ SELECT
     date_trunc('month', scrape_date) AS MONTH,
     count(DISTINCT listing_id) AS distinct_strs_that_month
 FROM
-    listing_observations
+    airbnb_listing_observations
 GROUP BY
     ALL
 ORDER BY
@@ -83,18 +83,18 @@ SELECT
     listings_new,
     listings_retired
 FROM
-    scrape_runs
+    airbnb_scrape_runs
 ORDER BY
     scrape_date;
 
 -- ============================================================
 -- Q: What is a single listing's history?
--- `listings` has one row per version; `listing_observations` has one row
+-- `listings` has one row per version; `airbnb_listing_observations` has one row
 -- per day the listing appeared in search.
 -- ============================================================
 -- SELECT * FROM listings WHERE listing_id = :id ORDER BY valid_from;
--- SELECT * FROM listing_observations WHERE listing_id = :id ORDER BY scrape_date;
--- SELECT night_date, available, valid_from FROM calendar_status
+-- SELECT * FROM airbnb_listing_observations WHERE listing_id = :id ORDER BY scrape_date;
+-- SELECT night_date, available, valid_from FROM airbnb_calendar_status
 --   WHERE listing_id = :id ORDER BY night_date;
 -- ============================================================
 -- Q: What is the bedroom mix of current listings?
@@ -327,7 +327,7 @@ LIMIT
 -- - Only rooms seen since collection began are counted. Rooms that left
 --   Airbnb earlier are missing, so earlier years undercount the market of
 --   that time. `cumulative_listings` counts entries, not rooms operating.
--- - Joining `listing_first_reviews` drops listings whose reviews have not
+-- - Joining `airbnb_listing_first_reviews` drops listings whose reviews have not
 --   been read yet, which would otherwise count as new.
 -- ============================================================
 WITH per_listing AS (
@@ -336,7 +336,7 @@ WITH per_listing AS (
         any_value(first_available_date_est) AS first_available_date_est
     FROM
         listings
-        JOIN listing_first_reviews USING (listing_id)
+        JOIN airbnb_listing_first_reviews USING (listing_id)
     GROUP BY
         listing_id
 ),
@@ -375,7 +375,7 @@ SELECT
     count(*) FILTER (WHERE l.room_type = 'Entire home/apt') AS entire_homes,
     round(entire_homes / listings_with_room_type, 3) AS entire_home_share
 FROM
-    listing_observations o
+    airbnb_listing_observations o
     JOIN listings l ON l.listing_id = o.listing_id
     AND o.scrape_date >= l.valid_from
     AND (l.valid_to IS NULL OR o.scrape_date < l.valid_to)
@@ -417,7 +417,7 @@ WITH latest_quote AS (
         listing_id,
         quote_total / quote_nights AS quoted_nightly
     FROM
-        listing_observations
+        airbnb_listing_observations
     WHERE
         quote_total IS NOT NULL
     QUALIFY

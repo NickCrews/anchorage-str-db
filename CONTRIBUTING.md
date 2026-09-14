@@ -10,7 +10,8 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 
 | package | does | runtime dependencies |
 | --- | --- | --- |
-| `packages/scraper` | runs the providers below, owns the DuckDB schema, writes, checks and the CLI | the four packages below, `@duckdb/node-api` |
+| `packages/scraper` | runs the providers below, decides what is stored, writes, checks and the CLI | the five packages below |
+| `packages/db` | the DuckDB schema (Drizzle), its migrations, the views, and the connection | `utils`, `scraper-muni-str`, `@duckdb/node-api`, `drizzle-orm`, `@duckdbfan/drizzle-duckdb` |
 | `packages/scraper-airbnb` | searches Airbnb and fetches listing pages, calendars, price quotes and reviews | `utils`, `impit` |
 | `packages/scraper-muni-str` | fetches the Municipal Clerk's STR registration layers from ArcGIS | `utils` |
 | `packages/muni-licenses` | fetches and parses the Muni's CityView license pages | `utils` |
@@ -47,16 +48,38 @@ database, and runs the data-quality checks.
 It exits non-zero if an error-severity check fails; the log names which one.
 `--verbose` logs passing checks too.
 
-A run against an empty database creates the schema. `store.SCHEMA_SQL` and
-`registryStore.REGISTRY_SCHEMA_SQL` run on every connect, so a new table (`CREATE TABLE IF NOT EXISTS`) or a nullable
-column on `scrape_runs` (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) reaches
-the published database in place. Any other change has no migration and means
-rebuilding the database.
+### Changing the schema
+
+The tables are defined with Drizzle in `packages/db/src/schema.ts`. Every run
+opens the database with `connect` (`packages/db/src/connect.ts`), which
+applies the migrations in `packages/db/drizzle` that the database has not
+recorded, rejects any table that differs from what the migrations create or
+that the schema does not declare, and recreates the views. A run against an
+empty database creates everything.
+
+A table's name starts with its source (`airbnb_`, `muni_str_`,
+`muni_license_`), so a new source gets a new prefix. Views have none.
+
+To change a table:
+
+1. Edit `schema.ts`. Add a column at the end of its table: `appendRows`
+   writes values in declared order.
+2. Run `pnpm --filter @anchorage-str-db/db generate --name <change>`.
+3. Read the generated SQL. drizzle-kit writes Postgres DDL, which DuckDB
+   mostly accepts; it quotes a struct type (`"STRUCT(a VARCHAR)"[]`), which
+   DuckDB reads as a type name, so remove those quotes.
+4. Run the tests. `packages/db/test/connect.test.ts` builds a database from
+   the migrations.
+
+The next run applies the migration to the published database.
+
+Views are SQL in `packages/db/src/views.ts`. They need no migration.
 
 ### Dependencies
 
-The only third-party runtime dependencies are `impit` and
-`@duckdb/node-api`.
+The only third-party runtime dependencies are `impit`, `@duckdb/node-api`,
+`drizzle-orm` and `@duckdbfan/drizzle-duckdb`, which adapts Drizzle's
+Postgres support to DuckDB.
 
 Airbnb sits behind Akamai, which fingerprints the TLS ClientHello and refuses
 Node's built-in `fetch` regardless of `User-Agent`. `impit` replays a Chrome
@@ -81,7 +104,7 @@ DuckDB autocommits each statement, so without the transaction a crash during
 the writes would leave a partial day that every query reads as complete.
 `recordObservations` also deletes a date's rows before re-inserting them, so
 a crash between the two would drop the day. A run therefore records a whole
-day or nothing. The failed-run row in `scrape_runs` is written after the
+day or nothing. The failed-run row in `airbnb_scrape_runs` is written after the
 rollback so it is not rolled back with the run.
 
 The network passes stay outside the transaction because they take most of an
@@ -96,7 +119,7 @@ lacks or reports unreliably: Airbnb's `isExactLocation` flag (whether
 `location_lat`/`location_lng` is the real position or jittered), the
 municipal STR registration number, the primary host's user id, room type,
 guest, bed, bedroom and bathroom counts, and photos. All but photos are
-stored on the same `listing_observations` row as the search fields. When a
+stored on the same `airbnb_listing_observations` row as the search fields. When a
 page fetch fails, the `listings` view carries the previous values forward.
 
 The pass has no flag to skip it. A skipped pass would write rows whose page
@@ -112,7 +135,7 @@ After the calendar pass, each run asks `StaysPdpSections` for the price of
 one stay per listing: the earliest stay the calendar says is bookable,
 checking in tomorrow or later, for the listing's minimum number of nights
 (`priceQuotes.ts`). A fully booked listing gets no quote. The response is
-stored as Airbnb displays it, on the day's `listing_observations` row;
+stored as Airbnb displays it, on the day's `airbnb_listing_observations` row;
 nightly rates are left to analysis. See
 [`docs/research/airbnb-calendar-price.md`](docs/research/airbnb-calendar-price.md).
 
@@ -120,7 +143,7 @@ nightly rates are left to analysis. See
 
 Each run resolves the earliest review date of up to
 `FIRST_REVIEW_MAX_PER_RUN` (1000) listings that don't have one yet, and stores
-it in `listing_first_reviews`. The `listings` view derives
+it in `airbnb_listing_first_reviews`. The `listings` view derives
 `first_available_date_est` from it. A listing is resolved once: a first
 review never changes, and a listing with no reviews stores NULL and is not
 fetched again, since a later first review would fall after its
@@ -173,7 +196,7 @@ request rate, and any other error is retried.
 
 `pnpm registry` (`packages/scraper/src/registry.ts`) records the
 Municipality's STR registrations. It is a separate command from `daily`, with
-its own transaction, run log (`registry_runs`) and checks
+its own transaction, run log (`muni_str_registry_runs`) and checks
 (`registryChecks.ts`), so an outage at either source leaves the other's day
 intact. It takes 5 to 15 minutes, depending on how quickly the license
 portal responds.
@@ -199,7 +222,7 @@ status.
 
 The license page is the only source for the licensee's own description of
 the business, the parcel id, and every certificate issued under the license.
-The layer's `StatusUrl` links to it; its `licenseId` keys `license_page_reads`.
+The layer's `StatusUrl` links to it; its `licenseId` keys `muni_license_page_reads`.
 
 What the Muni publishes, and how it is cleaned:
 
@@ -249,22 +272,22 @@ Every run fails with `LegacySchemaError` until someone:
 ## Design decisions
 
 - **Change-only storage for the calendar, a row per day for listings.**
-  - `calendar_status` stores only changed nights (via `status_hash`). A full
+  - `airbnb_calendar_status` stores only changed nights (via `status_hash`). A full
     daily snapshot would be ~2600 listings × ~365 nights = ~950k rows/day.
-  - `listing_photos` stores a listing's gallery only when it differs from
+  - `airbnb_listing_photos` stores a listing's gallery only when it differs from
     the previous one. A median of ~17 URLs on every daily row would dominate
     the published file, which the viewer downloads whole.
   - Photos are not in the version key. Hosts reorder and replace photos far
     more often than a listing changes.
-  - `listing_observations` is ~2600 rows/day and compresses well, so it
+  - `airbnb_listing_observations` is ~2600 rows/day and compresses well, so it
     stores every day and `listings` is a view: `listing_versions` rebuilds
     `valid_from`/`valid_to` with gaps-and-islands, and `listing_activity`
     derives first/last/page-seen dates.
-- **Add listing columns to `listing_observations`, not `listings`.** If a
+- **Add listing columns to `airbnb_listing_observations`, not `listings`.** If a
   change to the column should open a new version, also add it to
-  `VERSION_KEY_SQL` in `store.ts`. Leave out values that move most days
+  `VERSION_KEY_SQL` in `packages/db/src/views.ts`. Leave out values that move most days
   (price, review count).
-- **Hosts are stored the same way.** `host_observations` is append-only with
+- **Hosts are stored the same way.** `airbnb_host_observations` is append-only with
   a `profile_read_ok` flag, and `hosts` rebuilds versions with the same
   gaps-and-islands and carry-forward as `listings`. Name and bio are the
   version key. `timeAsHost` grows monthly, so `host_activity` summarizes it
@@ -273,7 +296,7 @@ Every run fails with `LegacySchemaError` until someone:
   `HOST_START_MAX_SPREAD_DAYS`. The host checks are warnings because the
   views carry every host's last read forward.
 - **Portfolio size is counts, not a classification.** `host_portfolios` is
-  derived from `listing_observations.host_id` with no extra requests, as a
+  derived from `airbnb_listing_observations.host_id` with no extra requests, as a
   time series. Where an owner ends and an operator begins is left to
   downstream users, so no threshold is stored; the viewer's cutoff is a
   labelled display choice. It counts only listings in the search area.
@@ -285,19 +308,19 @@ Every run fails with `LegacySchemaError` until someone:
 - **Retirement is a view predicate.** A listing is current if seen within
   `RETIREMENT_GRACE_DAYS` (5) of the latest completed run, because search
   results occasionally omit a listing for a day. "Latest completed run" is
-  the later of `max(scrape_date)` in the observations and in `scrape_runs`
+  the later of `max(scrape_date)` in the observations and in `airbnb_scrape_runs`
   where `listings_seen IS NOT NULL`: the first alone stops advancing on a day
   with no listings, and the second alone would let a failed run retire every
   listing.
 - **Registrations are stored raw, and joined to listings in views.**
-  `registration_observations` and `license_page_reads` hold what the Muni publishes, with its field values
+  `muni_str_registration_observations` and `muni_license_page_reads` hold what the Muni publishes, with its field values
   unchanged. `registrations` derives one row per registration from them, and
   `listings_current_with_registration` joins Airbnb listings on
   `str_registration_id`, so a cleaning or join rule is fixed by editing a
   view. The registration snapshot is stored every run, like
-  `listing_observations`, rather than change-only: ~2500 rows compress to
+  `airbnb_listing_observations`, rather than change-only: ~2500 rows compress to
   ~50 KB a day, and a row per run gives exact first- and last-seen dates.
-- **Read `calendar_current`, not `calendar_status`.** A retired listing's
+- **Read `calendar_current`, not `airbnb_calendar_status`.** A retired listing's
   calendar is no longer fetched, so its future nights stay `is_current` in
   the raw table for up to twelve months. `calendar_current` drops nights after
   the listing's last sighting and keeps the ones before it.
@@ -350,8 +373,8 @@ so start by investigating what is reachable. Then:
 
 - Add `packages/scraper-vrbo/`, in memory like `scraper-airbnb`, with one
   file per endpoint, and call it from `packages/scraper`.
-- Add a `source` column (default `'airbnb'`) to `listing_observations` and
-  `calendar_status`, and change the views' `PARTITION BY listing_id` to
+- Add a `source` column (default `'airbnb'`) to `airbnb_listing_observations` and
+  `airbnb_calendar_status`, and change the views' `PARTITION BY listing_id` to
   `PARTITION BY source, listing_id`, since room ids are unique only per
   source.
 - Most queries in `docs/policy_questions.sql` then need only a
@@ -377,6 +400,9 @@ pnpm typecheck
   and the geocoded fields are derived from it.
 - `scraper/test/store.test.ts` and `registryStore.test.ts` run the merge
   logic and views against a real DuckDB file.
+- `db/test/connect.test.ts` checks that migrations apply once and that an
+  incompatible file is rejected; `database.test.ts` checks how `appendRows`
+  converts values.
 
 The tests above need the network; no other test does. Fetching is injected: `searchAnchorage` takes a
 `fetchPage`, `fetchCalendars` takes a `fetchOne`, `fetchFirstReviews` takes a

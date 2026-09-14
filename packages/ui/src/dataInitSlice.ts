@@ -4,8 +4,8 @@ import type { StateCreator } from 'zustand';
 
 /**
  * Tables and views from the attached database that are exposed in the main
- * schema. Read `calendar_current` rather than `calendar_status` for current
- * availability.
+ * schema. Read `calendar_current` rather than `airbnb_calendar_status` for
+ * current availability.
  */
 export const LAKE_TABLES = [
   'listings',
@@ -13,16 +13,16 @@ export const LAKE_TABLES = [
   'listings_current_with_host',
   'hosts',
   'host_portfolios',
-  'listing_observations',
-  'listing_photos',
+  'airbnb_listing_observations',
+  'airbnb_listing_photos',
   'listing_photos_current',
-  'listing_first_reviews',
-  'calendar_status',
+  'airbnb_listing_first_reviews',
+  'airbnb_calendar_status',
   'calendar_current',
-  'scrape_runs',
-  'registration_observations',
-  'license_page_reads',
-  'registry_runs',
+  'airbnb_scrape_runs',
+  'muni_str_registration_observations',
+  'muni_license_page_reads',
+  'muni_str_registry_runs',
   'registrations',
   'registrations_current',
   'listings_current_with_registration',

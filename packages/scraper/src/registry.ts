@@ -8,6 +8,7 @@
  * before writing, then writes in one transaction.
  */
 
+import { connect } from '@anchorage-str-db/db/connect';
 import { fetchLicensePages } from '@anchorage-str-db/muni-licenses/licensePage';
 import { fetchRegistrations } from '@anchorage-str-db/scraper-muni-str/registrationLayers';
 import { toSqlTimestamp, todayUtc, type IsoDate } from '@anchorage-str-db/utils/dates';
@@ -23,7 +24,6 @@ import {
   recordRegistrations,
   type RegistryRunRow,
 } from './registryStore.ts';
-import { connect } from './store.ts';
 
 export interface RunRegistryOptions {
   dbPath: string;

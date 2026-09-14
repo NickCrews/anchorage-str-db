@@ -4,6 +4,8 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { connect } from '@anchorage-str-db/db/connect';
+import type { Database } from '@anchorage-str-db/db/database';
 import type { CalendarNight, CalendarResult } from '@anchorage-str-db/scraper-airbnb/calendars';
 import {
   collectHostCards,
@@ -15,10 +17,7 @@ import type { PriceQuote } from '@anchorage-str-db/scraper-airbnb/priceQuotes';
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 
 import * as config from '../src/config.ts';
-import type { Database } from '../src/db.ts';
 import {
-  connect,
-  LegacySchemaError,
   logRun,
   mergeCalendar,
   pendingFirstReviews,
@@ -110,7 +109,7 @@ describe('recordObservations', () => {
     const second = await recordObservations(db, '2026-08-02', dayOne);
     expect(second.new).toBe(0);
     expect(second.changed).toBe(0);
-    expect(await db.count('SELECT count(*) FROM listing_observations')).toBe(4);
+    expect(await db.count('SELECT count(*) FROM airbnb_listing_observations')).toBe(4);
     expect(await db.count('SELECT count(*) FROM listings WHERE is_current')).toBe(2);
   });
 
@@ -143,7 +142,7 @@ describe('recordObservations', () => {
     expect(await db.count('SELECT count(*) FROM listings')).toBe(1);
     // The day's values are still recorded.
     expect(
-      await db.rows('SELECT review_count FROM listing_observations ORDER BY scrape_date'),
+      await db.rows('SELECT review_count FROM airbnb_listing_observations ORDER BY scrape_date'),
     ).toEqual([{ review_count: 10 }, { review_count: 99 }]);
   });
 
@@ -153,7 +152,7 @@ describe('recordObservations', () => {
     const first = await recordObservations(db, '2026-08-01', listings);
     const again = await recordObservations(db, '2026-08-01', listings);
 
-    expect(await db.count('SELECT count(*) FROM listing_observations')).toBe(2);
+    expect(await db.count('SELECT count(*) FROM airbnb_listing_observations')).toBe(2);
     // Including new=2 on the re-run.
     expect(again).toEqual(first);
   });
@@ -325,7 +324,7 @@ describe('listing-page fields', () => {
     // The raw row records the failure; only the view carries values forward.
     expect(
       await db.rows(
-        "SELECT page_fetch_ok, location_is_exact FROM listing_observations " +
+        "SELECT page_fetch_ok, location_is_exact FROM airbnb_listing_observations " +
           "WHERE scrape_date = '2026-08-27'",
       ),
     ).toEqual([{ page_fetch_ok: false, location_is_exact: null }]);
@@ -538,7 +537,7 @@ describe('price quotes', () => {
     expect(
       await db.rows(
         'SELECT quote_check_in, quote_nights, quote_total, quote_label, quote_breakdown ' +
-          'FROM listing_observations',
+          'FROM airbnb_listing_observations',
       ),
     ).toEqual([
       {
@@ -557,7 +556,7 @@ describe('price quotes', () => {
       quote('1', { total: null, label: 'Those dates are not available', breakdown: [] }),
     ]);
 
-    expect(await db.rows('SELECT quote_total, quote_label FROM listing_observations')).toEqual([
+    expect(await db.rows('SELECT quote_total, quote_label FROM airbnb_listing_observations')).toEqual([
       { quote_total: null, quote_label: 'Those dates are not available' },
     ]);
   });
@@ -568,7 +567,7 @@ describe('price quotes', () => {
       quote('1', { total: null, label: null, breakdown: [], error: 'HttpError: HTTP 503' }),
     ]);
 
-    expect(await db.rows('SELECT quote_check_in, quote_total FROM listing_observations')).toEqual([
+    expect(await db.rows('SELECT quote_check_in, quote_total FROM airbnb_listing_observations')).toEqual([
       { quote_check_in: null, quote_total: null },
     ]);
   });
@@ -584,13 +583,13 @@ describe('price quotes', () => {
   });
 });
 
-describe('listing_photos', () => {
+describe('airbnb_listing_photos', () => {
   const urls = (...ids: number[]): string[] =>
     ids.map((id) => `https://a0.muscache.com/im/pictures/${id}.jpeg`);
 
   async function photoRows(db: Database): Promise<unknown[]> {
     return db.rows(
-      'SELECT valid_from, photo_urls FROM listing_photos WHERE listing_id = 1 ORDER BY valid_from',
+      'SELECT valid_from, photo_urls FROM airbnb_listing_photos WHERE listing_id = 1 ORDER BY valid_from',
     );
   }
 
@@ -696,7 +695,7 @@ describe('hosts', () => {
 
     expect(
       await db.rows(
-        'SELECT host_id, profile_read_ok, name, about FROM host_observations ORDER BY host_id',
+        'SELECT host_id, profile_read_ok, name, about FROM airbnb_host_observations ORDER BY host_id',
       ),
     ).toEqual([
       { host_id: '100', profile_read_ok: true, name: 'Rachel', about: 'Born and raised in Girdwood.' },
@@ -769,7 +768,7 @@ describe('hosts', () => {
     // day still gets a row, marked unread.
     expect(
       await db.rows(
-        "SELECT profile_read_ok, name FROM host_observations WHERE scrape_date = '2026-08-02'",
+        "SELECT profile_read_ok, name FROM airbnb_host_observations WHERE scrape_date = '2026-08-02'",
       ),
     ).toEqual([{ profile_read_ok: false, name: null }]);
     expect(
@@ -815,7 +814,7 @@ describe('hosts', () => {
     expect(stats).toEqual({ attempted: 2, failed: 1, new: 1, changed: 1 });
     // Idempotent per day.
     expect(await recordHostObservations(db, '2026-08-02', collectHostCards(pages))).toEqual(stats);
-    expect(await db.count('SELECT count(*) FROM host_observations')).toBe(3);
+    expect(await db.count('SELECT count(*) FROM airbnb_host_observations')).toBe(3);
   });
 
   it('keeps the lowest room id’s card when a host’s pages disagree', () => {
@@ -974,7 +973,7 @@ describe('mergeCalendar', () => {
 
     expect(
       await db.rows(
-        'SELECT available, valid_from, valid_to, is_current FROM calendar_status ' +
+        'SELECT available, valid_from, valid_to, is_current FROM airbnb_calendar_status ' +
           "WHERE listing_id = 1 AND night_date = '2026-09-01' ORDER BY valid_from",
       ),
     ).toEqual([
@@ -987,7 +986,7 @@ describe('mergeCalendar', () => {
     const { db } = await freshDb();
     await mergeCalendar(db, '2026-08-01', [calendar('1', [night('2026-09-01', true, 2)])]);
 
-    expect(await db.value('SELECT status_hash FROM calendar_status')).toBe(
+    expect(await db.value('SELECT status_hash FROM airbnb_calendar_status')).toBe(
       await db.value("SELECT md5('true|2|')"),
     );
   });
@@ -1001,7 +1000,7 @@ describe('mergeCalendar', () => {
 
     expect(stats.attempted).toBe(2);
     expect(stats.failed).toBe(1);
-    expect(await db.count('SELECT count(*) FROM calendar_status WHERE listing_id = 2')).toBe(0);
+    expect(await db.count('SELECT count(*) FROM airbnb_calendar_status WHERE listing_id = 2')).toBe(0);
   });
 });
 
@@ -1027,7 +1026,7 @@ describe('calendar_current', () => {
           "WHERE is_current AND night_date = '2027-01-01'",
       );
 
-    expect(await operating('calendar_status')).toBe(2); // the raw table still holds both
+    expect(await operating('airbnb_calendar_status')).toBe(2); // the raw table still holds both
     expect(await operating('calendar_current')).toBe(1); // only listing 1 is still live
   });
 
@@ -1070,7 +1069,7 @@ describe('first reviews', () => {
       { roomId: '3', reviewCountHint: 10 },
     ]);
     expect(
-      await db.rows('SELECT * FROM listing_first_reviews ORDER BY listing_id'),
+      await db.rows('SELECT * FROM airbnb_listing_first_reviews ORDER BY listing_id'),
     ).toEqual([
       { listing_id: '1', first_review_date: '2021-05-04', resolved_date: '2026-09-01' },
       { listing_id: '2', first_review_date: null, resolved_date: '2026-09-01' },
@@ -1111,103 +1110,14 @@ describe('first reviews', () => {
 });
 
 // --------------------------------------------------------------------------
-// schema, transactions, run log
+// run log, transactions
 
-describe('the store itself', () => {
-  it('rejects a database with listings as a table', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
-    temporary.push(dir);
-    const path = join(dir, 'legacy.duckdb');
-
-    const { Database } = await import('../src/db.ts');
-    const legacy = await Database.open(path);
-    await legacy.run('CREATE TABLE listings (listing_id BIGINT, is_current BOOLEAN)');
-    legacy.close();
-
-    await expect(connect(path)).rejects.toThrow(LegacySchemaError);
-    await expect(connect(path)).rejects.toThrow(/as a table rather than a view/);
-  });
-
-  it('rejects listing_observations without the price quote columns', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
-    temporary.push(dir);
-    const path = join(dir, 'legacy.duckdb');
-
-    const { Database } = await import('../src/db.ts');
-    const legacy = await Database.open(path);
-    await legacy.run(
-      'CREATE TABLE listing_observations ' +
-        '(listing_id BIGINT, scrape_date DATE, page_fetch_ok BOOLEAN, host_id BIGINT)',
-    );
-    legacy.close();
-
-    await expect(connect(path)).rejects.toThrow(/no `quote_total` column/);
-  });
-
-  it('rejects listing_observations without host_id', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
-    temporary.push(dir);
-    const path = join(dir, 'legacy.duckdb');
-
-    const { Database } = await import('../src/db.ts');
-    const legacy = await Database.open(path);
-    await legacy.run(
-      'CREATE TABLE listing_observations ' +
-        '(listing_id BIGINT, scrape_date DATE, page_fetch_ok BOOLEAN)',
-    );
-    legacy.close();
-
-    await expect(connect(path)).rejects.toThrow(/no `host_id` column/);
-  });
-
-  it('adds the pass counters to an existing scrape_runs', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
-    temporary.push(dir);
-    const path = join(dir, 'existing.duckdb');
-
-    const { Database } = await import('../src/db.ts');
-    const existing = await Database.open(path);
-    await existing.run(
-      'CREATE TABLE scrape_runs (scrape_date DATE NOT NULL, run_started_at TIMESTAMP NOT NULL, ' +
-        'run_finished_at TIMESTAMP, listings_seen INTEGER, listings_new INTEGER, ' +
-        'listings_changed INTEGER, listings_retired INTEGER, calendar_fetch_attempted INTEGER, ' +
-        'calendar_fetch_failed INTEGER, calendar_nights_changed INTEGER, ' +
-        'page_fetch_attempted INTEGER, page_fetch_failed INTEGER, error_summary VARCHAR)',
-    );
-    await existing.run(
-      "INSERT INTO scrape_runs (scrape_date, run_started_at, listings_seen) " +
-        "VALUES ('2026-08-31', '2026-08-31 12:00:00', 5)",
-    );
-    existing.close();
-
-    const db = await connect(path);
-    open.push(db);
-    await logRun(
-      db,
-      runRow('2026-09-01', {
-        firstReviewFetchAttempted: 7,
-        firstReviewFetchFailed: 1,
-        hostProfileAttempted: 4,
-        hostProfileFailed: 0,
-      }),
-    );
-
-    expect(
-      await db.rows(
-        'SELECT scrape_date, first_review_fetch_attempted, host_profile_attempted ' +
-          'FROM scrape_runs ORDER BY scrape_date',
-      ),
-    ).toEqual([
-      { scrape_date: '2026-08-31', first_review_fetch_attempted: null, host_profile_attempted: null },
-      { scrape_date: '2026-09-01', first_review_fetch_attempted: 7, host_profile_attempted: 4 },
-    ]);
-  });
-
+describe('the run log', () => {
   it('round-trips a run row', async () => {
     const { db } = await freshDb();
     await logRun(db, runRow('2026-08-01', { listingsSeen: 3, listingsNew: 3 }));
 
-    expect(await db.rows('SELECT listings_seen, error_summary FROM scrape_runs')).toEqual([
+    expect(await db.rows('SELECT listings_seen, error_summary FROM airbnb_scrape_runs')).toEqual([
       { listings_seen: 3, error_summary: null },
     ]);
   });
@@ -1224,7 +1134,7 @@ describe('transactions', () => {
       }),
     ).rejects.toThrow('calendar merge blew up');
 
-    expect(await db.count('SELECT count(*) FROM listing_observations')).toBe(0);
+    expect(await db.count('SELECT count(*) FROM airbnb_listing_observations')).toBe(0);
     expect(await db.count('SELECT count(*) FROM listings')).toBe(0);
   });
 
@@ -1277,7 +1187,7 @@ describe('transactions', () => {
     );
 
     expect(await db.count('SELECT count(*) FROM listings')).toBe(0);
-    expect(await db.rows('SELECT error_summary, listings_seen FROM scrape_runs')).toEqual([
+    expect(await db.rows('SELECT error_summary, listings_seen FROM airbnb_scrape_runs')).toEqual([
       { error_summary: 'Error: boom', listings_seen: null },
     ]);
   });

@@ -4,12 +4,13 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { connect } from '@anchorage-str-db/db/connect';
+import type { Database } from '@anchorage-str-db/db/database';
 import type { LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
 import { emptyListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
 import type { Registration } from '@anchorage-str-db/scraper-muni-str/registrationLayers';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
-import type { Database } from '../src/db.ts';
 import {
   chooseLicensePages,
   logRegistryRun,
@@ -17,7 +18,7 @@ import {
   recordLicensePages,
   recordRegistrations,
 } from '../src/registryStore.ts';
-import { connect, recordObservations } from '../src/store.ts';
+import { recordObservations } from '../src/store.ts';
 import { makeListing } from './fixtures.ts';
 
 const temporary: string[] = [];
@@ -136,7 +137,7 @@ describe('recordRegistrations', () => {
     const again = await recordRegistrations(db, '2026-09-10', [registration('STR20260001', 1)]);
 
     expect(again).toEqual({ seen: 1, new: 1, departed: 0 });
-    expect(await db.count('SELECT count(*) FROM registration_observations')).toBe(1);
+    expect(await db.count('SELECT count(*) FROM muni_str_registration_observations')).toBe(1);
   });
 
   it('rejects a layer that repeats a registration number', async () => {
@@ -176,7 +177,7 @@ describe('registrations view', () => {
     ]);
 
     const [row] = await db.rows('SELECT business_name, geocoded_lat, geocoded_lng FROM registrations');
-    const [raw] = await db.rows('SELECT business_name, geocoded_lat FROM registration_observations');
+    const [raw] = await db.rows('SELECT business_name, geocoded_lat FROM muni_str_registration_observations');
 
     expect(row).toEqual({ business_name: null, geocoded_lat: null, geocoded_lng: null });
     expect(raw).toEqual({ business_name: 'None', geocoded_lat: 61.153442 });
@@ -270,7 +271,7 @@ describe('recordLicensePages', () => {
     await recordLicensePages(db, '2026-09-10', [licensePage(1), licensePage(2, { status: 'Active' })]);
     await recordLicensePages(db, '2026-09-10', [licensePage(2, { status: 'Revoked' })]);
 
-    const rows = await db.rows('SELECT license_id, status FROM license_page_reads ORDER BY 1');
+    const rows = await db.rows('SELECT license_id, status FROM muni_license_page_reads ORDER BY 1');
 
     expect(rows).toEqual([
       { license_id: 1, status: 'Active' },
@@ -283,7 +284,7 @@ describe('recordLicensePages', () => {
     await recordLicensePages(db, '2026-09-10', [licensePage(1, { locations: [] })]);
 
     const [row] = await db.rows<{ locations: unknown[]; issued: string }>(
-      'SELECT locations, issuances[1].issued_date AS issued FROM license_page_reads',
+      'SELECT locations, issuances[1].issued_date AS issued FROM muni_license_page_reads',
     );
 
     expect(row).toEqual({ locations: [], issued: '2026-05-04' });

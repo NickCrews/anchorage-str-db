@@ -3,12 +3,12 @@
  * error-severity check makes the `registry` command exit non-zero.
  */
 
+import type { Database } from '@anchorage-str-db/db/database';
 import type { LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
 import type { CheckResult, Severity } from './checks.ts';
 import * as config from './config.ts';
-import type { Database } from './db.ts';
 
 export interface RegistryCheckInputs {
   /** This run's successful license page reads. */
@@ -37,13 +37,13 @@ export async function runRegistryChecks(
       license_page_failed: number | null;
     }>(
       'SELECT registrations_seen, registrations_departed, license_page_attempted, ' +
-        'license_page_failed FROM registry_runs WHERE scrape_date = CAST(? AS DATE) ' +
+        'license_page_failed FROM muni_str_registry_runs WHERE scrape_date = CAST(? AS DATE) ' +
         'ORDER BY run_started_at DESC LIMIT 1',
       [scrapeDate],
     )
   )[0];
   if (!run) {
-    check('registry_run_logged', 'error', false, `no registry_runs row for ${scrapeDate}`);
+    check('registry_run_logged', 'error', false, `no muni_str_registry_runs row for ${scrapeDate}`);
     return results;
   }
 
@@ -59,7 +59,7 @@ export async function runRegistryChecks(
   // Airbnb's registration numbers have this shape, so another one would not
   // join to listings.
   const malformed = await db.count(
-    'SELECT count(*) FROM registration_observations ' +
+    'SELECT count(*) FROM muni_str_registration_observations ' +
       "WHERE scrape_date = CAST(? AS DATE) AND NOT regexp_full_match(registration_number, 'STR\\d{8}')",
     [scrapeDate],
   );
@@ -85,7 +85,7 @@ export async function runRegistryChecks(
   // publish than that many registrations lapsing at once. Recorded as
   // published either way.
   const previousSeen = await db.count(
-    'SELECT registrations_seen FROM registry_runs ' +
+    'SELECT registrations_seen FROM muni_str_registry_runs ' +
       'WHERE scrape_date < CAST(? AS DATE) AND registrations_seen IS NOT NULL ' +
       'ORDER BY scrape_date DESC, run_started_at DESC LIMIT 1',
     [scrapeDate],

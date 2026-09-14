@@ -106,17 +106,17 @@ On all 44 pages the `state` layer produced every field the page had, and
 ## Storage
 
 Room type and the room counts are page fields on
-`listing_observations`: carried forward across a failed page fetch, and part
+`airbnb_listing_observations`: carried forward across a failed page fetch, and part
 of the version key.
 
-Photos are in `listing_photos`, one row per listing per distinct ordered set.
+Photos are in `airbnb_listing_photos`, one row per listing per distinct ordered set.
 Benchmarked with the pipeline's own `recordObservations`, 2,600 listings × 30
 days using the sampled galleries, with 5% of galleries changing mid-month:
 
 | Layout | File size |
 | --- | --- |
 | No photos | 8.4 MB |
-| `listing_photos` (2,694 rows) | 14.7 MB |
+| `airbnb_listing_photos` (2,694 rows) | 14.7 MB |
 
 The ~6 MB is mostly the first set per listing; after that the table grows
 only with gallery changes. An array on every daily observation row would

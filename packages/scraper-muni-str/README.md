@@ -54,7 +54,7 @@ as HTTP 200 with an `error` body; those are thrown and retried.
   for an address that geocoded and a license that names its parcel.
 - `PUBDATE` is the date of the Muni's last publish, about weekly.
 
-Values are returned as published; `packages/scraper`'s views do the cleaning.
+Values are returned as published; `packages/db`'s views do the cleaning.
 
 ## Tests
 

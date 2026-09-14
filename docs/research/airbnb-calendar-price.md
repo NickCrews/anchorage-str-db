@@ -72,7 +72,7 @@ request rate.
 
 ## What is stored
 
-On `listing_observations`: `quote_check_in`, `quote_nights`, `quote_total`
+On `airbnb_listing_observations`: `quote_check_in`, `quote_nights`, `quote_total`
 (the displayed total after discounts), `quote_label` (the accessibility
 label, or the unavailability message) and `quote_breakdown` (each
 price-detail line as `description: priceString`).

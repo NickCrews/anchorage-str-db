@@ -27,11 +27,11 @@ export const DataPanel: FC = () => {
         )}
         {status === 'ready' && (
           <p className="text-muted-foreground">
-            <span className="font-medium">listing_observations</span>,{' '}
-            <span className="font-medium">calendar_status</span>,{' '}
+            <span className="font-medium">airbnb_listing_observations</span>,{' '}
+            <span className="font-medium">airbnb_calendar_status</span>,{' '}
             <span className="font-medium">listings</span>,{' '}
             <span className="font-medium">calendar_current</span> and{' '}
-            <span className="font-medium">scrape_runs</span> are views over
+            <span className="font-medium">airbnb_scrape_runs</span> are views over
             the attached, read-only <code>anchorage_str.duckdb</code> snapshot
             — see the root README for table descriptions.
           </p>

@@ -4,15 +4,15 @@ import { join } from 'node:path';
 
 import { afterEach, expect, it } from 'vitest';
 
+import { connect } from '@anchorage-str-db/db/connect';
+import type { Database } from '@anchorage-str-db/db/database';
 import { collectHostCards, emptyListingPage, type ListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
 import { emptyAudit, PriceBand, type CoverageAudit, type SearchResult } from '@anchorage-str-db/scraper-airbnb/search';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
 import { report, runChecks, type CheckResult } from '../src/checks.ts';
 import * as config from '../src/config.ts';
-import type { Database } from '../src/db.ts';
 import {
-  connect,
   emptyPageStats,
   type QuoteStats,
   logRun,
@@ -342,7 +342,7 @@ it('warns when a host’s start date moves', async () => {
   const db = await seedMinimal(pagesWithCards(floor));
   // An earlier reading a year off from today's.
   await db.run(
-    'INSERT INTO host_observations VALUES (1000, CAST(? AS DATE) - 1, true, \'Rachel\', NULL, 8, 7)',
+    'INSERT INTO airbnb_host_observations VALUES (1000, CAST(? AS DATE) - 1, true, \'Rachel\', NULL, 8, 7)',
     [DAY],
   );
 

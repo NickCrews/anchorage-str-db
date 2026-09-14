@@ -140,7 +140,7 @@ without a number are the notable ones; see
 
 ## How the project uses this
 
-The page fields are stored on the same `listing_observations` row as the
+The page fields are stored on the same `airbnb_listing_observations` row as the
 search fields, so `location_is_exact` is next to the coordinate it describes.
 They are part of the version key, so adding a registration number or changing
 exact-location status opens a new version in `listings`. `page_seen_date` is

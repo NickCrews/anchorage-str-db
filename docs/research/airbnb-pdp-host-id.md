@@ -113,8 +113,8 @@ leaves the other working. Both ignore key names and paths except the
 
 ## How the project uses this
 
-`host_id BIGINT` is a page field on `listing_observations`, so it is part of
+`host_id BIGINT` is a page field on `airbnb_listing_observations`, so it is part of
 the carried-forward `page_attrs` and of the version key: a room changing
 hosts opens a new version in `listings`. The `host_id_coverage` check fails
 the run when fewer than `MIN_PAGE_FIELD_SHARE` of current, page-read listings
-have one. The host card populates `host_observations`; see README.
+have one. The host card populates `airbnb_host_observations`; see README.

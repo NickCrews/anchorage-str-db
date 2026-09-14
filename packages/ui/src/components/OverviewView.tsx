@@ -74,14 +74,14 @@ export const OverviewView: FC = () => {
       active AS (SELECT count(*)::INT AS n FROM listings WHERE is_current),
       last_year AS (
         SELECT count(DISTINCT listing_id)::INT AS n
-        FROM listing_observations
+        FROM airbnb_listing_observations
         WHERE scrape_date >= CURRENT_DATE - INTERVAL 365 DAY
       ),
-      latest_run AS (SELECT max(scrape_date) AS d FROM scrape_runs),
+      latest_run AS (SELECT max(scrape_date) AS d FROM airbnb_scrape_runs),
       registry AS (
         SELECT
           (SELECT count(*) FROM registrations_current)::INT AS n,
-          (SELECT max(scrape_date) FROM registry_runs WHERE registrations_seen IS NOT NULL) AS d
+          (SELECT max(scrape_date) FROM muni_str_registry_runs WHERE registrations_seen IS NOT NULL) AS d
       ),
       registered AS (
         SELECT count(*)::INT AS n
@@ -128,7 +128,7 @@ export const OverviewView: FC = () => {
       SELECT
         date_trunc('month', scrape_date)::DATE AS "month",
         count(DISTINCT listing_id)::INT AS "distinctStrs"
-      FROM listing_observations
+      FROM airbnb_listing_observations
       GROUP BY ALL
       ORDER BY month
     `,
@@ -153,7 +153,7 @@ export const OverviewView: FC = () => {
           AS "fromFirstSeen",
         count(*) FILTER (WHERE r.listing_id IS NULL)::INT AS "reviewsUnread"
       FROM listings_current l
-      LEFT JOIN listing_first_reviews r USING (listing_id)
+      LEFT JOIN airbnb_listing_first_reviews r USING (listing_id)
       GROUP BY ALL
       ORDER BY "year"
     `,

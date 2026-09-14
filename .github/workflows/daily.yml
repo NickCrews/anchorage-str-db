@@ -95,7 +95,7 @@ jobs:
           else
             gh release create "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" \
               --title "Latest data" \
-              --notes "The most recent successful daily scrape, replaced on every run. See scrape_runs in the database for run history."
+              --notes "The most recent successful daily scrape, replaced on every run. See airbnb_scrape_runs in the database for run history."
           fi
 
       # Sundays (UTC), plus every manual run.
