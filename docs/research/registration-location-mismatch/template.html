@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STR Listings at a Different Location Than Their Registration</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root {
+    --ink: #1c2128;
+    --muted: #57606a;
+    --line: #d0d7de;
+    --soft: #f6f8fa;
+    --paper: #ffffff;
+    --registered: #c62828;
+    --listing: #1f5fbf;
+    --match: #1a7f37;
+    --other: #6e7781;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding-inline: 16px;
+    background: var(--paper);
+    color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 1200px; margin: 0 auto; padding-block: 32px 64px; }
+  h1 { font-size: 1.75rem; line-height: 1.25; margin: 0 0 6px; }
+  h2 { font-size: 1.3rem; margin: 40px 0 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  h3 { font-size: 1rem; margin: 20px 0 8px; }
+  p { margin: 0 0 12px; max-width: 75ch; }
+  a { color: var(--listing); }
+  .dateline { color: var(--muted); margin-bottom: 24px; }
+  .finding-tag { display: inline-block; font-size: 0.78rem; font-weight: 600; padding: 1px 8px; border-radius: 10px; white-space: nowrap; }
+  .f-wrong-number { background: #dafbe1; color: #116329; }
+  .f-second-property { background: #fff1d6; color: #7d4e00; }
+  .f-not-at-address { background: #ffe2e0; color: #a0111f; }
+
+  .kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .kind { border: 1px solid var(--line); border-top: 5px solid var(--ink); border-radius: 8px; padding: 14px 16px; background: var(--paper); color: var(--ink); display: flex; flex-direction: column; }
+  .kind.f-wrong-number { border-top-color: var(--match); }
+  .kind.f-second-property { border-top-color: #bf8700; }
+  .kind.f-not-at-address { border-top-color: var(--registered); }
+  .kind h3 { margin: 4px 0 8px; font-size: 1.1rem; }
+  .kind p { font-size: 0.93rem; }
+  .kind-count { color: var(--muted); font-size: 0.9rem; }
+  .kind-count b { color: var(--ink); font-size: 1.6rem; margin-right: 4px; }
+  .kind .example { background: var(--soft); border-radius: 6px; padding: 10px 12px; margin: auto 0 0; }
+  .kind .fix { margin: 10px 0 0; }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 12px; }
+  button, select {
+    font: inherit; font-size: 0.9rem; padding: 6px 12px; border: 1px solid var(--line);
+    border-radius: 6px; background: var(--paper); color: var(--ink); cursor: pointer;
+  }
+  button:hover { background: var(--soft); }
+  select { max-width: 100%; min-width: 0; }
+  #case-select { flex: 1 1 14rem; width: 14rem; }
+  .status { color: var(--match); font-size: 0.9rem; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { background: var(--soft); position: sticky; top: 0; white-space: nowrap; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: #eef4fc; }
+  tbody tr.active { background: #ddeafb; }
+  td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.nowrap { white-space: nowrap; }
+
+  .viewer { border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; }
+  @media (max-width: 560px) { .viewer { padding: 10px; } .sources { grid-template-columns: minmax(0, 1fr); } #case-select { flex: 1 1 100%; } }
+  .viewer-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+  .viewer-head h3 { margin: 0; font-size: 1.15rem; }
+  .finding { margin: 14px 0; padding: 12px 14px; border-left: 4px solid var(--ink); background: var(--soft); max-width: none; }
+  .finding.f-wrong-number { border-color: var(--match); }
+  .finding.f-second-property { border-color: #bf8700; }
+  .finding.f-not-at-address { border-color: var(--registered); }
+  .case-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 16px; }
+  @media (max-width: 900px) { .case-grid { grid-template-columns: minmax(0, 1fr); } }
+  .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+  .card h4 { margin: 0 0 6px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; display: flex; align-items: center; gap: 6px; }
+  .card.listing h4 { color: var(--listing); }
+  .card.registered h4 { color: var(--registered); }
+  .card img { width: 100%; max-height: 200px; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 6px; background: var(--soft); margin-bottom: 6px; }
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 0.86rem; }
+  dt { color: var(--muted); }
+  dd { margin: 0; overflow-wrap: break-word; min-width: 0; }
+  .map-wrap { display: flex; flex-direction: column; gap: 8px; order: -1; }
+  #map { height: 520px; border-radius: 8px; border: 1px solid var(--line); }
+  @media (max-width: 900px) { #map { height: 380px; } }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.82rem; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .mini-list { font-size: 0.86rem; margin: 0; padding-left: 18px; }
+  .mini-list li { margin-bottom: 4px; }
+  .muted { color: var(--muted); }
+
+  .pin { display: flex; align-items: center; justify-content: center; color: #fff; font: 700 11px/1 sans-serif; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.45); }
+  .pin-registered { background: var(--registered); border-radius: 3px; }
+  .pin-listing { background: var(--listing); border-radius: 50%; }
+  .pin-sibling { background: #7aa7e6; border-radius: 50%; }
+  .pin-match { background: var(--match); border-radius: 3px; }
+  .pin-other { background: var(--other); border-radius: 3px; opacity: .8; }
+  .swatch { width: 12px; height: 12px; display: inline-block; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
+  .leaflet-tooltip.distance { background: var(--ink); color: #fff; border: 0; font-weight: 600; }
+  .leaflet-tooltip.distance::before { display: none; }
+
+  footer { margin-top: 40px; color: var(--muted); font-size: 0.85rem; }
+
+  @media print {
+    .toolbar, #viewer-section { display: none; }
+    body { font-size: 11px; }
+    th { position: static; }
+    .table-wrap { overflow: visible; border: 0; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Airbnb listings at a different location than the STR registration they display</h1>
+  <p class="dateline" id="dateline"></p>
+
+  <section>
+    <p>
+      Since July 31, 2026, every short-term rental in the Municipality must show
+      its STR Registration Number on its listings. Each registration records the
+      street address of the rental (AMC 10.90.020), so the number on a listing
+      should lead to the place being rented.
+    </p>
+    <p id="summary"></p>
+    <p>
+      We ask the Clerk's Office to check these registrations and confirm which
+      registration covers each rental. Every case below links to the Airbnb
+      listing and the registration's CityView page, and shows both locations on
+      a map.
+    </p>
+  </section>
+
+  <section>
+    <h2>Three kinds of problem</h2>
+    <div class="kinds">
+      <article class="kind f-wrong-number" data-finding="wrong-number">
+        <div class="kind-count"></div>
+        <h3>Likely the wrong number</h3>
+        <p>
+          The number on the listing belongs to a registration somewhere else.
+          Right where the listing is, there is a different registration with a
+          matching name: the same business, the Airbnb host's name, or the
+          listing's title. Likely explanation: the owner has multiple rentals and mistakenly copied the number from another
+          of their rentals.
+        </p>
+        <p class="example"></p>
+        <p class="fix"><strong>Suggested fix:</strong> Ask the host to fix the listing, to show the matching nearby registration's number. If that registration is for a different unit, this rental needs its own registration.</p>
+      </article>
+      <article class="kind f-second-property" data-finding="second-property">
+        <div class="kind-count"></div>
+        <h3>One number, two places</h3>
+        <p>
+          Several listings show the same number. Some are at the registered
+          address, but this one is somewhere else. The host may be using one
+          registration for a second rental that needs its own.
+        </p>
+        <p class="example"></p>
+        <p class="fix"><strong>Suggested fix:</strong> Ask the host to register the second rental and show that new number on its listing.</p>
+      </article>
+      <article class="kind f-not-at-address" data-finding="not-at-address">
+        <div class="kind-count"></div>
+        <h3>Not at the registered address</h3>
+        <p>
+          No listing that shows this number is near the registered address, and
+          no registration near the listing matches it. The registration may have
+          the wrong address, or the rental may be using a number that isn't its
+          own.
+        </p>
+        <p class="example"></p>
+        <p class="fix"><strong>Suggested fix:</strong> Ask the registrant where the rental is. If the registered address is wrong, correct the registration. If the listing is a different rental, it needs its own registration.</p>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <h2>All cases</h2>
+    <p class="muted">One row per Airbnb listing. Select a row to see it on the map below.</p>
+    <div class="toolbar">
+      <button type="button" id="copy-table">Copy table</button>
+      <button type="button" id="download-csv">Download CSV</button>
+      <span class="status" id="copy-status" role="status"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="cases-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Registration shown</th>
+            <th>Airbnb listing</th>
+            <th>Airbnb host</th>
+            <th>Distance</th>
+            <th>Problem</th>
+            <th>Registration near the listing that matches it</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="viewer-section">
+    <h2 id="viewer">Case by case</h2>
+    <div class="viewer">
+      <div class="viewer-head">
+        <h3 id="case-title"></h3>
+        <div class="toolbar" style="margin:0">
+          <button type="button" id="prev" aria-label="Previous case">← Previous</button>
+          <select id="case-select" aria-label="Choose a case"></select>
+          <button type="button" id="next" aria-label="Next case">Next →</button>
+        </div>
+      </div>
+      <div class="finding" id="case-finding"></div>
+      <div class="case-grid">
+        <div>
+          <div class="sources">
+            <div class="card listing" id="listing-card"></div>
+            <div class="card registered" id="registered-card"></div>
+          </div>
+          <h3>Listings that show <span class="case-number"></span></h3>
+          <ul class="mini-list" id="siblings"></ul>
+          <h3>Registrations within 200 m of this listing</h3>
+          <ul class="mini-list" id="nearby"></ul>
+        </div>
+        <div class="map-wrap">
+          <div class="toolbar" style="margin:0">
+            <button type="button" id="zoom-both">Show both</button>
+            <button type="button" id="zoom-listing">Zoom to Airbnb location</button>
+            <button type="button" id="zoom-registered">Zoom to registered address</button>
+          </div>
+          <div id="map" role="img" aria-label="Map of the Airbnb location and the registered address"></div>
+          <div class="legend">
+            <span><i class="swatch" style="background:var(--listing);border-radius:50%"></i>This listing on Airbnb</span>
+            <span><i class="swatch" style="background:var(--registered);border-radius:2px"></i>Registered address</span>
+            <span><i class="swatch" style="background:#7aa7e6;border-radius:50%"></i>Other listings that show the same number</span>
+            <span><i class="swatch" style="background:var(--match);border-radius:2px"></i>Nearby registration that matches the listing</span>
+            <span><i class="swatch" style="background:var(--other);border-radius:2px"></i>Other nearby registrations</span>
+          </div>
+          <p class="muted" style="font-size:.82rem;margin:0">
+            The shaded circle is where the rental can be, given Airbnb's pin:
+            200 m for an approximate pin, 50 m for an exact one.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How the cases were found</h2>
+    <p>
+      <strong>Sources.</strong> Airbnb listings were read from Airbnb's public
+      search and listing pages on <span class="listing-date"></span>. Each
+      listing page shows the registration number the host entered and a map
+      location. Registrations come from the Municipal Clerk's public Short Term
+      Rental Registration Viewer layer, published <span class="registry-date"></span>,
+      which includes the Municipality's geocoded point for each registered
+      address.
+    </p>
+    <p>
+      <strong>Distance.</strong> For each current listing that displays a
+      number in the registry, we measured the distance from Airbnb's map
+      location to the registered address's geocoded point. Airbnb moves most
+      pins by up to about 200 m to hide the exact address; some pins are exact.
+<span id="distance-summary"></span> A listing more than
+      <span class="threshold"></span> from its registered address is not
+      explained by Airbnb's offset.
+    </p>
+    <p>
+      <strong>Problems.</strong> Each listing is given the first of these that
+      applies:
+    </p>
+    <ol>
+      <li><span class="finding-tag f-wrong-number">Likely the wrong number</span>
+        A different registration within 200 m of the listing has a business
+        name that matches the displayed registration's business name, the Airbnb
+        host's name, or the start of the listing's title. Names are compared
+        ignoring case, punctuation and "LLC". A street named in the title, or a
+        number one digit off from the displayed one, is noted as extra evidence
+        but is not enough by itself.</li>
+      <li><span class="finding-tag f-second-property">One number, two places</span>
+        Another listing showing the same number is within
+        <span class="threshold"></span> of the registered address.</li>
+      <li><span class="finding-tag f-not-at-address">Not at the registered address</span>
+        Neither of the above.</li>
+    </ol>
+    <p>
+      <strong>Limits.</strong> A host can place an Airbnb pin incorrectly, and
+      the Municipality's geocoder can place a typed address incorrectly; the
+      registered and geocoded addresses are both shown for each case. Name
+      matches are suggestions for review, not confirmations. Listings that show
+      no registration number, or a number not in the registry, are not included.
+    </p>
+  </section>
+
+  <footer>
+    <p>
+      Requirements quoted from the Municipal Clerk's
+      <a href="https://www.muni.org/Departments/Assembly/Clerk/Licensing/Pages/Short-Term-Rental-Registration-Program.aspx">Short Term Rental Registration Program</a>
+      page. Registration data from the
+      <a href="https://experience.arcgis.com/experience/22b40a78a9fc459e9950a16249b37ed2">Short Term Rental Registration Viewer</a>.
+      Maps and imagery © Esri and its data providers.
+    </p>
+  </footer>
+</main>
+
+<script id="report-data" type="application/json">__REPORT_DATA__</script>
+<script>
+(() => {
+  const { cases, distances: dist, registryDate, listingDate, thresholdM } = JSON.parse(
+    document.getElementById('report-data').textContent,
+  );
+
+  const FINDINGS = {
+    'wrong-number': 'Likely the wrong number',
+    'second-property': 'One number, two places',
+    'not-at-address': 'Not at the registered address',
+  };
+  // Cases used as the example for each problem. Any case with that problem is
+  // used when these registrations are no longer in the data.
+  const EXAMPLES = {
+    'wrong-number': 'STR20261641',
+    'second-property': 'STR20262172',
+    'not-at-address': 'STR20260610',
+  };
+
+  const esc = (value) =>
+    String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+  const distance = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
+  const formatDate = (iso) =>
+    iso ? new Date(`${iso}T12:00:00`).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '';
+  const mapsLink = (lat, lng) => `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  const title = (text) => String(text ?? '').replace(/\s+/g, ' ').trim();
+  const pinLabel = (exact) => (exact ? 'Exact' : 'Approximate');
+  /** '6605 STELLA PL, ANCHORAGE, AK 99507' reads as '6605 Stella Pl'. */
+  const street = (address) =>
+    title(address).split(',')[0].trim().toLowerCase().replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
+  const quoted = (text) => `“${title(text)}”`;
+
+  // ---- summary ----
+  const registrations = new Set(cases.map((c) => c.registration_number));
+  const distances = cases.map((c) => c.distance_m);
+  document.getElementById('dateline').textContent =
+    `Airbnb listings as of ${formatDate(listingDate)}. Registrations as published by the Municipal Clerk on ${formatDate(registryDate)}.`;
+  document.getElementById('summary').textContent =
+    `On ${formatDate(listingDate)}, ${cases.length} Airbnb listings showed a registration number whose registered ` +
+    `address is ${distance(Math.min(...distances))} to ${distance(Math.max(...distances))} away from the listing ` +
+    `(${registrations.size} different numbers in all). Airbnb blurs map locations by up to about 200 m, so these ` +
+    `are too far apart to be the same place.`;
+  document.querySelectorAll('.listing-date').forEach((el) => (el.textContent = formatDate(listingDate)));
+  document.querySelectorAll('.registry-date').forEach((el) => (el.textContent = formatDate(registryDate)));
+  document.querySelectorAll('.threshold').forEach((el) => (el.textContent = distance(thresholdM)));
+  const count = (n) => n.toLocaleString('en-US');
+  document.getElementById('distance-summary').textContent =
+    `Of the ${count(dist.compared)} listings compared, ${count(dist.compared - dist.over_200_m)} are within 200 m, ` +
+    `${count(dist.from_500_m_to_1_km)} are between 500 m and 1 km, and ${count(dist.over_1_km)} are more than 1 km away.`;
+
+  const registeredAs = (c) =>
+    `${c.registration_number} is registered${c.business_name ? ` to ${quoted(c.business_name)}` : ''} at ${street(c.registered_address)}`;
+
+  /** Explains one case in plain sentences. */
+  function findingText(c) {
+    const n = c.listings_on_number.length;
+    if (c.finding === 'wrong-number') {
+      const s = c.suggested_registrations;
+      const describe = (r) =>
+        `${r.registration_number}, registered to ${quoted(r.business_name)} at ${street(r.address)}, ` +
+        `${distance(r.distance_m)} from the listing (${r.reasons.join('; ')})`;
+      const opening = `The listing ${quoted(c.listing_name)} shows ${c.registration_number}, which is registered` +
+        `${c.business_name ? ` to ${quoted(c.business_name)}` : ''} at ${street(c.registered_address)}, ${distance(c.distance_m)} away.`;
+      if (s.length === 1) {
+        return `${opening} Right where the listing is, there is ${describe(s[0])}. ` +
+          `The listing probably should show ${s[0].registration_number}.`;
+      }
+      return `${opening} Near the listing there are ${s.length} other registrations with a matching name: ` +
+        `${s.slice(0, 3).map(describe).join('; ')}${s.length > 3 ? `; and ${s.length - 3} more like these` : ''}. ` +
+        `The listing probably should show one of these.`;
+    }
+    if (c.finding === 'second-property') {
+      return `${registeredAs(c)}. ${n} Airbnb listings show this number, and ${c.listings_at_registered_address} ` +
+        `${c.listings_at_registered_address === 1 ? 'is' : 'are'} at that address. This one, ${quoted(c.listing_name)}, ` +
+        `is ${distance(c.distance_m)} away, so the number seems to be used for a second rental.`;
+    }
+    let text = n === 1
+      ? `${registeredAs(c)}. The only listing that shows it, ${quoted(c.listing_name)}, is ${distance(c.distance_m)} away.`
+      : `${registeredAs(c)}. ${n} listings show it and none are near that address. This one, ${quoted(c.listing_name)}, is ${distance(c.distance_m)} away.`;
+    if (c.business_name_is_address) {
+      text += ` The registration's business name is itself a different street address.`;
+    }
+    return `${text} The registration may have the wrong address.`;
+  }
+
+  document.querySelectorAll('.kind').forEach((card) => {
+    const key = card.dataset.finding;
+    const matching = cases.filter((c) => c.finding === key);
+    card.querySelector('.kind-count').innerHTML =
+      `<b>${matching.length}</b>${matching.length === 1 ? 'listing' : 'listings'}`;
+    const example = matching.find((c) => c.registration_number === EXAMPLES[key]) ?? matching[0];
+    const exampleEl = card.querySelector('.example');
+    if (!example) { exampleEl.remove(); return; }
+    const index = cases.indexOf(example);
+    exampleEl.innerHTML = `<strong>Example:</strong> ${esc(findingText(example))} ` +
+      `<a href="#case-${index + 1}" data-case="${index}">See it on the map</a>`;
+  });
+  document.querySelector('.kinds').addEventListener('click', (e) => {
+    const link = e.target.closest('a[data-case]');
+    if (!link) return;
+    e.preventDefault();
+    show(Number(link.dataset.case));
+    document.getElementById('viewer').scrollIntoView({ behavior: 'smooth' });
+  });
+
+  // ---- table ----
+  const COLUMNS = [
+    ['Case', (c, i) => i + 1],
+    ['Registration shown', (c) => c.registration_number],
+    ['Registered business name', (c) => title(c.business_name)],
+    ['Registered address', (c) => title(c.registered_address)],
+    ['Muni geocoded address', (c) => title(c.geocoded_address)],
+    ['Registered lat', (c) => c.registered_lat],
+    ['Registered lng', (c) => c.registered_lng],
+    ['License page', (c) => c.license_url],
+    ['Airbnb listing ID', (c) => c.listing_id],
+    ['Airbnb listing title', (c) => title(c.listing_name)],
+    ['Airbnb URL', (c) => c.listing_url],
+    ['Airbnb host', (c) => title(c.host_name)],
+    ['Airbnb host ID', (c) => c.host_id],
+    ['Airbnb pin', (c) => pinLabel(c.listing_pin_is_exact)],
+    ['Airbnb lat', (c) => c.listing_lat],
+    ['Airbnb lng', (c) => c.listing_lng],
+    ['Distance (m)', (c) => c.distance_m],
+    ['Listings displaying this number', (c) => c.listings_on_number.length],
+    ['Finding', (c) => FINDINGS[c.finding]],
+    ['Matching registrations near the listing', (c) =>
+      c.suggested_registrations.map((r) => `${r.registration_number} ${title(r.business_name)}`).join('; ')],
+    ['Explanation', (c) => findingText(c)],
+  ];
+  const exportRows = () => [COLUMNS.map(([h]) => h), ...cases.map((c, i) => COLUMNS.map(([, f]) => f(c, i)))];
+
+  const tbody = document.querySelector('#cases-table tbody');
+  tbody.innerHTML = cases
+    .map((c, i) => {
+      const s = c.suggested_registrations;
+      const suggestion = s.length === 0
+        ? '<span class="muted">—</span>'
+        : `${s.slice(0, 2).map((r) => `${esc(r.registration_number)} <span class="muted">${esc(title(r.business_name))}</span>`).join('<br>')}${s.length > 2 ? `<br><span class="muted">+${s.length - 2} more</span>` : ''}`;
+      return `<tr data-index="${i}" tabindex="0">
+        <td class="num">${i + 1}</td>
+        <td><a href="${esc(c.license_url)}" target="_blank" rel="noopener">${esc(c.registration_number)}</a><br>${esc(title(c.business_name))}<br><span class="muted">${esc(title(c.registered_address))}</span></td>
+        <td><a href="${esc(c.listing_url)}" target="_blank" rel="noopener">${esc(c.listing_id)}</a><br>${esc(title(c.listing_name))}</td>
+        <td>${esc(title(c.host_name))}</td>
+        <td class="num">${distance(c.distance_m)}</td>
+        <td><span class="finding-tag f-${c.finding}">${esc(FINDINGS[c.finding])}</span></td>
+        <td>${suggestion}</td>
+      </tr>`;
+    })
+    .join('');
+  tbody.addEventListener('click', (e) => {
+    if (e.target.closest('a')) return;
+    const row = e.target.closest('tr');
+    if (row) { show(Number(row.dataset.index)); document.getElementById('viewer').scrollIntoView({ behavior: 'smooth' }); }
+  });
+  tbody.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.matches('tr')) e.target.click();
+  });
+
+  const status = document.getElementById('copy-status');
+  document.getElementById('copy-table').addEventListener('click', async () => {
+    const tsv = exportRows()
+      .map((row) => row.map((v) => String(v ?? '').replace(/[\t\n\r]+/g, ' ')).join('\t'))
+      .join('\n');
+    try {
+      await navigator.clipboard.writeText(tsv);
+      status.textContent = 'Copied. Paste into a spreadsheet.';
+    } catch {
+      status.textContent = 'Copy was blocked by the browser; use Download CSV.';
+    }
+    setTimeout(() => (status.textContent = ''), 4000);
+  });
+  document.getElementById('download-csv').addEventListener('click', () => {
+    const csv = exportRows()
+      .map((row) => row.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\r\n');
+    const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: `str-location-mismatches-${listingDate}.csv` });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  // ---- viewer ----
+  const select = document.getElementById('case-select');
+  select.innerHTML = cases
+    .map((c, i) => `<option value="${i}">${i + 1}. ${esc(c.registration_number)} · ${esc(title(c.listing_name).slice(0, 48))}</option>`)
+    .join('');
+  select.addEventListener('change', () => show(Number(select.value)));
+  document.getElementById('prev').addEventListener('click', () => show((current - 1 + cases.length) % cases.length));
+  document.getElementById('next').addEventListener('click', () => show((current + 1) % cases.length));
+  document.addEventListener('keydown', (e) => {
+    if (e.target.closest('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'ArrowLeft') document.getElementById('prev').click();
+    if (e.key === 'ArrowRight') document.getElementById('next').click();
+  });
+
+  const hasLeaflet = typeof L !== 'undefined';
+  let map, caseLayer, bounds = {};
+  if (hasLeaflet) {
+    map = L.map('map', { scrollWheelZoom: false });
+    const streets = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, attribution: 'Map © Esri, HERE, Garmin, OpenStreetMap contributors',
+    }).addTo(map);
+    const imagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
+    });
+    L.control.layers({ Streets: streets, Satellite: imagery }, null, { collapsed: false }).addTo(map);
+    L.control.scale({ imperial: true, metric: true }).addTo(map);
+    caseLayer = L.layerGroup().addTo(map);
+    map.on('click', () => map.scrollWheelZoom.enable());
+  } else {
+    document.getElementById('map').innerHTML =
+      '<p style="padding:16px">The map needs an internet connection to load. The coordinates are in the cards and the table.</p>';
+  }
+
+  const pin = (cls, label, size = 22) =>
+    L.divIcon({ className: '', html: `<div class="pin ${cls}" style="width:${size}px;height:${size}px">${label}</div>`, iconSize: [size, size], iconAnchor: [size / 2, size / 2] });
+
+  const fit = (latlngs, maxZoom) => map.fitBounds(L.latLngBounds(latlngs), { padding: [36, 36], maxZoom });
+  document.getElementById('zoom-both').addEventListener('click', () => hasLeaflet && fit(bounds.both, 17));
+  document.getElementById('zoom-listing').addEventListener('click', () => hasLeaflet && map.setView(bounds.listing, 17));
+  document.getElementById('zoom-registered').addEventListener('click', () => hasLeaflet && map.setView(bounds.registered, 18));
+
+  let current = 0;
+  function show(index) {
+    current = index;
+    const c = cases[index];
+    select.value = String(index);
+    history.replaceState(null, '', `#case-${index + 1}`);
+    tbody.querySelectorAll('tr').forEach((tr) => tr.classList.toggle('active', Number(tr.dataset.index) === index));
+
+    document.getElementById('case-title').innerHTML =
+      `Case ${index + 1} of ${cases.length}: ${esc(c.registration_number)} <span class="finding-tag f-${c.finding}">${esc(FINDINGS[c.finding])}</span>`;
+    const finding = document.getElementById('case-finding');
+    finding.className = `finding f-${c.finding}`;
+    finding.textContent = findingText(c);
+    document.querySelectorAll('.case-number').forEach((el) => (el.textContent = c.registration_number));
+
+    const photo = c.photo_url
+      ? `<img src="${esc(c.photo_url)}?im_w=480" alt="First photo on the Airbnb listing" loading="lazy" onerror="this.remove()">`
+      : '';
+    document.getElementById('listing-card').innerHTML = `
+      <h4><i class="swatch" style="background:var(--listing);border-radius:50%"></i>Airbnb listing</h4>
+      ${photo}
+      <dl>
+        <dt>Title</dt><dd><a href="${esc(c.listing_url)}" target="_blank" rel="noopener">${esc(title(c.listing_name))}</a></dd>
+        <dt>Listing ID</dt><dd>${esc(c.listing_id)}</dd>
+        <dt>Host</dt><dd><a href="https://www.airbnb.com/users/show/${esc(c.host_id)}" target="_blank" rel="noopener">${esc(title(c.host_name) || c.host_id)}</a></dd>
+        <dt>Type</dt><dd>${esc(c.room_type)}${c.bedrooms ? `, ${esc(c.bedrooms)}` : ''}${c.guest_capacity ? `, ${c.guest_capacity} guests` : ''}</dd>
+        <dt>Number shown</dt><dd>${esc(c.registration_number)}</dd>
+        <dt>Map pin</dt><dd>${pinLabel(c.listing_pin_is_exact)}, <a href="${mapsLink(c.listing_lat, c.listing_lng)}" target="_blank" rel="noopener">${c.listing_lat.toFixed(5)}, ${c.listing_lng.toFixed(5)}</a></dd>
+        <dt>Seen</dt><dd>${esc(formatDate(c.listing_seen_date))}</dd>
+      </dl>`;
+    document.getElementById('registered-card').innerHTML = `
+      <h4><i class="swatch" style="background:var(--registered);border-radius:2px"></i>Muni registration</h4>
+      <dl>
+        <dt>Number</dt><dd><a href="${esc(c.license_url)}" target="_blank" rel="noopener">${esc(c.registration_number)}</a></dd>
+        <dt>Business name</dt><dd>${esc(title(c.business_name)) || '<span class="muted">none given</span>'}</dd>
+        <dt>Registered address</dt><dd>${esc(title(c.registered_address))}</dd>
+        <dt>Geocoded as</dt><dd><a href="${mapsLink(c.registered_lat, c.registered_lng)}" target="_blank" rel="noopener">${esc(title(c.geocoded_address))}</a></dd>
+        <dt>Community council</dt><dd>${esc(c.community_council)}</dd>
+        <dt>Issued</dt><dd>${esc(formatDate(c.issued_date))}</dd>
+      </dl>`;
+
+    document.getElementById('siblings').innerHTML = c.listings_on_number
+      .map((o) => `<li>${o.listing_id === c.listing_id ? '<strong>This listing</strong>: ' : ''}<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(title(o.name))}</a>
+        <span class="muted">· ${esc(title(o.host_name))} · ${pinLabel(o.pin_is_exact === true || o.pin_is_exact === 'true').toLowerCase()} pin · ${distance(o.distance_m)} from the registered address</span></li>`)
+      .join('');
+
+    const near = c.registrations_near_listing;
+    const shown = [...near.filter((r) => r.reasons.length), ...near.filter((r) => !r.reasons.length)].slice(0, 8);
+    document.getElementById('nearby').innerHTML = near.length === 0
+      ? '<li class="muted">None.</li>'
+      : shown.map((r) => `<li><a href="${esc(r.license_url)}" target="_blank" rel="noopener">${esc(r.registration_number)}</a> ${esc(title(r.business_name))}
+          <span class="muted">· ${esc(title(r.address))} · ${distance(r.distance_m)}</span>
+          ${r.reasons.length ? `<br><span style="color:var(--match)">Matches: ${esc(r.reasons.join('; '))}</span>` : ''}</li>`).join('') +
+        (near.length > shown.length ? `<li class="muted">and ${near.length - shown.length} more</li>` : '');
+
+    if (!hasLeaflet) return;
+    caseLayer.clearLayers();
+    const listingLL = [c.listing_lat, c.listing_lng];
+    const registeredLL = [c.registered_lat, c.registered_lng];
+    bounds = { listing: listingLL, registered: registeredLL, both: [listingLL, registeredLL] };
+
+    L.circle(listingLL, {
+      radius: c.listing_pin_is_exact ? 50 : 200, color: '#1f5fbf', weight: 1, fillOpacity: 0.1,
+    }).addTo(caseLayer);
+
+    for (const r of near) {
+      const matched = r.reasons.length > 0;
+      L.marker([r.lat, r.lng], { icon: pin(matched ? 'pin-match' : 'pin-other', matched ? '✓' : '', matched ? 18 : 12), zIndexOffset: matched ? 200 : 0 })
+        .bindPopup(`<b>${esc(r.registration_number)}</b><br>${esc(title(r.business_name))}<br>${esc(title(r.address))}` +
+          `${matched ? `<br><span style="color:var(--match)">${esc(r.reasons.join('; '))}</span>` : ''}`)
+        .addTo(caseLayer);
+    }
+    for (const o of c.listings_on_number) {
+      if (o.listing_id === c.listing_id) continue;
+      L.marker([o.lat, o.lng], { icon: pin('pin-sibling', '', 16), zIndexOffset: 300 })
+        .bindPopup(`<b>Also displays ${esc(c.registration_number)}</b><br>${esc(title(o.name))}<br>${distance(o.distance_m)} from the registered address`)
+        .addTo(caseLayer);
+    }
+
+    L.polyline([listingLL, registeredLL], { color: '#1c2128', weight: 2, dashArray: '6 6' })
+      .bindTooltip(distance(c.distance_m), { permanent: true, direction: 'center', className: 'distance' })
+      .addTo(caseLayer);
+    L.marker(registeredLL, { icon: pin('pin-registered', 'R', 24), zIndexOffset: 1000 })
+      .bindPopup(`<b>Registered address of ${esc(c.registration_number)}</b><br>${esc(title(c.registered_address))}<br><span class="muted">Geocoded as ${esc(title(c.geocoded_address))}</span>`)
+      .addTo(caseLayer);
+    L.marker(listingLL, { icon: pin('pin-listing', 'A', 24), zIndexOffset: 1100 })
+      .bindPopup(`<b>Airbnb location</b><br>${esc(title(c.listing_name))}<br>${pinLabel(c.listing_pin_is_exact)} pin`)
+      .addTo(caseLayer);
+
+    map.invalidateSize();
+    fit([listingLL, registeredLL, ...c.listings_on_number.map((o) => [o.lat, o.lng])], 17);
+  }
+
+  const fromHash = /^#case-(\d+)$/.exec(location.hash);
+  show(fromHash ? Math.min(Math.max(Number(fromHash[1]) - 1, 0), cases.length - 1) : 0);
+})();
+</script>
+</body>
+</html>
