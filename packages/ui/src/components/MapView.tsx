@@ -1,6 +1,10 @@
+import {
+  buildColorScaleLegend,
+  type ResolvedColorLegend,
+} from '@sqlrooms/color-scales';
 import {DeckJsonMap} from '@sqlrooms/deck';
 import type {DeckDatasetInput, DeckJsonMapProps} from '@sqlrooms/deck';
-import {useMemo, useState, type FC} from 'react';
+import {useCallback, useMemo, useState, type FC} from 'react';
 import {registrationStatusSql} from '../registrationStatus';
 import {DataStatusGate} from './DataStatusGate';
 
@@ -84,6 +88,13 @@ const RENTALS_QUERY = `
 
 type ColorMode = 'registration' | 'price';
 
+type RgbaColor = [number, number, number, number];
+
+type RentalsTable = Extract<
+  Parameters<NonNullable<DeckJsonMapProps['onDatasetStatesChange']>>[0][string],
+  {status: 'ready'}
+>['prepared']['table'];
+
 // Quantile bins: prices range from ~$60 to over $1,000, so a linear scale
 // would put most listings in the lowest color.
 const PRICE_COLOR = {
@@ -92,7 +103,7 @@ const PRICE_COLOR = {
   field: 'price_hint_per_night',
   scheme: 'YlOrRd',
   bins: 5,
-  nullColor: [148, 163, 184, 140],
+  nullColor: [148, 163, 184, 140] as RgbaColor,
   legend: {title: 'Price hint / night ($)'},
 } as const;
 
@@ -101,7 +112,7 @@ const REGISTRATION_COLOR = {
   type: 'categorical',
   field: 'registration_status',
   scheme: 'Set1',
-  nullColor: [148, 163, 184, 180],
+  nullColor: [148, 163, 184, 180] as RgbaColor,
   legend: {title: 'Registration status'},
 } as const;
 
@@ -179,8 +190,70 @@ const rentalTooltip = (row: RentalRow): string[] => {
   return lines;
 };
 
+/**
+ * The legend for the active color scale, built from the loaded rows the same
+ * way `DeckJsonMap` builds its own, so it can be drawn inside the controls card.
+ */
+const buildLegend = (
+  table: RentalsTable | null,
+  colorMode: ColorMode,
+): ResolvedColorLegend | null => {
+  const colorScale = FILL_COLOR[colorMode];
+  const column = table?.getChild(colorScale.field);
+  if (!column) return null;
+  return buildColorScaleLegend({
+    colorScale,
+    values: Array.from({length: column.length}, (_, i) => column.get(i)),
+    title: colorScale.legend.title,
+  });
+};
+
+const rgba = ([r, g, b, a]: readonly number[]) =>
+  `rgba(${r}, ${g}, ${b}, ${(a ?? 255) / 255})`;
+
+const LegendSwatches: FC<{legend: ResolvedColorLegend}> = ({legend}) => {
+  if (legend.type === 'continuous') {
+    return (
+      <div
+        className="h-3 rounded-[2px] border"
+        style={{background: legend.gradient}}
+      />
+    );
+  }
+  return (
+    <ul className="space-y-1">
+      {legend.items.map((item) => (
+        <li
+          key={item.label}
+          className="flex items-center gap-2 text-xs leading-tight"
+        >
+          <span
+            aria-hidden
+            className="h-3 w-3 shrink-0 rounded-[2px] border"
+            style={{backgroundColor: rgba(item.color)}}
+          />
+          <span className="truncate">{item.label}</span>
+        </li>
+      ))}
+    </ul>
+  );
+};
+
 export const MapView: FC = () => {
   const [colorMode, setColorMode] = useState<ColorMode>('registration');
+  const [rentalsTable, setRentalsTable] = useState<RentalsTable | null>(null);
+
+  const handleDatasetStatesChange = useCallback<
+    NonNullable<DeckJsonMapProps['onDatasetStatesChange']>
+  >((states) => {
+    const state = states[RENTALS_DATASET];
+    setRentalsTable(state?.status === 'ready' ? state.prepared.table : null);
+  }, []);
+
+  const legend = useMemo(
+    () => buildLegend(rentalsTable, colorMode),
+    [rentalsTable, colorMode],
+  );
 
   const datasets = useMemo<Record<string, DeckDatasetInput>>(
     () => ({
@@ -222,6 +295,9 @@ export const MapView: FC = () => {
           datasets={datasets}
           mapStyle={MAP_STYLE}
           deckProps={deckProps}
+          // The legend is drawn in the controls card below.
+          showLegends={false}
+          onDatasetStatesChange={handleDatasetStatesChange}
           // A separate WebGL context: sharing MapLibre's breaks layer drawing
           // after StrictMode's dev remount.
           interleaved={false}
@@ -260,6 +336,12 @@ export const MapView: FC = () => {
                 </label>
               ))}
             </div>
+            {legend && (
+              <div className="border-t px-3 py-2">
+                <p className="mb-1.5 text-xs font-semibold">{legend.title}</p>
+                <LegendSwatches legend={legend} />
+              </div>
+            )}
           </div>
         </div>
       </div>
