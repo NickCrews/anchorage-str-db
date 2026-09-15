@@ -7,8 +7,30 @@ import type { Database } from '@anchorage-str-db/db/database';
 import type { LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
-import type { CheckResult, Severity } from './checks.ts';
-import * as config from './config.ts';
+import { MIN_PAGE_FIELD_SHARE, type CheckResult, type Severity } from './checks.ts';
+
+/**
+ * A registry run fails if the layer holds a registration count outside this
+ * range. 2549 registrations were published on 2026-09-07.
+ */
+const PLAUSIBLE_REGISTRATION_COUNT: readonly [number, number] = [1000, 10000];
+
+/**
+ * Warn when more than this share of the previous run's registrations are
+ * missing from today's layer, which suggests a partial republish rather
+ * than lapsed registrations.
+ */
+const MAX_REGISTRATION_DEPARTURE_SHARE = 0.1;
+
+/** A license-page failure rate above this fails the registry run. */
+const MAX_LICENSE_PAGE_FAILURE_RATE = 0.25;
+
+/**
+ * Warn when fewer than this share of the registration numbers on current
+ * Airbnb listings appear in the registry. 1860 of 1879 matched on
+ * 2026-09-13; the rest were issued after the layer's last publish.
+ */
+const MIN_AIRBNB_REGISTRATION_MATCH_SHARE = 0.8;
 
 export interface RegistryCheckInputs {
   /** This run's successful license page reads. */
@@ -48,7 +70,7 @@ export async function runRegistryChecks(
   }
 
   const seen = run.registrations_seen ?? 0;
-  const [lo, hi] = config.PLAUSIBLE_REGISTRATION_COUNT;
+  const [lo, hi] = PLAUSIBLE_REGISTRATION_COUNT;
   check(
     'registration_count_plausible',
     'error',
@@ -96,9 +118,9 @@ export async function runRegistryChecks(
     check(
       'registrations_departed_share',
       'warn',
-      share <= config.MAX_REGISTRATION_DEPARTURE_SHARE,
+      share <= MAX_REGISTRATION_DEPARTURE_SHARE,
       `${departed}/${previousSeen} of the previous run's registrations are gone ` +
-        `(${percent(share)}, max ${percent(config.MAX_REGISTRATION_DEPARTURE_SHARE)})`,
+        `(${percent(share)}, max ${percent(MAX_REGISTRATION_DEPARTURE_SHARE)})`,
     );
   }
 
@@ -109,9 +131,9 @@ export async function runRegistryChecks(
     check(
       'license_page_failure_rate',
       'error',
-      rate <= config.MAX_LICENSE_PAGE_FAILURE_RATE,
+      rate <= MAX_LICENSE_PAGE_FAILURE_RATE,
       `${failed}/${attempted} license page reads failed (${percent(rate)}, max ` +
-        `${percent(config.MAX_LICENSE_PAGE_FAILURE_RATE)})`,
+        `${percent(MAX_LICENSE_PAGE_FAILURE_RATE)})`,
     );
   }
 
@@ -125,9 +147,9 @@ export async function runRegistryChecks(
     check(
       'license_page_fields_present',
       'error',
-      complete / read >= config.MIN_PAGE_FIELD_SHARE,
+      complete / read >= MIN_PAGE_FIELD_SHARE,
       `${complete}/${read} license pages read had a status and an issuance ` +
-        `(${percent(complete / read)}, min ${percent(config.MIN_PAGE_FIELD_SHARE)})`,
+        `(${percent(complete / read)}, min ${percent(MIN_PAGE_FIELD_SHARE)})`,
     );
   }
 
@@ -144,9 +166,9 @@ export async function runRegistryChecks(
     check(
       'airbnb_registration_match',
       'warn',
-      share >= config.MIN_AIRBNB_REGISTRATION_MATCH_SHARE,
+      share >= MIN_AIRBNB_REGISTRATION_MATCH_SHARE,
       `${matched}/${cited} registration numbers on current Airbnb listings are in the registry ` +
-        `(${percent(share)}, min ${percent(config.MIN_AIRBNB_REGISTRATION_MATCH_SHARE)})`,
+        `(${percent(share)}, min ${percent(MIN_AIRBNB_REGISTRATION_MATCH_SHARE)})`,
     );
   }
 

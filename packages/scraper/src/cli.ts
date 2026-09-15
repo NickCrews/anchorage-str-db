@@ -3,14 +3,19 @@
 
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { parseIsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log, setLevel } from '@anchorage-str-db/utils/log';
 
-import { DEFAULT_DB_PATH } from './config.ts';
 import { runDaily } from './pipeline.ts';
 import { runRegistry } from './registry.ts';
+
+/** The repo's `data/anchorage_str.duckdb`, from any working directory. */
+const DEFAULT_DB_PATH = fileURLToPath(
+  new URL('../../../data/anchorage_str.duckdb', import.meta.url),
+);
 
 const USAGE = `usage: anchorage-str-db [options] daily|registry
 

@@ -26,7 +26,6 @@ import {
   type ArcgisFeature,
   type FetchJson,
 } from './arcgis.ts';
-import * as config from './config.ts';
 
 export const SERVICE_URL =
   'https://services2.arcgis.com/Ce3DhLRthdwbHlfF/arcgis/rest/services/ShortTermRental_Registrations_Hosted/FeatureServer';
@@ -135,21 +134,35 @@ export interface RegistrationLayer {
 }
 
 /**
+ * Request tuning. A run is a handful of requests, so the rate only spaces out
+ * retries against ArcGIS Online.
+ */
+const REQUESTS_PER_SECOND = 2;
+const TIMEOUT_MS = 60_000;
+
+/** A failed layer query fails the run, so it gets more attempts than a page read. */
+const MAX_RETRIES = 4;
+const RETRY_BACKOFF_MS = 1500;
+
+/** Features per query: the registration layers' `maxRecordCount`. */
+export const PAGE_SIZE = 2000;
+
+/**
  * Every registration. Throws if the layer can't be read in full: a partial
  * snapshot would read as registrations lapsing.
  */
 export async function fetchRegistrations(
   fetchJson: FetchJson = liveJsonFetcher({
-    pacer: new Pacer({ rate: config.REQUESTS_PER_SECOND, service: 'ArcGIS Online' }),
-    timeoutMs: config.TIMEOUT_MS,
-    attempts: config.MAX_RETRIES,
-    backoffMs: config.RETRY_BACKOFF_MS,
+    pacer: new Pacer({ rate: REQUESTS_PER_SECOND, service: 'ArcGIS Online' }),
+    timeoutMs: TIMEOUT_MS,
+    attempts: MAX_RETRIES,
+    backoffMs: RETRY_BACKOFF_MS,
   }),
 ): Promise<RegistrationLayer> {
   const dataEditedAt = await fetchLayerDataEditedAt(REGISTRATIONS_LAYER_URL, fetchJson);
   const registrationLayer = await fetchLayer(REGISTRATIONS_LAYER_URL, {
     fetchJson,
-    pageSize: config.PAGE_SIZE,
+    pageSize: PAGE_SIZE,
     returnGeometry: true,
   });
   return {

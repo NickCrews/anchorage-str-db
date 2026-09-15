@@ -10,11 +10,11 @@
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import * as config from '../src/config.ts';
 import {
   fetchRegistrations,
   licenseIdFromStatusUrl,
   NO_MATCH_GEOCODED_ADDRESS,
+  PAGE_SIZE,
   toRegistration,
   type Registration,
   type RegistrationLayer,
@@ -37,7 +37,7 @@ describe('fetchRegistrations on the live layer', () => {
   it('reads every feature across more than one page', () => {
     // fetchLayer throws unless the pages add up to the server's count, so
     // a layer larger than one page shows the offset paging is complete.
-    expect(layer.registrations.length).toBeGreaterThan(config.PAGE_SIZE);
+    expect(layer.registrations.length).toBeGreaterThan(PAGE_SIZE);
     expect(byNumber.size).toBe(layer.registrations.length);
   });
 

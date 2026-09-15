@@ -30,9 +30,22 @@ import type { IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
 
+import { CURRENCY, LANGUAGE } from './api/http.ts';
 import { fetchReviewPage, type ReviewPage } from './api/reviews.ts';
-import * as config from './config.ts';
-import { withRetries } from './retry.ts';
+import { RETRY_BACKOFF_MS, withRetries } from './retry.ts';
+
+/**
+ * Listings whose earliest review date is resolved per run.
+ *
+ * Each listing is resolved once, so in steady state a run resolves only the
+ * few listings new that day. The first runs backfill the ~2600 existing
+ * listings; at 1000 per run that takes ~3 days and adds ~1030 requests
+ * (~10 minutes at the shared Airbnb rate) to each, well inside the CI
+ * timeout.
+ */
+const FIRST_REVIEW_MAX_PER_RUN = 1000;
+const FIRST_REVIEW_CONCURRENCY = 6;
+const FIRST_REVIEW_MAX_RETRIES = 3;
 
 /**
  * Reviews requested per page. More than one so a listing whose search count
@@ -65,13 +78,13 @@ export function liveReviewPageFetcher(apiKey: string): FetchReviewPage {
           roomId,
           offset,
           limit,
-          language: config.LANGUAGE,
-          currency: config.CURRENCY,
+          language: LANGUAGE,
+          currency: CURRENCY,
         }),
       {
         label: `reviews for room ${roomId} at offset ${offset}`,
-        attempts: config.FIRST_REVIEW_MAX_RETRIES,
-        backoffMs: config.RETRY_BACKOFF_MS,
+        attempts: FIRST_REVIEW_MAX_RETRIES,
+        backoffMs: RETRY_BACKOFF_MS,
       },
     );
 }
@@ -126,10 +139,10 @@ export async function fetchFirstReviews(
   candidates: readonly FirstReviewCandidate[],
   options: FetchFirstReviewsOptions,
 ): Promise<FirstReviewResult[]> {
-  const batch = candidates.slice(0, options.maxListings ?? config.FIRST_REVIEW_MAX_PER_RUN);
+  const batch = candidates.slice(0, options.maxListings ?? FIRST_REVIEW_MAX_PER_RUN);
   const results = await mapWithConcurrency(
     batch,
-    options.concurrency ?? config.FIRST_REVIEW_CONCURRENCY,
+    options.concurrency ?? FIRST_REVIEW_CONCURRENCY,
     async (candidate): Promise<FirstReviewResult> => {
       try {
         const firstReviewDate = await findFirstReviewDate(candidate, options.fetchPage);

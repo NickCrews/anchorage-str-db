@@ -11,6 +11,10 @@ import { Impit } from 'impit';
 /** The browser to impersonate. If every request gets 403, try a newer profile. */
 const BROWSER = 'chrome124';
 
+/** Sent by every request, as `currency`/`locale` and `Accept-Language`. */
+export const CURRENCY = 'USD';
+export const LANGUAGE = 'en';
+
 let client: Impit | undefined;
 
 export function http(): Impit {

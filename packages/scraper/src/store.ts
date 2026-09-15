@@ -13,6 +13,7 @@ import {
   airbnbListingPhotos,
   airbnbScrapeRuns,
 } from '@anchorage-str-db/db/schema';
+import { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views';
 import type { CalendarResult } from '@anchorage-str-db/scraper-airbnb/calendars';
 import type { FirstReviewCandidate, FirstReviewResult } from '@anchorage-str-db/scraper-airbnb/firstReviews';
 import type { HostCard, Layer, ListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
@@ -20,8 +21,6 @@ import { LAYERS } from '@anchorage-str-db/scraper-airbnb/listingPage';
 import type { ParsedListing } from '@anchorage-str-db/scraper-airbnb/parse';
 import type { PriceQuote } from '@anchorage-str-db/scraper-airbnb/priceQuotes';
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
-
-import * as config from './config.ts';
 
 // --------------------------------------------------------------------------
 // observations
@@ -128,7 +127,7 @@ export async function recordObservations(
       'SELECT count(*) FROM listing_versions WHERE valid_from = CAST(? AS DATE)',
       [scrapeDate],
     ),
-    retired: await countNewlyRetired(db, scrapeDate, config.RETIREMENT_GRACE_DAYS),
+    retired: await countNewlyRetired(db, scrapeDate, RETIREMENT_GRACE_DAYS),
   };
 }
 
