@@ -27,15 +27,15 @@ function search(encodedValue: string): string {
   return `https://www.muni.org/CityViewPortal/Property/PropertyReview?searchKey=desc&searchValue=${encodedValue}`;
 }
 
-function read(licenseId: number): Promise<LicensePage> {
-  return fetchOne(licenseId);
+function read(cityviewLicenseId: number): Promise<LicensePage> {
+  return fetchOne(cityviewLicenseId);
 }
 
 describe('license pages on the live portal', () => {
   it('reads every summary field, a parcel and an address, and an issuance', async () => {
     expect(await read(13923)).toEqual({
-      licenseId: 13923,
-      licenseeId: 'LC260500349',
+      cityviewLicenseId: 13923,
+      licenseId: 'LC260500349',
       businessName: 'Echo Ridge Mountain Retreat',
       licenseType: 'Short-Term Rentals',
       status: 'Active',
@@ -164,7 +164,7 @@ describe('fetchLicensePages', () => {
   it('returns each page, and the error for a page that could not be read', async () => {
     const results = await fetchLicensePages([13923, 50]);
 
-    expect(results.map((result) => [result.licenseId, result.page?.licenseeId ?? null])).toEqual([
+    expect(results.map((result) => [result.cityviewLicenseId, result.page?.licenseId ?? null])).toEqual([
       [13923, 'LC260500349'],
       [50, null],
     ]);

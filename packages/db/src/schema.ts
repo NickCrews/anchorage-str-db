@@ -242,10 +242,11 @@ export const muniStrRegistrationObservations = pgTable(
     // 'STR20260309'; Airbnb listings show it as registration_id.
     registrationId: varchar('registration_id').notNull(),
     scrapeDate: day('scrape_date').notNull(),
-    // 'LC260500349', the license page's "Licensee Number". Despite the label
-    // it identifies the license, not the licensee: a business holding four
-    // licenses has four. One per registration, like license_id.
-    licenseeId: varchar('licensee_id'),
+    // 'LC260500349', the license's own id. The license page labels it
+    // "Licensee Number" and the layer calls it ApplicationNumber, but it
+    // identifies the license, not the licensee: a business holding four
+    // licenses has four. One per registration, like cityview_license_id.
+    licenseId: varchar('license_id'),
     submittedDate: day('submitted_date'),
     issuedDate: day('issued_date'),
     expiresDate: day('expires_date'),
@@ -259,7 +260,8 @@ export const muniStrRegistrationObservations = pgTable(
     // The string 'None' when the registrant gave no business name.
     businessName: varchar('business_name'),
     status: varchar('status'),
-    // The CityView license page; its licenseId keys muni_license_page_reads.
+    // The CityView license page; the licenseId in its URL is
+    // cityview_license_id, which keys muni_license_page_reads.
     statusUrl: varchar('status_url'),
     // The council containing the geocoded point; NULL exactly when geocoding
     // found no match.
@@ -301,9 +303,9 @@ export interface LicenseIssuance {
 export const muniLicensePageReads = pgTable(
   'muni_license_page_reads',
   {
-    licenseId: integer('license_id').notNull(),
+    cityviewLicenseId: integer('cityview_license_id').notNull(),
     scrapeDate: day('scrape_date').notNull(),
-    licenseeId: varchar('licensee_id').notNull(),
+    licenseId: varchar('license_id').notNull(),
     businessName: varchar('business_name'),
     // 'Short-Term Rentals'.
     licenseType: varchar('license_type'),
@@ -325,7 +327,7 @@ export const muniLicensePageReads = pgTable(
       'STRUCT(type VARCHAR, issued_date DATE, expires_date DATE, status VARCHAR, number VARCHAR)[]',
     ).notNull(),
   },
-  (t) => [primaryKey({ columns: [t.licenseId, t.scrapeDate] })],
+  (t) => [primaryKey({ columns: [t.cityviewLicenseId, t.scrapeDate] })],
 );
 
 /** Counts are NULL on a failed run, which wrote nothing else. */

@@ -12,7 +12,7 @@ the registration layer lacks:
 
 | field | example |
 | --- | --- |
-| `licenseeId` | `LC260500349` (the layer's `ApplicationNumber`); one per license, not per licensee |
+| `licenseId` | `LC260500349` (the layer's `ApplicationNumber`); one per license, not per licensee |
 | `businessName` | `Echo Ridge Mountain Retreat` |
 | `licenseType` | `Short-Term Rentals` |
 | `status` | `Active` |
@@ -20,9 +20,9 @@ the registration layer lacks:
 | `locations` | `Property` `07606227000` (parcel id), `Address` `257 ECHO RIDGE DR, GIRDWOOD, AK 99587` |
 | `issuances` | `STR Certificate`, issued 2026-05-04, expires 2027-04-30, `Active`, `STR20260309` |
 
-`fetchLicensePages(licenseIds)` reads pages at `REQUESTS_PER_SECOND` (2/s)
+`fetchLicensePages(cityviewLicenseIds)` reads pages at `REQUESTS_PER_SECOND` (2/s)
 and returns a result per id, with the error rather than a page when a read
-failed. `parseLicensePage(html, licenseId)` is the parser alone.
+failed. `parseLicensePage(html, cityviewLicenseId)` is the parser alone.
 
 ## Parsing
 

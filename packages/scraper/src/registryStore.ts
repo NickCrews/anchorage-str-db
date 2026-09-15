@@ -6,10 +6,10 @@
 
 import type { Database } from '@anchorage-str-db/db/database';
 import { muniLicensePageReads, muniStrRegistrationObservations, muniStrRegistryRuns } from '@anchorage-str-db/db/schema';
-import { LICENSE_ID_SQL } from '@anchorage-str-db/db/views';
+import { CITYVIEW_LICENSE_ID_SQL } from '@anchorage-str-db/db/views';
 import type { LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
 import {
-  licenseIdFromStatusUrl,
+  cityviewLicenseIdFromStatusUrl,
   type Registration,
 } from '@anchorage-str-db/scraper-muni-str/registrationLayers';
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
@@ -59,7 +59,7 @@ export async function recordRegistrations(
     registrations.map((r) => ({
       registrationId: r.registrationId,
       scrapeDate,
-      licenseeId: r.licenseeId,
+      licenseId: r.licenseId,
       submittedDate: r.submittedDate,
       issuedDate: r.issuedDate,
       expiresDate: r.expiresDate,
@@ -106,9 +106,9 @@ export async function recordLicensePages(
   await db.appendRows(
     muniLicensePageReads,
     pages.map((page) => ({
-      licenseId: page.licenseId,
+      cityviewLicenseId: page.cityviewLicenseId,
       scrapeDate,
-      licenseeId: page.licenseeId,
+      licenseId: page.licenseId,
       businessName: page.businessName,
       licenseType: page.licenseType,
       status: page.status,
@@ -125,8 +125,8 @@ export async function recordLicensePages(
     { into: 'stg_license_pages' },
   );
   await db.run(
-    'DELETE FROM muni_license_page_reads WHERE (license_id, scrape_date) IN ' +
-      '(SELECT license_id, scrape_date FROM stg_license_pages)',
+    'DELETE FROM muni_license_page_reads WHERE (cityview_license_id, scrape_date) IN ' +
+      '(SELECT cityview_license_id, scrape_date FROM stg_license_pages)',
   );
   await db.run('INSERT INTO muni_license_page_reads SELECT * FROM stg_license_pages');
   await db.run('DROP TABLE stg_license_pages');
@@ -185,23 +185,23 @@ export async function pendingLicensePages(
 ): Promise<number[]> {
   const today = new Set(
     registrations.flatMap((r) => {
-      const id = licenseIdFromStatusUrl(r.statusUrl);
+      const id = cityviewLicenseIdFromStatusUrl(r.statusUrl);
       return id === null ? [] : [id];
     }),
   );
-  const reads = await db.rows<{ license_id: number; last_read: string }>(
-    'SELECT license_id, max(scrape_date) AS last_read FROM muni_license_page_reads GROUP BY license_id',
+  const reads = await db.rows<{ cityview_license_id: number; last_read: string }>(
+    'SELECT cityview_license_id, max(scrape_date) AS last_read FROM muni_license_page_reads GROUP BY cityview_license_id',
   );
-  const seen = await db.rows<{ license_id: number; last_seen: string }>(
-    `SELECT ${LICENSE_ID_SQL} AS license_id, max(scrape_date) AS last_seen ` +
+  const seen = await db.rows<{ cityview_license_id: number; last_seen: string }>(
+    `SELECT ${CITYVIEW_LICENSE_ID_SQL} AS cityview_license_id, max(scrape_date) AS last_seen ` +
       'FROM muni_str_registration_observations WHERE scrape_date < CAST(? AS DATE) ' +
-      'GROUP BY ALL HAVING license_id IS NOT NULL',
+      'GROUP BY ALL HAVING cityview_license_id IS NOT NULL',
     [scrapeDate],
   );
   return chooseLicensePages({
     today,
-    lastRead: new Map(reads.map((row) => [row.license_id, row.last_read])),
-    lastSeen: new Map(seen.map((row) => [row.license_id, row.last_seen])),
+    lastRead: new Map(reads.map((row) => [row.cityview_license_id, row.last_read])),
+    lastSeen: new Map(seen.map((row) => [row.cityview_license_id, row.last_seen])),
     scrapeDate,
     ...options,
   });

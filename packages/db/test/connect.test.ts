@@ -8,7 +8,7 @@ import { connect, LegacySchemaError } from '../src/connect.ts';
 import { Database } from '../src/database.ts';
 
 /** Migrations in `../drizzle`; every `connect` should end with exactly these applied. */
-const MIGRATION_COUNT = 2;
+const MIGRATION_COUNT = 3;
 
 const temporary: string[] = [];
 const open: Database[] = [];
@@ -77,7 +77,7 @@ describe('connect', () => {
     expect(await db.count('SELECT count(*) FROM drizzle.__drizzle_migrations')).toBe(MIGRATION_COUNT);
   });
 
-  it('renames the pre-0001 columns and keeps the rows', async () => {
+  it('renames the published columns and keeps the rows', async () => {
     const baseline = await readFile(
       new URL('../drizzle/0000_baseline.sql', import.meta.url),
       'utf8',
@@ -100,18 +100,23 @@ describe('connect', () => {
         "(scrape_date, run_started_at, registrations_seen, registrations_departed) " +
         "VALUES ('2026-09-14', '2026-09-14 12:00:00', 1, 0)",
     );
+    await seed.run(
+      "INSERT INTO muni_license_page_reads " +
+        "(license_id, scrape_date, licensee_number, business_name, locations, issuances) " +
+        "VALUES (13923, '2026-09-14', 'LC260500349', 'Echo LLC', [], [])",
+    );
     seed.close();
 
     const db = await connected(path);
 
     expect(
       await db.rows(
-        'SELECT registration_id, licensee_id, registered_address FROM registrations',
+        'SELECT registration_id, license_id, registered_address FROM registrations',
       ),
     ).toEqual([
       {
         registration_id: 'STR20260309',
-        licensee_id: 'LC260500349',
+        license_id: 'LC260500349',
         registered_address: '257 ECHO RIDGE DR',
       },
     ]);
@@ -123,6 +128,12 @@ describe('connect', () => {
     expect(
       await db.rows('SELECT registrations_lapsed FROM muni_str_registry_runs'),
     ).toEqual([{ registrations_lapsed: 0 }]);
+    // 0002 swaps the two: CityView's row id steps aside for the LC id.
+    expect(
+      await db.rows(
+        'SELECT cityview_license_id, license_id FROM muni_license_page_reads',
+      ),
+    ).toEqual([{ cityview_license_id: 13923, license_id: 'LC260500349' }]);
   });
 
   it('rejects a database with listings as a table', async () => {
@@ -154,7 +165,7 @@ describe('connect', () => {
 
   it('rejects a struct column with different fields', async () => {
     // Column names as `0000_baseline` creates them, since this file records no
-    // migration and 0001 renames `licensee_number` on the way through.
+    // migration and the renames run over it on the way through.
     const path = await preexisting(`
       CREATE TABLE muni_license_page_reads (
           license_id INTEGER NOT NULL,
