@@ -4,7 +4,12 @@
  * lives in its own package's `config.ts`.
  */
 
-export const DEFAULT_DB_PATH = 'data/anchorage_str.duckdb';
+import { fileURLToPath } from 'node:url';
+
+/** The repo's `data/anchorage_str.duckdb`, from any working directory. */
+export const DEFAULT_DB_PATH = fileURLToPath(
+  new URL('../../../data/anchorage_str.duckdb', import.meta.url),
+);
 
 /** Defined with the views, whose `is_current` it sets. */
 export { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views';

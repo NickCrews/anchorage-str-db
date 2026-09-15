@@ -38,9 +38,8 @@ pnpm daily --verbose --db /tmp/scratch.duckdb
 pnpm registry              # the Municipal STR registry, same database
 ```
 
-Run from the repo root. The root scripts call `packages/scraper/src/cli.ts`
-directly; `pnpm --filter` would set the working directory to the package and
-put the default `--db` under `packages/scraper/data/`.
+The default `--db` is resolved from the scraper's source, so it is the repo's
+`data/anchorage_str.duckdb` from any working directory.
 
 A run searches the Anchorage bounding box, fetches every listing's page and
 calendar and up to 1000 listings' earliest review dates, writes the day to the

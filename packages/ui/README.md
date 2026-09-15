@@ -35,18 +35,24 @@ publish), or `No number shown`.
 
 ## Running locally
 
-From the repo root:
+The viewer reads the repo's `data/anchorage_str.duckdb`. From the repo root:
 
 ```sh
-cp data/anchorage_str.duckdb packages/ui/public/anchorage_str.duckdb
+# Only without a local database: download the latest published one.
+mkdir -p data
+gh release download latest-data --repo NickCrews/anchorage-str-db -O data/anchorage_str.duckdb
+
 pnpm --filter @anchorage-str-db/ui dev
 ```
 
-Open the printed `localhost` URL. To load newer data, copy the file again and
-reload the page.
+Open the printed `localhost` URL. After a scrape, reload the page to see the
+new data.
 
 ## Data loading
 
-On startup, [`src/dataInitSlice.ts`](src/dataInitSlice.ts) fetches
-`public/anchorage_str.duckdb`, attaches it read-only, and creates a view in
-the main schema for each name in `LAKE_TABLES`.
+The `serveDatabase` plugin in [`vite.config.ts`](vite.config.ts) serves
+`data/anchorage_str.duckdb` at `/anchorage_str.duckdb` in dev and copies it
+into `dist/` on build; a build without it fails. On startup,
+[`src/dataInitSlice.ts`](src/dataInitSlice.ts) fetches that file, attaches it
+read-only, and creates a view in the main schema for each name in
+`LAKE_TABLES`.

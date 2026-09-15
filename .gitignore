@@ -9,9 +9,6 @@ dist-ssr/
 data/
 *.duckdb
 *.duckdb.wal
-# the data snapshot copied into the viewer for local dev — never commit
-# STR-level scrape data
-packages/ui/public/*.duckdb
 
 .env
 .vscode/*

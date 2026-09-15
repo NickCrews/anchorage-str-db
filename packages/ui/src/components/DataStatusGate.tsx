@@ -20,9 +20,8 @@ export const DataStatusGate: FC<{ children: ReactNode }> = ({ children }) => {
           {error}
         </pre>
         <p className="text-muted-foreground text-xs">
-          If this mentions a missing table, the snapshot in{' '}
-          <code>packages/ui/public/</code> predates the current schema — re-copy it
-          from <code>data/anchorage_str.duckdb</code>.
+          If this mentions a missing table, <code>data/anchorage_str.duckdb</code>{' '}
+          predates the current schema; the next scraper run migrates it.
         </p>
       </div>
     );
