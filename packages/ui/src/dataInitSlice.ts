@@ -1,32 +1,21 @@
+import { tableNames, viewNames } from '@anchorage-str-db/db/catalog';
+import { toSql } from '@anchorage-str-db/db/sql';
 import { isWasmDuckDbConnector } from '@sqlrooms/duckdb';
 import type { RoomShellSliceState } from '@sqlrooms/room-shell';
+import { sql } from 'drizzle-orm';
 import type { StateCreator } from 'zustand';
 
 /**
- * Tables and views from the attached database that are exposed in the main
- * schema. Read `calendar_current` rather than `airbnb_calendar_status` for
- * current availability.
+ * Everything the attached database holds, exposed in the main schema: the
+ * tables `@anchorage-str-db/db` declares and the views it builds over them.
+ * The list is the schema's, not one kept here, so a view added to the database
+ * shows up in the viewer without an edit.
+ *
+ * Read `calendar_current` rather than `airbnb_calendar_status` for current
+ * availability, and `listings` rather than `airbnb_listing_observations` for
+ * what a listing is now.
  */
-export const LAKE_TABLES = [
-  'listings',
-  'listings_current',
-  'listings_current_with_host',
-  'hosts',
-  'host_portfolios',
-  'airbnb_listing_observations',
-  'airbnb_listing_photos',
-  'listing_photos_current',
-  'airbnb_listing_first_reviews',
-  'airbnb_calendar_status',
-  'calendar_current',
-  'airbnb_scrape_runs',
-  'muni_str_registration_observations',
-  'muni_license_page_reads',
-  'muni_str_registry_runs',
-  'registrations',
-  'registrations_current',
-  'listings_current_with_registration',
-] as const;
+export const LAKE_TABLES: readonly string[] = [...tableNames, ...viewNames];
 
 const DB_FILE_URL = `${import.meta.env.BASE_URL}anchorage_str.duckdb`;
 const DB_FILE_NAME = 'anchorage_str.duckdb';
@@ -80,7 +69,8 @@ export function createDataInitSlice(): StateCreator<
 
           for (const table of LAKE_TABLES) {
             await connector.execute(
-              `CREATE OR REPLACE VIEW ${table} AS SELECT * FROM ${ATTACHED_SCHEMA}.${table}`,
+              toSql(sql`CREATE OR REPLACE VIEW ${sql.identifier(table)} AS
+                SELECT * FROM ${sql.identifier(ATTACHED_SCHEMA)}.${sql.identifier(table)}`),
             ).result;
           }
 

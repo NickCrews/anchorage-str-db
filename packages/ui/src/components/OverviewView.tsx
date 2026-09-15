@@ -1,3 +1,17 @@
+import {
+  airbnbListingFirstReviews,
+  airbnbListingObservations,
+  airbnbScrapeRuns,
+} from '@anchorage-str-db/db/schema';
+import { from, toSql } from '@anchorage-str-db/db/sql';
+import {
+  calendarCurrent,
+  latestRegistryDate,
+  listings,
+  listingsCurrent,
+  listingsCurrentWithRegistration,
+  registrationsCurrent,
+} from '@anchorage-str-db/db/viewSchema';
 import { useSql } from '@sqlrooms/duckdb';
 import {
   Area,
@@ -22,6 +36,7 @@ import {
   CardTitle,
   SpinnerPane,
 } from '@sqlrooms/ui';
+import { sql } from 'drizzle-orm';
 import type { FC } from 'react';
 import { monthLabel, pct, shortDate } from '../format';
 import { useRoomStore } from '../store';
@@ -63,30 +78,34 @@ export const OverviewView: FC = () => {
     latestRegistryDate: number | null;
   }>({
     enabled,
-    query: `
+    query: toSql(sql`
       WITH tonight AS (
         SELECT
           count(*)::INT AS operating_tonight,
-          count(*) FILTER (WHERE NOT available)::INT AS booked_tonight
-        FROM calendar_current
-        WHERE night_date = CURRENT_DATE
+          count(*) FILTER (WHERE NOT ${calendarCurrent.available})::INT AS booked_tonight
+        FROM ${from(calendarCurrent)}
+        WHERE ${calendarCurrent.nightDate} = CURRENT_DATE
       ),
-      active AS (SELECT count(*)::INT AS n FROM listings WHERE is_current),
+      active AS (
+        SELECT count(*)::INT AS n FROM ${from(listings)} WHERE ${listings.isCurrent}
+      ),
       last_year AS (
-        SELECT count(DISTINCT listing_id)::INT AS n
-        FROM airbnb_listing_observations
-        WHERE scrape_date >= CURRENT_DATE - INTERVAL 365 DAY
+        SELECT count(DISTINCT ${airbnbListingObservations.listingId})::INT AS n
+        FROM ${from(airbnbListingObservations)}
+        WHERE ${airbnbListingObservations.scrapeDate} >= CURRENT_DATE - INTERVAL 365 DAY
       ),
-      latest_run AS (SELECT max(scrape_date) AS d FROM airbnb_scrape_runs),
+      latest_run AS (
+        SELECT max(${airbnbScrapeRuns.scrapeDate}) AS d FROM ${from(airbnbScrapeRuns)}
+      ),
       registry AS (
         SELECT
-          (SELECT count(*) FROM registrations_current)::INT AS n,
-          (SELECT max(scrape_date) FROM muni_str_registry_runs WHERE registrations_seen IS NOT NULL) AS d
+          (SELECT count(*) FROM ${from(registrationsCurrent)})::INT AS n,
+          (SELECT ${latestRegistryDate.scrapeDate} FROM ${from(latestRegistryDate)}) AS d
       ),
       registered AS (
         SELECT count(*)::INT AS n
-        FROM listings_current_with_registration
-        WHERE registration_is_current
+        FROM ${from(listingsCurrentWithRegistration)}
+        WHERE ${listingsCurrentWithRegistration.registrationIsCurrent}
       )
       SELECT
         active.n AS "activeListings",
@@ -98,7 +117,7 @@ export const OverviewView: FC = () => {
         registered.n AS "listingsRegistered",
         registry.d AS "latestRegistryDate"
       FROM active, tonight, last_year, latest_run, registry, registered
-    `,
+    `),
   });
 
   const { data: occupancyData, isLoading: occupancyLoading } = useSql<{
@@ -107,16 +126,16 @@ export const OverviewView: FC = () => {
     vacant: number;
   }>({
     enabled,
-    query: `
+    query: toSql(sql`
       SELECT
-        night_date AS "nightDate",
-        count(*) FILTER (WHERE NOT available)::INT AS booked,
-        count(*) FILTER (WHERE available)::INT AS vacant
-      FROM calendar_current
-      WHERE night_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL 90 DAY
+        ${calendarCurrent.nightDate} AS "nightDate",
+        count(*) FILTER (WHERE NOT ${calendarCurrent.available})::INT AS booked,
+        count(*) FILTER (WHERE ${calendarCurrent.available})::INT AS vacant
+      FROM ${from(calendarCurrent)}
+      WHERE ${calendarCurrent.nightDate} BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL 90 DAY
       GROUP BY ALL
-      ORDER BY night_date
-    `,
+      ORDER BY ${calendarCurrent.nightDate}
+    `),
   });
 
   const { data: strTrendData, isLoading: strTrendLoading } = useSql<{
@@ -124,14 +143,14 @@ export const OverviewView: FC = () => {
     distinctStrs: number;
   }>({
     enabled,
-    query: `
+    query: toSql(sql`
       SELECT
-        date_trunc('month', scrape_date)::DATE AS "month",
-        count(DISTINCT listing_id)::INT AS "distinctStrs"
-      FROM airbnb_listing_observations
+        date_trunc('month', ${airbnbListingObservations.scrapeDate})::DATE AS "month",
+        count(DISTINCT ${airbnbListingObservations.listingId})::INT AS "distinctStrs"
+      FROM ${from(airbnbListingObservations)}
       GROUP BY ALL
-      ORDER BY month
-    `,
+      ORDER BY "month"
+    `),
   });
 
   // A listing's `first_available_date_est` comes from its first review when
@@ -144,19 +163,22 @@ export const OverviewView: FC = () => {
     reviewsUnread: number;
   }>({
     enabled,
-    query: `
+    query: toSql(sql`
       SELECT
-        year(l.first_available_date_est)::VARCHAR AS "year",
-        count(*) FILTER (WHERE coalesce(l.first_review_date <= l.first_seen_date, false))::INT
-          AS "fromReview",
-        count(*) FILTER (WHERE NOT coalesce(l.first_review_date <= l.first_seen_date, false))::INT
-          AS "fromFirstSeen",
-        count(*) FILTER (WHERE r.listing_id IS NULL)::INT AS "reviewsUnread"
-      FROM listings_current l
-      LEFT JOIN airbnb_listing_first_reviews r USING (listing_id)
+        year(${listingsCurrent.firstAvailableDateEst})::VARCHAR AS "year",
+        count(*) FILTER (
+          WHERE coalesce(${listingsCurrent.firstReviewDate} <= ${listingsCurrent.firstSeenDate}, false)
+        )::INT AS "fromReview",
+        count(*) FILTER (
+          WHERE NOT coalesce(${listingsCurrent.firstReviewDate} <= ${listingsCurrent.firstSeenDate}, false)
+        )::INT AS "fromFirstSeen",
+        count(*) FILTER (WHERE ${airbnbListingFirstReviews.listingId} IS NULL)::INT
+          AS "reviewsUnread"
+      FROM ${from(listingsCurrent)}
+      LEFT JOIN ${from(airbnbListingFirstReviews)} USING (listing_id)
       GROUP BY ALL
       ORDER BY "year"
-    `,
+    `),
   });
 
   // `bedrooms` is Airbnb's text ("2 bedrooms", "Studio"); rooms usually have none.
@@ -165,18 +187,18 @@ export const OverviewView: FC = () => {
     nListings: number;
   }>({
     enabled,
-    query: `
+    query: toSql(sql`
       SELECT
-        coalesce(bedrooms, 'Not listed') AS "bedroomsLabel",
+        coalesce(${listings.bedrooms}, 'Not listed') AS "bedroomsLabel",
         count(*)::INT AS "nListings"
-      FROM listings
-      WHERE is_current
-      GROUP BY bedrooms
+      FROM ${from(listings)}
+      WHERE ${listings.isCurrent}
+      GROUP BY ${listings.bedrooms}
       ORDER BY
-        bedrooms IS NULL,
-        try_cast(regexp_extract(bedrooms, '^\\d+') AS INTEGER) NULLS FIRST,
-        bedrooms
-    `,
+        ${listings.bedrooms} IS NULL,
+        try_cast(regexp_extract(${listings.bedrooms}, '^\\d+') AS INTEGER) NULLS FIRST,
+        ${listings.bedrooms}
+    `),
   });
 
   const kpi = kpiData?.toArray()[0];

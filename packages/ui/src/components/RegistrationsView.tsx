@@ -1,6 +1,8 @@
+import {from, toSql} from '@anchorage-str-db/db/sql';
+import {registrations} from '@anchorage-str-db/db/viewSchema';
 import {QueryDataTable, QueryDataTableActionsMenu} from '@sqlrooms/data-table';
-import {escapeVal} from '@sqlrooms/duckdb';
 import {Input, ToggleGroup, ToggleGroupItem} from '@sqlrooms/ui';
+import {sql, type SQL} from 'drizzle-orm';
 import {useMemo, useState, type FC} from 'react';
 import {DataStatusGate} from './DataStatusGate';
 
@@ -9,26 +11,26 @@ import {DataStatusGate} from './DataStatusGate';
  * is re-read about weekly, so they can be NULL for a new registration.
  * `airbnb_listings_current` counts current Airbnb listings showing the number.
  */
-const BASE_QUERY = `
+const BASE_QUERY = sql`
   SELECT
-    registration_number,
-    business_name,
-    location,
-    community_council,
-    parcel_type,
-    parcel_id,
-    airbnb_listings_current,
-    issued_date,
-    expires_date,
-    status,
-    license_status,
-    license_description,
-    license_read_date,
-    first_seen_date,
-    last_seen_date,
-    is_current,
-    status_url
-  FROM registrations
+    ${registrations.registrationNumber},
+    ${registrations.businessName},
+    ${registrations.location},
+    ${registrations.communityCouncil},
+    ${registrations.parcelType},
+    ${registrations.parcelId},
+    ${registrations.airbnbListingsCurrent},
+    ${registrations.issuedDate},
+    ${registrations.expiresDate},
+    ${registrations.status},
+    ${registrations.licenseStatus},
+    ${registrations.licenseDescription},
+    ${registrations.licenseReadDate},
+    ${registrations.firstSeenDate},
+    ${registrations.lastSeenDate},
+    ${registrations.isCurrent},
+    ${registrations.statusUrl}
+  FROM ${from(registrations)}
   WHERE true
 `;
 
@@ -40,10 +42,10 @@ const SCOPES = {
 } as const;
 type Scope = keyof typeof SCOPES;
 
-const SCOPE_FILTER: Record<Scope, string | null> = {
-  current: 'is_current',
-  unlisted: 'is_current AND airbnb_listings_current = 0',
-  lapsed: 'NOT is_current',
+const SCOPE_FILTER: Record<Scope, SQL | null> = {
+  current: sql`${registrations.isCurrent}`,
+  unlisted: sql`${registrations.isCurrent} AND ${registrations.airbnbListingsCurrent} = 0`,
+  lapsed: sql`NOT ${registrations.isCurrent}`,
   all: null,
 };
 
@@ -52,20 +54,24 @@ export const RegistrationsView: FC = () => {
   const [scope, setScope] = useState<Scope>('current');
 
   const query = useMemo(() => {
-    const filters: string[] = [];
+    const filters: SQL[] = [];
     const scopeFilter = SCOPE_FILTER[scope];
     if (scopeFilter) filters.push(scopeFilter);
     const term = search.trim();
     if (term) {
-      const pattern = escapeVal(`%${term}%`);
+      const pattern = `%${term}%`;
       filters.push(
-        `(registration_number ILIKE ${pattern} OR business_name ILIKE ${pattern}` +
-          ` OR location ILIKE ${pattern} OR community_council ILIKE ${pattern}` +
-          ` OR parcel_id ILIKE ${pattern} OR license_description ILIKE ${pattern})`,
+        sql`(${registrations.registrationNumber} ILIKE ${pattern}
+          OR ${registrations.businessName} ILIKE ${pattern}
+          OR ${registrations.location} ILIKE ${pattern}
+          OR ${registrations.communityCouncil} ILIKE ${pattern}
+          OR ${registrations.parcelId} ILIKE ${pattern}
+          OR ${registrations.licenseDescription} ILIKE ${pattern})`,
       );
     }
-    const where = filters.map((f) => `\n  AND ${f}`).join('');
-    return `${BASE_QUERY}${where}\n  ORDER BY issued_date DESC NULLS LAST, registration_number`;
+    const where = sql.join(filters.map((filter) => sql`\n  AND ${filter}`));
+    return toSql(sql`${BASE_QUERY}${where}
+  ORDER BY ${registrations.issuedDate} DESC NULLS LAST, ${registrations.registrationNumber}`);
   }, [search, scope]);
 
   return (

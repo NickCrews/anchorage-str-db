@@ -16,9 +16,11 @@
  * placeholder point) happens in the views, so the raw tables can always be
  * re-derived.
  *
- * Views are not in the Drizzle schema: they use DuckDB syntax drizzle-kit
+ * The SQL here is what creates the views: they use DuckDB syntax drizzle-kit
  * cannot express, and recreating them on connect applies a change without a
- * migration.
+ * migration. `viewSchema.ts` declares the columns that come out, for whoever
+ * queries them; `connect` checks the two against each other, so a change here
+ * that adds, drops or retypes a column has to be carried over there.
  */
 
 import { NO_MATCH_GEOCODED_ADDRESS } from '@anchorage-str-db/scraper-muni-str/registrationLayers';

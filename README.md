@@ -168,7 +168,8 @@ A pnpm workspace sharing `tsconfig.base.json`:
 - `packages/muni-licenses`: fetches and parses the Muni's license pages, in
   memory.
 - `packages/utils`: dependency-free helpers shared by the scrapers.
-- `packages/ui`: the browser viewer.
+- `packages/ui`: the browser viewer. Queries DuckDB-WASM through the same
+  Drizzle schema the scraper writes with.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) to run or change the pipeline, and
 the [PRD](./docs/prd.md) for goals.

@@ -1,9 +1,19 @@
+import type {WasmRow} from '@anchorage-str-db/db/rows';
+import {airbnbListingObservations} from '@anchorage-str-db/db/schema';
+import {from, toSql} from '@anchorage-str-db/db/sql';
+import {
+  listingsCurrentWithRegistration,
+  registrations,
+  registrationsCurrent,
+} from '@anchorage-str-db/db/viewSchema';
 import {
   buildColorScaleLegend,
   type ResolvedColorLegend,
 } from '@sqlrooms/color-scales';
 import {DeckJsonMap} from '@sqlrooms/deck';
 import type {DeckDatasetInput, DeckJsonMapProps} from '@sqlrooms/deck';
+import {sql} from 'drizzle-orm';
+import {alias} from 'drizzle-orm/pg-core';
 import {useCallback, useMemo, useState, type FC} from 'react';
 import {registrationStatusSql} from '../registrationStatus';
 import {DataStatusGate} from './DataStatusGate';
@@ -24,6 +34,11 @@ const ANCHORAGE_VIEW_STATE = {
 // Light basemap to match the app's light default theme.
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
 
+const l = alias(listingsCurrentWithRegistration, 'l');
+const r = alias(registrations, 'r');
+/** Each listing's latest observation: one row of the table it comes from. */
+const o = alias(airbnbListingObservations, 'o');
+
 /**
  * One point per short-term rental we know of, as WKB geometry for
  * `@sqlrooms/deck` (needs the spatial extension loaded in `store.ts`): every
@@ -36,54 +51,60 @@ const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json
  * license address or an exact Airbnb pin, and false for an Airbnb pin shifted
  * by up to a few hundred meters.
  */
-const RENTALS_QUERY = `
+const RENTALS_QUERY = sql`
   SELECT
-    l.name,
-    l.bedrooms,
-    l.room_type,
-    o.rating_value,
-    o.review_count,
-    o.price_hint_per_night,
-    ${registrationStatusSql('l')} AS registration_status,
-    l.str_registration_id,
-    l.registration_location,
+    ${l.name},
+    ${l.bedrooms},
+    ${l.roomType},
+    ${o.ratingValue},
+    ${o.reviewCount},
+    ${o.priceHintPerNight},
+    ${registrationStatusSql(l)} AS registration_status,
+    ${l.strRegistrationId},
+    ${l.registrationLocation},
     CASE
-      WHEN r.geocoded_lat IS NOT NULL THEN 'License address'
-      WHEN l.location_is_exact THEN 'Exact Airbnb pin'
+      WHEN ${r.geocodedLat} IS NOT NULL THEN 'License address'
+      WHEN ${l.locationIsExact} THEN 'Exact Airbnb pin'
       ELSE 'Approximate Airbnb pin'
     END AS location_source,
-    r.geocoded_lat IS NOT NULL OR coalesce(l.location_is_exact, false) AS is_precise,
+    ${r.geocodedLat} IS NOT NULL OR coalesce(${l.locationIsExact}, false) AS is_precise,
     ST_AsWKB(ST_Point(
-      coalesce(r.geocoded_lng, l.location_lng),
-      coalesce(r.geocoded_lat, l.location_lat)
+      coalesce(${r.geocodedLng}, ${l.locationLng}),
+      coalesce(${r.geocodedLat}, ${l.locationLat})
     )) AS geometry
-  FROM listings_current_with_registration l
-  LEFT JOIN registrations r
-    ON r.registration_number = l.str_registration_id
-    AND r.geocoded_lat IS NOT NULL
-    AND r.geocoded_lng IS NOT NULL
+  FROM ${from(listingsCurrentWithRegistration, l)}
+  LEFT JOIN ${from(registrations, r)}
+    ON ${r.registrationNumber} = ${l.strRegistrationId}
+    AND ${r.geocodedLat} IS NOT NULL
+    AND ${r.geocodedLng} IS NOT NULL
   LEFT JOIN (
     SELECT *
-    FROM airbnb_listing_observations
-    QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY scrape_date DESC) = 1
-  ) o ON o.listing_id = l.listing_id
-  WHERE coalesce(r.geocoded_lat, l.location_lat) IS NOT NULL
-    AND coalesce(r.geocoded_lng, l.location_lng) IS NOT NULL
+    FROM ${from(airbnbListingObservations)}
+    QUALIFY row_number() OVER (
+      PARTITION BY ${airbnbListingObservations.listingId}
+      ORDER BY ${airbnbListingObservations.scrapeDate} DESC
+    ) = 1
+  ) ${o} ON ${o.listingId} = ${l.listingId}
+  WHERE coalesce(${r.geocodedLat}, ${l.locationLat}) IS NOT NULL
+    AND coalesce(${r.geocodedLng}, ${l.locationLng}) IS NOT NULL
 
   UNION ALL BY NAME
 
   SELECT
-    business_name AS name,
-    '${NOT_ON_AIRBNB}' AS registration_status,
-    registration_number AS str_registration_id,
-    location AS registration_location,
+    ${registrationsCurrent.businessName} AS name,
+    ${NOT_ON_AIRBNB} AS registration_status,
+    ${registrationsCurrent.registrationNumber} AS str_registration_id,
+    ${registrationsCurrent.location} AS registration_location,
     'License address' AS location_source,
     true AS is_precise,
-    ST_AsWKB(ST_Point(geocoded_lng, geocoded_lat)) AS geometry
-  FROM registrations_current
-  WHERE airbnb_listings_current = 0
-    AND geocoded_lat IS NOT NULL
-    AND geocoded_lng IS NOT NULL
+    ST_AsWKB(ST_Point(
+      ${registrationsCurrent.geocodedLng},
+      ${registrationsCurrent.geocodedLat}
+    )) AS geometry
+  FROM ${from(registrationsCurrent)}
+  WHERE ${registrationsCurrent.airbnbListingsCurrent} = 0
+    AND ${registrationsCurrent.geocodedLat} IS NOT NULL
+    AND ${registrationsCurrent.geocodedLng} IS NOT NULL
 `;
 
 type ColorMode = 'registration' | 'price';
@@ -149,18 +170,19 @@ const createLayers = (colorMode: ColorMode) => [
   },
 ];
 
-type RentalRow = {
-  name: string | null;
-  bedrooms: string | null;
-  room_type: string | null;
-  rating_value: number | null;
-  review_count: number | null;
-  price_hint_per_night: number | null;
-  registration_status: string | null;
-  str_registration_id: string | null;
-  registration_location: string | null;
-  location_source: string;
-};
+/** A row of `RENTALS_QUERY`, as DuckDB-WASM hands it to the tooltip. */
+type RentalRow = Pick<
+  WasmRow<typeof listingsCurrentWithRegistration>,
+  'name' | 'bedrooms' | 'room_type' | 'str_registration_id' | 'registration_location'
+> &
+  Pick<
+    WasmRow<typeof airbnbListingObservations>,
+    'rating_value' | 'review_count' | 'price_hint_per_night'
+  > & {
+    // Columns the query itself derives.
+    registration_status: string | null;
+    location_source: string;
+  };
 
 const rentalTooltip = (row: RentalRow): string[] => {
   const lines: string[] = [];
@@ -258,7 +280,7 @@ export const MapView: FC = () => {
   const datasets = useMemo<Record<string, DeckDatasetInput>>(
     () => ({
       [RENTALS_DATASET]: {
-        sqlQuery: RENTALS_QUERY,
+        sqlQuery: toSql(RENTALS_QUERY),
         geometryColumn: 'geometry',
         geometryEncodingHint: 'wkb',
       },

@@ -101,6 +101,18 @@ describe('connect', () => {
     );
   });
 
+  it('rejects a view the schema does not declare', async () => {
+    const path = await tempPath();
+    (await connect(path)).close();
+    const db = await Database.open(path);
+    await db.run('CREATE VIEW listings_by_council AS SELECT 1 AS n');
+    db.close();
+
+    await expect(connect(path)).rejects.toThrow(
+      'this database has views `viewSchema.ts` does not declare: `listings_by_council`',
+    );
+  });
+
   it('rejects a struct column with different fields', async () => {
     const path = await preexisting(`
       CREATE TABLE muni_license_page_reads (

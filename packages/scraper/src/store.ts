@@ -5,6 +5,7 @@
  */
 
 import type { Database } from '@anchorage-str-db/db/database';
+import type { NodeRow } from '@anchorage-str-db/db/rows';
 import {
   airbnbCalendarStatus,
   airbnbHostObservations,
@@ -67,7 +68,7 @@ export async function recordObservations(
   // exactly.
   const previouslySeen = new Set(
     (
-      await db.rows<{ listing_id: string }>(
+      await db.rows<Pick<NodeRow<typeof airbnbListingObservations>, 'listing_id'>>(
         'SELECT DISTINCT listing_id FROM airbnb_listing_observations',
       )
     ).map((row) => BigInt(row.listing_id)),
@@ -312,7 +313,9 @@ export async function recordHostObservations(
   await db.run('DELETE FROM airbnb_host_observations WHERE scrape_date = CAST(? AS DATE)', [scrapeDate]);
   const previouslySeen = new Set(
     (
-      await db.rows<{ host_id: string }>('SELECT DISTINCT host_id FROM airbnb_host_observations')
+      await db.rows<Pick<NodeRow<typeof airbnbHostObservations>, 'host_id'>>(
+        'SELECT DISTINCT host_id FROM airbnb_host_observations',
+      )
     ).map((row) => row.host_id),
   );
   const owners = (
@@ -448,7 +451,9 @@ export async function pendingFirstReviews(
 ): Promise<FirstReviewCandidate[]> {
   const resolved = new Set(
     (
-      await db.rows<{ listing_id: string }>('SELECT listing_id FROM airbnb_listing_first_reviews')
+      await db.rows<Pick<NodeRow<typeof airbnbListingFirstReviews>, 'listing_id'>>(
+        'SELECT listing_id FROM airbnb_listing_first_reviews',
+      )
     ).map((row) => BigInt(row.listing_id)),
   );
   return listings

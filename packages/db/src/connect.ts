@@ -1,16 +1,21 @@
 /**
  * Opening the database: reject an incompatible file, apply the migrations in
- * `../drizzle`, check the tables against `schema.ts`, and recreate the views.
+ * `../drizzle`, check the tables against `schema.ts`, recreate the views and
+ * check them against `viewSchema.ts`.
  */
 
 import { fileURLToPath } from 'node:url';
 
 import { migrate } from '@duckdbfan/drizzle-duckdb';
-import { getTableName, is } from 'drizzle-orm';
-import { PgTable } from 'drizzle-orm/pg-core';
+import {
+  getTableName,
+  getViewName,
+  getViewSelectedFields,
+  type Column as SchemaColumn,
+} from 'drizzle-orm';
 
+import { tables, views } from './catalog.ts';
 import { Database } from './database.ts';
-import * as schema from './schema.ts';
 import { viewsSql } from './views.ts';
 
 const MIGRATIONS_FOLDER = fileURLToPath(new URL('../drizzle', import.meta.url));
@@ -37,6 +42,7 @@ export async function connect(path: string): Promise<Database> {
     await migrate(db.orm, { migrationsFolder: MIGRATIONS_FOLDER });
     await rejectMismatchedTables(db);
     await db.run(viewsSql());
+    await rejectMismatchedViews(db);
   } catch (err) {
     db.close();
     throw err;
@@ -44,9 +50,7 @@ export async function connect(path: string): Promise<Database> {
   return db;
 }
 
-const TABLE_NAMES: ReadonlySet<string> = new Set(
-  Object.values(schema).flatMap((table) => (is(table, PgTable) ? [getTableName(table)] : [])),
-);
+const TABLE_NAMES: ReadonlySet<string> = new Set(tables.map(getTableName));
 
 /**
  * Every table must be one `schema.ts` declares. A table from an older schema
@@ -101,8 +105,7 @@ function expected(): Promise<Database> {
  */
 async function rejectMismatchedTables(db: Database): Promise<void> {
   const reference = await expected();
-  for (const table of Object.values(schema)) {
-    if (!is(table, PgTable)) continue;
+  for (const table of tables) {
     const name = getTableName(table);
     const want = await reference.rows<Column>(COLUMNS_SQL, [name]);
     const have = await db.rows<Column>(COLUMNS_SQL, [name]);
@@ -115,6 +118,73 @@ async function rejectMismatchedTables(db: Database): Promise<void> {
       if (w !== h) {
         throw new LegacySchemaError(
           `\`${name}\` column ${index + 1} is \`${h}\`, not \`${w}\`. ${NO_MIGRATION}`,
+        );
+      }
+    }
+  }
+}
+
+/** How DuckDB spells each of the pg types the columns are declared with. */
+const DUCKDB_TYPES: Readonly<Record<string, string>> = {
+  varchar: 'VARCHAR',
+  bigint: 'BIGINT',
+  integer: 'INTEGER',
+  'double precision': 'DOUBLE',
+  boolean: 'BOOLEAN',
+  date: 'DATE',
+  timestamp: 'TIMESTAMP',
+};
+
+/** The DuckDB type a declared column stands for, as `duckdb_columns()` names it. */
+function duckDbType(column: SchemaColumn): string {
+  // A `customType` names its DuckDB type outright, so it passes through.
+  const declared = column.getSQLType();
+  return DUCKDB_TYPES[declared] ?? declared;
+}
+
+/**
+ * Types as written and as `duckdb_columns()` reports them differ in case and
+ * in quoting: a struct field named for a keyword comes back as
+ * `STRUCT("type" VARCHAR, ...)`.
+ */
+const normalizeType = (type: string) => type.replaceAll('"', '').replace(/\s+/g, ' ').toUpperCase();
+
+/**
+ * Every view must match its declaration in `viewSchema.ts`, column for
+ * column. The declarations are what a reader writes queries from — the viewer
+ * builds every one of its queries out of them — so they have to describe the
+ * view `viewsSql` just created. A mismatch is a change to `views.ts` that has
+ * not been carried over, never anything about the file being opened.
+ */
+async function rejectMismatchedViews(db: Database): Promise<void> {
+  const declared = new Set(views.map(getViewName));
+  const undeclared = (
+    await db.rows<{ view_name: string }>(
+      'SELECT view_name FROM duckdb_views() ' +
+        "WHERE database_name = current_database() AND schema_name = 'main' ORDER BY view_name",
+    )
+  )
+    .map((row) => row.view_name)
+    .filter((name) => !declared.has(name));
+  if (undeclared.length > 0) {
+    throw new Error(
+      `this database has views \`viewSchema.ts\` does not declare: ` +
+        `${undeclared.map((name) => `\`${name}\``).join(', ')}.`,
+    );
+  }
+
+  for (const view of views) {
+    const name = getViewName(view);
+    const want = Object.values(getViewSelectedFields(view)) as SchemaColumn[];
+    const have = await db.rows<Column>(COLUMNS_SQL, [name]);
+    for (let index = 0; index < Math.max(want.length, have.length); index++) {
+      const [w, h] = [want[index], have[index]];
+      const declaredColumn = w === undefined ? 'nothing' : `${w.name} ${duckDbType(w)}`;
+      const actualColumn = h === undefined ? 'nothing' : `${h.column_name} ${h.data_type}`;
+      if (normalizeType(declaredColumn) !== normalizeType(actualColumn)) {
+        throw new Error(
+          `\`${name}\` column ${index + 1} is \`${actualColumn}\`, but \`viewSchema.ts\` ` +
+            `declares \`${declaredColumn}\`.`,
         );
       }
     }

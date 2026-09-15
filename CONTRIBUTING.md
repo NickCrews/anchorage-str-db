@@ -16,7 +16,7 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 | `packages/scraper-muni-str` | fetches the Municipal Clerk's STR registration layers from ArcGIS | `utils` |
 | `packages/muni-licenses` | fetches and parses the Muni's CityView license pages | `utils` |
 | `packages/utils` | dates, logging, concurrency, request pacing and retries, `fetch` | none |
-| `packages/ui` | the browser viewer | |
+| `packages/ui` | the browser viewer | `db` (schema only), `drizzle-orm`, SQLRooms |
 
 Provider packages (`scraper-airbnb`, `scraper-muni-str`, `muni-licenses`)
 work in memory: they return typed records and never touch DuckDB, so each
@@ -73,7 +73,38 @@ To change a table:
 
 The next run applies the migration to the published database.
 
-Views are SQL in `packages/db/src/views.ts`. They need no migration.
+Views are SQL in `packages/db/src/views.ts`. They need no migration, but
+their columns are declared a second time, as Drizzle views, in
+`packages/db/src/viewSchema.ts`: that is what a reader writes queries from,
+and the viewer's every query is built out of it. `connect` compares the two
+and refuses the database if they differ, so a view that gains, loses or
+retypes a column has to be re-declared there in the same order. The error
+names the view and the column.
+
+### Reading the database from the browser
+
+The viewer runs the same schema through DuckDB-WASM, so part of
+`packages/db` has to be importable in a browser: `schema.ts`, `viewSchema.ts`,
+`catalog.ts`, `columns.ts`, `sql.ts` and `rows.ts` reach nothing but
+`drizzle-orm` and `@duckdbfan/drizzle-duckdb/helpers`, that package's
+driverless entry point. The scraper's side is `database.ts` and `connect.ts`,
+which load `@duckdb/node-api`, a native addon, and `views.ts`, which reads a
+constant from the Muni scraper. `packages/db/test/browserSafe.test.ts` walks
+the imports and fails if the two sides meet.
+
+What crosses the line is the schema, not a connection:
+
+- The viewer builds its SQL from the same table and view objects the scraper
+  writes through, with `toSql` (`sql.ts`) rendering a Drizzle query to one
+  string for SQLRooms to run. A renamed column is a type error in the viewer
+  rather than a query that returns nothing.
+- The two drivers hand back different JavaScript for the same column, so
+  `rows.ts` has a row type for each: `NodeRow` for `Database.rows()`, where a
+  `DATE` is `'2026-09-11'` and a `BIGINT` a decimal string, and `WasmRow` for
+  the viewer, where the same `DATE` is epoch milliseconds and the `BIGINT` a
+  `bigint`.
+- A query's own invented columns (a `status` a `CASE` derives, a count it
+  names) stay plain SQL text. Only database relations come from the schema.
 
 ### Dependencies
 

@@ -1,9 +1,19 @@
+import {from, toSql} from '@anchorage-str-db/db/sql';
+import {
+  listingsCurrentWithHost,
+  listingsCurrentWithRegistration,
+} from '@anchorage-str-db/db/viewSchema';
 import {QueryDataTable, QueryDataTableActionsMenu} from '@sqlrooms/data-table';
-import {escapeVal} from '@sqlrooms/duckdb';
 import {Input, ToggleGroup, ToggleGroupItem} from '@sqlrooms/ui';
+import {sql, type SQL} from 'drizzle-orm';
+import {alias} from 'drizzle-orm/pg-core';
 import {useMemo, useState, type FC} from 'react';
 import {registrationStatusSql} from '../registrationStatus';
 import {DataStatusGate} from './DataStatusGate';
+
+const l = alias(listingsCurrentWithHost, 'l');
+/** The same view with a `status` column added; the join below builds it. */
+const r = alias(listingsCurrentWithRegistration, 'r');
 
 /**
  * One row per host with current listings. `business_names` are the names on
@@ -11,28 +21,30 @@ import {DataStatusGate} from './DataStatusGate';
  * cite many owners' registrations, so a host is not an owner (see
  * docs/data_model.md). `search_text` exists only for filtering.
  */
-const HOSTS_QUERY = `
+const HOSTS_QUERY = sql`
   SELECT
-    l.host_name,
-    l.host_id,
-    any_value(l.host_years_hosting) AS host_years_hosting,
+    ${l.hostName},
+    ${l.hostId},
+    any_value(${l.hostYearsHosting}) AS host_years_hosting,
     count(*)::INT AS listings_current,
-    any_value(l.host_listings_ever_seen) AS host_listings_ever_seen,
-    count(DISTINCT l.str_registration_id)::INT AS registration_numbers,
+    any_value(${l.hostListingsEverSeen}) AS host_listings_ever_seen,
+    count(DISTINCT ${l.strRegistrationId})::INT AS registration_numbers,
     count(*) FILTER (WHERE status = 'Registered')::INT AS listings_registered,
-    count(*) FILTER (WHERE status = 'Registration not current')::INT AS listings_registration_not_current,
-    count(*) FILTER (WHERE status = 'Number not in registry')::INT AS listings_number_not_in_registry,
+    count(*) FILTER (WHERE status = 'Registration not current')::INT
+      AS listings_registration_not_current,
+    count(*) FILTER (WHERE status = 'Number not in registry')::INT
+      AS listings_number_not_in_registry,
     count(*) FILTER (WHERE status = 'No number shown')::INT AS listings_no_number_shown,
-    string_agg(DISTINCT trim(r.registration_business_name), '; ') AS business_names,
-    'https://www.airbnb.com/users/show/' || l.host_id AS host_url,
-    concat_ws(' ', l.host_name, string_agg(DISTINCT r.registration_business_name, ' '),
-      string_agg(DISTINCT l.str_registration_id, ' ')) AS search_text
-  FROM listings_current_with_host l
+    string_agg(DISTINCT trim(${r.registrationBusinessName}), '; ') AS business_names,
+    'https://www.airbnb.com/users/show/' || ${l.hostId} AS host_url,
+    concat_ws(' ', ${l.hostName}, string_agg(DISTINCT ${r.registrationBusinessName}, ' '),
+      string_agg(DISTINCT ${l.strRegistrationId}, ' ')) AS search_text
+  FROM ${from(listingsCurrentWithHost, l)}
   JOIN (
-    SELECT *, ${registrationStatusSql('r')} AS status
-    FROM listings_current_with_registration r
-  ) r USING (listing_id)
-  GROUP BY l.host_id, l.host_name
+    SELECT *, ${registrationStatusSql(listingsCurrentWithRegistration)} AS status
+    FROM ${from(listingsCurrentWithRegistration)}
+  ) ${r} USING (listing_id)
+  GROUP BY ${l.hostId}, ${l.hostName}
 `;
 
 const SCOPES = {
@@ -42,10 +54,11 @@ const SCOPES = {
 } as const;
 type Scope = keyof typeof SCOPES;
 
-const SCOPE_FILTER: Record<Scope, string | null> = {
+// The columns `HOSTS_QUERY` counts up, so these are its names, not a view's.
+const SCOPE_FILTER: Record<Scope, SQL | null> = {
   all: null,
-  multi: 'listings_current >= 2',
-  noNumber: 'listings_no_number_shown > 0',
+  multi: sql`listings_current >= 2`,
+  noNumber: sql`listings_no_number_shown > 0`,
 };
 
 export const HostsView: FC = () => {
@@ -53,16 +66,16 @@ export const HostsView: FC = () => {
   const [scope, setScope] = useState<Scope>('all');
 
   const query = useMemo(() => {
-    const filters: string[] = [];
+    const filters: SQL[] = [];
     const scopeFilter = SCOPE_FILTER[scope];
     if (scopeFilter) filters.push(scopeFilter);
     const term = search.trim();
-    if (term) filters.push(`search_text ILIKE ${escapeVal(`%${term}%`)}`);
-    const where = filters.map((f) => `\n  AND ${f}`).join('');
-    return (
-      `SELECT * EXCLUDE (search_text)\nFROM (${HOSTS_QUERY})\nWHERE true${where}` +
-      `\nORDER BY listings_current DESC, host_name`
-    );
+    if (term) filters.push(sql`search_text ILIKE ${`%${term}%`}`);
+    const where = sql.join(filters.map((filter) => sql`\n  AND ${filter}`));
+    return toSql(sql`SELECT * EXCLUDE (search_text)
+FROM (${HOSTS_QUERY})
+WHERE true${where}
+ORDER BY listings_current DESC, host_name`);
   }, [search, scope]);
 
   return (

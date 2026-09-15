@@ -1,3 +1,9 @@
+import { from, toSql } from '@anchorage-str-db/db/sql';
+import {
+  latestRegistryDate,
+  listingsCurrentWithRegistration,
+  registrationsCurrent,
+} from '@anchorage-str-db/db/viewSchema';
 import { useSql } from '@sqlrooms/duckdb';
 import {
   Bar,
@@ -20,6 +26,7 @@ import {
   CardTitle,
   SpinnerPane,
 } from '@sqlrooms/ui';
+import { sql } from 'drizzle-orm';
 import type { FC } from 'react';
 import { pct, shortDate } from '../format';
 import { registrationStatusSql } from '../registrationStatus';
@@ -39,16 +46,19 @@ const councilConfig = {
   listings: { label: 'Airbnb listings citing them', color: 'hsl(var(--chart-2))' },
 } satisfies ChartConfig;
 
-const STATUS_COUNTS = `
+const STATUS_COUNTS = sql`
   count(*) FILTER (WHERE status = 'Registered')::INT AS "registered",
   count(*) FILTER (WHERE status = 'Registration not current')::INT AS "notCurrent",
   count(*) FILTER (WHERE status = 'Number not in registry')::INT AS "notInRegistry",
   count(*) FILTER (WHERE status = 'No number shown')::INT AS "noNumber"
 `;
 
-const LISTINGS_WITH_STATUS = `
-  SELECT r.room_type, ${registrationStatusSql('r')} AS status
-  FROM listings_current_with_registration r
+// `status` is this query's own column, so the counts above read it by name.
+const LISTINGS_WITH_STATUS = sql`
+  SELECT
+    ${listingsCurrentWithRegistration.roomType},
+    ${registrationStatusSql(listingsCurrentWithRegistration)} AS status
+  FROM ${from(listingsCurrentWithRegistration)}
 `;
 
 export const RegistrationCard: FC = () => {
@@ -65,17 +75,19 @@ export const RegistrationCard: FC = () => {
     registryDate: number | null;
   }>({
     enabled,
-    query: `
+    query: toSql(sql`
       SELECT
         count(*)::INT AS "listings",
         ${STATUS_COUNTS},
-        (SELECT count(*) FROM registrations_current)::INT AS "registrations",
-        (SELECT count(*) FROM registrations_current WHERE airbnb_listings_current = 0)::INT
-          AS "registrationsWithoutListing",
-        (SELECT max(scrape_date) FROM muni_str_registry_runs WHERE registrations_seen IS NOT NULL)
+        (SELECT count(*) FROM ${from(registrationsCurrent)})::INT AS "registrations",
+        (
+          SELECT count(*) FROM ${from(registrationsCurrent)}
+          WHERE ${registrationsCurrent.airbnbListingsCurrent} = 0
+        )::INT AS "registrationsWithoutListing",
+        (SELECT ${latestRegistryDate.scrapeDate} FROM ${from(latestRegistryDate)})
           AS "registryDate"
       FROM (${LISTINGS_WITH_STATUS})
-    `,
+    `),
   });
 
   const { data: byRoomTypeData, isLoading: byRoomTypeLoading } = useSql<{
@@ -86,12 +98,12 @@ export const RegistrationCard: FC = () => {
     noNumber: number;
   }>({
     enabled,
-    query: `
+    query: toSql(sql`
       SELECT coalesce(room_type, 'Not listed') AS "roomType", ${STATUS_COUNTS}
       FROM (${LISTINGS_WITH_STATUS})
       GROUP BY room_type
       ORDER BY count(*) DESC
-    `,
+    `),
   });
 
   const { data: councilData, isLoading: councilLoading } = useSql<{
@@ -100,16 +112,16 @@ export const RegistrationCard: FC = () => {
     listings: number;
   }>({
     enabled,
-    query: `
+    query: toSql(sql`
       SELECT
-        coalesce(community_council, 'Address not geocoded') AS "council",
+        coalesce(${registrationsCurrent.communityCouncil}, 'Address not geocoded') AS "council",
         count(*)::INT AS "registrations",
-        sum(airbnb_listings_current)::INT AS "listings"
-      FROM registrations_current
-      GROUP BY community_council
-      ORDER BY count(*) DESC, community_council
+        sum(${registrationsCurrent.airbnbListingsCurrent})::INT AS "listings"
+      FROM ${from(registrationsCurrent)}
+      GROUP BY ${registrationsCurrent.communityCouncil}
+      ORDER BY count(*) DESC, ${registrationsCurrent.communityCouncil}
       LIMIT ${COUNCILS_SHOWN}
-    `,
+    `),
   });
 
   const s = summaryData?.toArray()[0];

@@ -49,4 +49,28 @@ reload the page.
 
 On startup, [`src/dataInitSlice.ts`](src/dataInitSlice.ts) fetches
 `public/anchorage_str.duckdb`, attaches it read-only, and creates a view in
-the main schema for each name in `LAKE_TABLES`.
+the main schema for every table and view `@anchorage-str-db/db` declares, so
+the SQL editor and the schema tree show the whole database.
+
+## Queries
+
+Queries are written against the Drizzle schema in `@anchorage-str-db/db`
+rather than as SQL strings: `schema.ts` for the tables, `viewSchema.ts` for
+the views, and `toSql` to render one query to the string SQLRooms runs.
+
+```ts
+import {from, toSql} from '@anchorage-str-db/db/sql';
+import {listingsCurrent} from '@anchorage-str-db/db/viewSchema';
+import {sql} from 'drizzle-orm';
+
+toSql(sql`SELECT count(*) FROM ${from(listingsCurrent)} WHERE ${listingsCurrent.isCurrent}`);
+```
+
+So a renamed column breaks the build here instead of returning nothing at
+runtime, and values interpolated into a query (a search box's text) are
+escaped by Drizzle rather than by hand. Columns a query invents — a `status`
+a `CASE` derives, a count it names — stay plain SQL text; only the database's
+own relations come from the schema. `WasmRow<typeof someView>` is a row of
+that relation as DuckDB-WASM delivers it, which is not how the scraper's
+driver delivers the same columns; see
+[CONTRIBUTING.md](../../CONTRIBUTING.md#reading-the-database-from-the-browser).

@@ -1,3 +1,5 @@
+import { from, toSql } from '@anchorage-str-db/db/sql';
+import { hostPortfolios, listingsCurrent } from '@anchorage-str-db/db/viewSchema';
 import { useSql } from '@sqlrooms/duckdb';
 import {
   Bar,
@@ -22,6 +24,8 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from '@sqlrooms/ui';
+import { sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { useState, type FC } from 'react';
 import { pct, shortDate } from '../format';
 import { useRoomStore } from '../store';
@@ -41,13 +45,19 @@ const trendConfig = {
   pctHeld: { label: '% of listings', color: 'hsl(var(--chart-5))' },
 } satisfies ChartConfig;
 
-// Each host with live listings at the latest run.
-const NOW = `
-  SELECT host_id, listings_live
-  FROM host_portfolios
-  WHERE scrape_date = (SELECT max(scrape_date) FROM host_portfolios)
-    AND listings_live > 0
-`;
+/**
+ * Each host with live listings at the latest run: `host_portfolios` cut down
+ * to one date, so the rows are still that view's and the queries below read
+ * them as such under the name `latest`.
+ */
+const latest = alias(hostPortfolios, 'latest');
+const LATEST_PORTFOLIOS = sql`(
+    SELECT * FROM ${from(hostPortfolios)}
+    WHERE ${hostPortfolios.scrapeDate} = (
+      SELECT max(${hostPortfolios.scrapeDate}) FROM ${from(hostPortfolios)}
+    )
+      AND ${hostPortfolios.listingsLive} > 0
+  ) ${latest}`;
 
 export const HostConcentrationCard: FC = () => {
   const enabled = useRoomStore((s) => s.dataInit.status) === 'ready';
@@ -62,20 +72,25 @@ export const HostConcentrationCard: FC = () => {
     unknownHost: number;
   }>({
     enabled,
-    query: `
+    query: toSql(sql`
       WITH ranked AS (
-        SELECT listings_live, row_number() OVER (ORDER BY listings_live DESC, host_id) AS rnk
-        FROM (${NOW})
+        SELECT
+          ${latest.listingsLive},
+          row_number() OVER (ORDER BY ${latest.listingsLive} DESC, ${latest.hostId}) AS rnk
+        FROM ${LATEST_PORTFOLIOS}
       )
       SELECT
         count(*)::INT AS "hosts",
         count(*) FILTER (WHERE listings_live >= ${cutoff})::INT AS "hostsAtCutoff",
         coalesce(sum(listings_live), 0)::INT AS "attributed",
-        coalesce(sum(listings_live) FILTER (WHERE listings_live >= ${cutoff}), 0)::INT AS "heldAtCutoff",
+        coalesce(sum(listings_live) FILTER (WHERE listings_live >= ${cutoff}), 0)::INT
+          AS "heldAtCutoff",
         coalesce(sum(listings_live) FILTER (WHERE rnk <= 10), 0)::INT AS "heldByTop10",
-        (SELECT count(*) FROM listings_current WHERE host_id IS NULL)::INT AS "unknownHost"
+        (
+          SELECT count(*) FROM ${from(listingsCurrent)} WHERE ${listingsCurrent.hostId} IS NULL
+        )::INT AS "unknownHost"
       FROM ranked
-    `,
+    `),
   });
 
   const { data: distributionData, isLoading: distributionLoading } = useSql<{
@@ -83,20 +98,20 @@ export const HostConcentrationCard: FC = () => {
     listings: number;
   }>({
     enabled,
-    query: `
+    query: toSql(sql`
       SELECT
         CASE
-          WHEN listings_live >= 20 THEN '20+'
-          WHEN listings_live >= 10 THEN '10–19'
-          WHEN listings_live >= 5 THEN '5–9'
-          WHEN listings_live >= 3 THEN '3–4'
-          ELSE listings_live::VARCHAR
+          WHEN ${latest.listingsLive} >= 20 THEN '20+'
+          WHEN ${latest.listingsLive} >= 10 THEN '10–19'
+          WHEN ${latest.listingsLive} >= 5 THEN '5–9'
+          WHEN ${latest.listingsLive} >= 3 THEN '3–4'
+          ELSE ${latest.listingsLive}::VARCHAR
         END AS "bucket",
-        sum(listings_live)::INT AS "listings"
-      FROM (${NOW})
+        sum(${latest.listingsLive})::INT AS "listings"
+      FROM ${LATEST_PORTFOLIOS}
       GROUP BY 1
-      ORDER BY min(listings_live)
-    `,
+      ORDER BY min(${latest.listingsLive})
+    `),
   });
 
   const { data: trendData, isLoading: trendLoading } = useSql<{
@@ -104,18 +119,21 @@ export const HostConcentrationCard: FC = () => {
     pctHeld: number | null;
   }>({
     enabled,
-    query: `
+    query: toSql(sql`
       SELECT
-        scrape_date AS "scrapeDate",
+        ${hostPortfolios.scrapeDate} AS "scrapeDate",
         round(
-          100.0 * coalesce(sum(listings_live) FILTER (WHERE listings_live >= ${cutoff}), 0)
-            / nullif(sum(listings_live), 0),
+          100.0 * coalesce(
+            sum(${hostPortfolios.listingsLive})
+              FILTER (WHERE ${hostPortfolios.listingsLive} >= ${cutoff}),
+            0
+          ) / nullif(sum(${hostPortfolios.listingsLive}), 0),
           1
         )::DOUBLE AS "pctHeld"
-      FROM host_portfolios
-      GROUP BY scrape_date
-      ORDER BY scrape_date
-    `,
+      FROM ${from(hostPortfolios)}
+      GROUP BY ${hostPortfolios.scrapeDate}
+      ORDER BY ${hostPortfolios.scrapeDate}
+    `),
   });
 
   const s = summaryData?.toArray()[0];

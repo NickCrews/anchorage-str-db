@@ -11,6 +11,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@anchorage-str-db/db": "workspace:*",
     "@sqlrooms/color-scales": "0.29.0-rc.10",
     "@sqlrooms/data-table": "0.29.0-rc.10",
     "@sqlrooms/deck": "0.29.0-rc.10",
@@ -21,6 +22,7 @@
     "@sqlrooms/sql-editor": "0.29.0-rc.10",
     "@sqlrooms/ui": "0.29.0-rc.10",
     "@sqlrooms/utils": "0.29.0-rc.10",
+    "drizzle-orm": "0.45.2",
     "lucide-react": "^0.555.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

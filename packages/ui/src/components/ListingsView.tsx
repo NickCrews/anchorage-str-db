@@ -1,3 +1,10 @@
+import {airbnbListingObservations} from '@anchorage-str-db/db/schema';
+import {from, toSql} from '@anchorage-str-db/db/sql';
+import {
+  listingPhotosCurrent,
+  listingsCurrentWithHost,
+  listingsCurrentWithRegistration,
+} from '@anchorage-str-db/db/viewSchema';
 import {
   DataTablePaginated,
   type DataTablePaginatedProps,
@@ -5,8 +12,10 @@ import {
   QueryDataTableActionsMenu,
   useArrowDataTable,
 } from '@sqlrooms/data-table';
-import {escapeVal, sanitizeQuery, useSql} from '@sqlrooms/duckdb';
+import {sanitizeQuery, useSql} from '@sqlrooms/duckdb';
 import {Badge, Input, ToggleGroup, ToggleGroupItem} from '@sqlrooms/ui';
+import {sql, type SQL} from 'drizzle-orm';
+import {alias} from 'drizzle-orm/pg-core';
 import {useMemo, useState, type FC} from 'react';
 import {REGISTRATION_STATUSES, registrationStatusSql} from '../registrationStatus';
 import {DataStatusGate} from './DataStatusGate';
@@ -17,6 +26,12 @@ type TableProps = DataTablePaginatedProps<object>;
 type PaginationState = NonNullable<TableProps['pagination']>;
 type SortingState = NonNullable<TableProps['sorting']>;
 
+const l = alias(listingsCurrentWithHost, 'l');
+const r = alias(listingsCurrentWithRegistration, 'r');
+const p = alias(listingPhotosCurrent, 'p');
+/** Each listing's latest observation: one row of the table it comes from. */
+const o = alias(airbnbListingObservations, 'o');
+
 /**
  * Photos come from `listing_photos_current`, not `listings`: they are stored
  * outside the listing versions, so the current set is the latest one written.
@@ -25,48 +40,51 @@ type SortingState = NonNullable<TableProps['sorting']>;
  * The registration columns come from the Muni registration matching the
  * number the listing page shows; see `listings_current_with_registration`.
  */
-const BASE_QUERY = `
+const BASE_QUERY = sql`
   SELECT
-    p.photo_urls[1] AS photo,
-    l.listing_id,
-    l.name,
-    l.property_title,
-    l.room_type,
-    l.bedrooms,
-    l.beds,
-    l.bathrooms,
-    l.guest_capacity,
-    o.rating_value,
-    o.review_count,
-    o.quote_total,
-    o.quote_nights,
-    o.quote_check_in,
-    o.price_hint_per_night,
-    l.host_name,
-    l.host_years_hosting,
-    l.host_listings_live,
-    l.host_listings_ever_seen,
-    ${registrationStatusSql('r')} AS registration_status,
-    l.str_registration_id,
-    r.registration_location,
-    r.registration_parcel_id,
-    r.registration_parcel_type,
-    r.registration_community_council,
-    r.registration_business_name,
-    r.registration_expires_date,
-    l.first_available_date_est,
-    l.first_review_date,
-    l.first_seen_date,
-    l.last_seen_date,
-    l.url
-  FROM listings_current_with_host l
-  JOIN listings_current_with_registration r USING (listing_id)
-  LEFT JOIN listing_photos_current p ON p.listing_id = l.listing_id
+    ${p.photoUrls}[1] AS photo,
+    ${l.listingId},
+    ${l.name},
+    ${l.propertyTitle},
+    ${l.roomType},
+    ${l.bedrooms},
+    ${l.beds},
+    ${l.bathrooms},
+    ${l.guestCapacity},
+    ${o.ratingValue},
+    ${o.reviewCount},
+    ${o.quoteTotal},
+    ${o.quoteNights},
+    ${o.quoteCheckIn},
+    ${o.priceHintPerNight},
+    ${l.hostName},
+    ${l.hostYearsHosting},
+    ${l.hostListingsLive},
+    ${l.hostListingsEverSeen},
+    ${registrationStatusSql(r)} AS registration_status,
+    ${l.strRegistrationId},
+    ${r.registrationLocation},
+    ${r.registrationParcelId},
+    ${r.registrationParcelType},
+    ${r.registrationCommunityCouncil},
+    ${r.registrationBusinessName},
+    ${r.registrationExpiresDate},
+    ${l.firstAvailableDateEst},
+    ${l.firstReviewDate},
+    ${l.firstSeenDate},
+    ${l.lastSeenDate},
+    ${l.url}
+  FROM ${from(listingsCurrentWithHost, l)}
+  JOIN ${from(listingsCurrentWithRegistration, r)} USING (listing_id)
+  LEFT JOIN ${from(listingPhotosCurrent, p)} ON ${p.listingId} = ${l.listingId}
   LEFT JOIN (
     SELECT *
-    FROM airbnb_listing_observations
-    QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY scrape_date DESC) = 1
-  ) o ON o.listing_id = l.listing_id
+    FROM ${from(airbnbListingObservations)}
+    QUALIFY row_number() OVER (
+      PARTITION BY ${airbnbListingObservations.listingId}
+      ORDER BY ${airbnbListingObservations.scrapeDate} DESC
+    ) = 1
+  ) ${o} ON ${o.listingId} = ${l.listingId}
   WHERE true
 `;
 
@@ -99,20 +117,21 @@ export const ListingsView: FC = () => {
   });
 
   const query = useMemo(() => {
-    const filters: string[] = [];
+    const filters: SQL[] = [];
     const term = search.trim();
     if (term) {
-      const pattern = escapeVal(`%${term}%`);
+      const pattern = `%${term}%`;
       filters.push(
-        `(l.name ILIKE ${pattern} OR l.property_title ILIKE ${pattern} OR l.host_name ILIKE ${pattern}` +
-          ` OR l.str_registration_id ILIKE ${pattern} OR r.registration_location ILIKE ${pattern})`,
+        sql`(${l.name} ILIKE ${pattern} OR ${l.propertyTitle} ILIKE ${pattern}
+          OR ${l.hostName} ILIKE ${pattern} OR ${l.strRegistrationId} ILIKE ${pattern}
+          OR ${r.registrationLocation} ILIKE ${pattern})`,
       );
     }
     if (status !== ALL_STATUSES) {
-      filters.push(`${registrationStatusSql('r')} = ${escapeVal(status)}`);
+      filters.push(sql`${registrationStatusSql(r)} = ${status}`);
     }
-    const where = filters.map((f) => `\n  AND ${f}`).join('');
-    return `${BASE_QUERY}${where}\n  ORDER BY l.last_seen_date DESC`;
+    const where = sql.join(filters.map((filter) => sql`\n  AND ${filter}`));
+    return toSql(sql`${BASE_QUERY}${where}\n  ORDER BY ${l.lastSeenDate} DESC`);
   }, [search, status]);
 
   // QueryDataTable renders every cell as text, so this assembles the same
