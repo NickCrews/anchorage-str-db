@@ -65,6 +65,7 @@ export interface LicenseIssuance {
 export interface LicensePage {
   licenseId: number;
   /** `LC260500349`: the layer's `ApplicationNumber`. */
+  /** `LC260500349`, the page's "Licensee Number": one per license, not per licensee. */
   licenseeId: string;
   businessName: string | null;
   /** `Short-Term Rentals`. */

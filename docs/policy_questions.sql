@@ -4,7 +4,11 @@
 --   ATTACH 'anchorage_str.duckdb' AS str (READ_ONLY);
 -- ============================================================
 -- Q: How many listings are operating on a given night?
--- "Operating" = the night is in its calendar, booked or open.
+-- "Operating" = the night was on the listing's calendar when it was read,
+-- available or not. It says the listing was on Airbnb that night, not that
+-- anyone stayed. A listing with no row for a night is not "not operating":
+-- it had not been scraped yet, had retired, is past Airbnb's ~12-month
+-- window, or its calendar never read.
 -- Uses `calendar_current`, which excludes retired listings' future nights.
 -- ============================================================
 SELECT

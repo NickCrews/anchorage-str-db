@@ -223,7 +223,8 @@ Each run:
 2. Reads up to `LICENSE_PAGE_MAX_PER_RUN` (500) CityView license pages
    (`muni-licenses`), chosen by `chooseLicensePages`: never-read licenses
    first, then licenses that left the layer and haven't been read since, then
-   active licenses whose latest read is `LICENSE_PAGE_REFRESH_DAYS` (7) old.
+   licenses still in the layer whose latest read is
+   `LICENSE_PAGE_REFRESH_DAYS` (7) old.
    A failed read writes nothing and is retried next run.
 3. Writes the day's layer snapshot and the pages, then runs the checks.
 

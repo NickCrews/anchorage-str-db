@@ -43,8 +43,8 @@ const IMPLIED_HOSTING_START_SQL =
  * Attributes whose change opens a new listing version. Excludes values that
  * change most days (rating, review count, price hint) and `url`, which is
  * derived from `listing_id`. Coordinates are rounded to 6dp so float noise
- * doesn't open a version. `page` holds the listing-page fields, so a room
- * changing hands, converting from a whole home to a rented room, or changing
+ * doesn't open a version. `page` holds the listing-page fields, so a listing
+ * changing hands, converting from a whole home to a private room, or changing
  * its guest, bed, bedroom or bathroom count opens a version. The price quote
  * changes most days and is not part of it. Photos are stored separately
  * and never open one: hosts reorder and replace photos far more often than
@@ -115,7 +115,7 @@ WITH observed AS (
         ),
         -- NULL when the page fetch failed, so the carry-forward skips it.
         -- Carrying the whole struct keeps "read the page, no registration
-        -- number" (a struct holding a NULL) distinct from "page not read"
+        -- id" (a struct holding a NULL) distinct from "page not read"
         -- (a NULL struct).
         CASE WHEN page_fetch_ok THEN {page_attrs} END AS page_attrs
     FROM airbnb_listing_observations
