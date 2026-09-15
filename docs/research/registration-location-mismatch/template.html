@@ -258,14 +258,14 @@
     <p>
       <strong>Sources.</strong> Airbnb listings were read from Airbnb's public
       search and listing pages on <span class="listing-date"></span>. Each
-      listing page shows the registration number the host entered and a map
+      listing page shows the registration id the host entered and a map
       location. Registrations come from the Municipal Clerk's public Short Term
       Rental Registration Viewer layer, published <span class="registry-date"></span>,
       which includes the Municipality's geocoded point for each registered
       address.
     </p>
     <p>
-      <strong>Distance.</strong> For each current listing that displays a
+      <strong>Distance.</strong> For each active listing that displays a
       number in the registry, we measured the distance from Airbnb's map
       location to the registered address's geocoded point. Airbnb moves most
       pins by up to about 200 m to hide the exact address; some pins are exact.
@@ -296,7 +296,7 @@
       the Municipality's geocoder can place a typed address incorrectly; the
       registered and geocoded addresses are both shown for each case. Name
       matches are suggestions for review, not confirmations. Listings that show
-      no registration number, or a number not in the registry, are not included.
+      no registration id, or an id not in the registry, are not included.
     </p>
   </section>
 
@@ -345,12 +345,12 @@
   const quoted = (text) => `“${title(text)}”`;
 
   // ---- summary ----
-  const registrations = new Set(cases.map((c) => c.registration_number));
+  const registrations = new Set(cases.map((c) => c.registration_id));
   const distances = cases.map((c) => c.distance_m);
   document.getElementById('dateline').textContent =
     `Airbnb listings as of ${formatDate(listingDate)}. Registrations as published by the Municipal Clerk on ${formatDate(registryDate)}.`;
   document.getElementById('summary').textContent =
-    `On ${formatDate(listingDate)}, ${cases.length} Airbnb listings showed a registration number whose registered ` +
+    `On ${formatDate(listingDate)}, ${cases.length} Airbnb listings showed a registration id whose registered ` +
     `address is ${distance(Math.min(...distances))} to ${distance(Math.max(...distances))} away from the listing ` +
     `(${registrations.size} different numbers in all). Airbnb blurs map locations by up to about 200 m, so these ` +
     `are too far apart to be the same place.`;
@@ -363,21 +363,21 @@
     `${count(dist.from_500_m_to_1_km)} are between 500 m and 1 km, and ${count(dist.over_1_km)} are more than 1 km away.`;
 
   const registeredAs = (c) =>
-    `${c.registration_number} is registered${c.business_name ? ` to ${quoted(c.business_name)}` : ''} at ${street(c.registered_address)}`;
+    `${c.registration_id} is registered${c.business_name ? ` to ${quoted(c.business_name)}` : ''} at ${street(c.registered_address)}`;
 
   /** Explains one case in plain sentences. */
   function findingText(c) {
-    const n = c.listings_on_number.length;
+    const n = c.listings_on_registration.length;
     if (c.finding === 'wrong-number') {
       const s = c.suggested_registrations;
       const describe = (r) =>
-        `${r.registration_number}, registered to ${quoted(r.business_name)} at ${street(r.address)}, ` +
+        `${r.registration_id}, registered to ${quoted(r.business_name)} at ${street(r.address)}, ` +
         `${distance(r.distance_m)} from the listing (${r.reasons.join('; ')})`;
-      const opening = `The listing ${quoted(c.listing_name)} shows ${c.registration_number}, which is registered` +
+      const opening = `The listing ${quoted(c.listing_name)} shows ${c.registration_id}, which is registered` +
         `${c.business_name ? ` to ${quoted(c.business_name)}` : ''} at ${street(c.registered_address)}, ${distance(c.distance_m)} away.`;
       if (s.length === 1) {
         return `${opening} Right where the listing is, there is ${describe(s[0])}. ` +
-          `The listing probably should show ${s[0].registration_number}.`;
+          `The listing probably should show ${s[0].registration_id}.`;
       }
       return `${opening} Near the listing there are ${s.length} other registrations with a matching name: ` +
         `${s.slice(0, 3).map(describe).join('; ')}${s.length > 3 ? `; and ${s.length - 3} more like these` : ''}. ` +
@@ -402,7 +402,7 @@
     const matching = cases.filter((c) => c.finding === key);
     card.querySelector('.kind-count').innerHTML =
       `<b>${matching.length}</b>${matching.length === 1 ? 'listing' : 'listings'}`;
-    const example = matching.find((c) => c.registration_number === EXAMPLES[key]) ?? matching[0];
+    const example = matching.find((c) => c.registration_id === EXAMPLES[key]) ?? matching[0];
     const exampleEl = card.querySelector('.example');
     if (!example) { exampleEl.remove(); return; }
     const index = cases.indexOf(example);
@@ -420,7 +420,7 @@
   // ---- table ----
   const COLUMNS = [
     ['Case', (c, i) => i + 1],
-    ['Registration shown', (c) => c.registration_number],
+    ['Registration shown', (c) => c.registration_id],
     ['Registered business name', (c) => title(c.business_name)],
     ['Registered address', (c) => title(c.registered_address)],
     ['Muni geocoded address', (c) => title(c.geocoded_address)],
@@ -436,10 +436,10 @@
     ['Airbnb lat', (c) => c.listing_lat],
     ['Airbnb lng', (c) => c.listing_lng],
     ['Distance (m)', (c) => c.distance_m],
-    ['Listings displaying this number', (c) => c.listings_on_number.length],
+    ['Listings displaying this number', (c) => c.listings_on_registration.length],
     ['Finding', (c) => FINDINGS[c.finding]],
     ['Matching registrations near the listing', (c) =>
-      c.suggested_registrations.map((r) => `${r.registration_number} ${title(r.business_name)}`).join('; ')],
+      c.suggested_registrations.map((r) => `${r.registration_id} ${title(r.business_name)}`).join('; ')],
     ['Explanation', (c) => findingText(c)],
   ];
   const exportRows = () => [COLUMNS.map(([h]) => h), ...cases.map((c, i) => COLUMNS.map(([, f]) => f(c, i)))];
@@ -450,10 +450,10 @@
       const s = c.suggested_registrations;
       const suggestion = s.length === 0
         ? '<span class="muted">—</span>'
-        : `${s.slice(0, 2).map((r) => `${esc(r.registration_number)} <span class="muted">${esc(title(r.business_name))}</span>`).join('<br>')}${s.length > 2 ? `<br><span class="muted">+${s.length - 2} more</span>` : ''}`;
+        : `${s.slice(0, 2).map((r) => `${esc(r.registration_id)} <span class="muted">${esc(title(r.business_name))}</span>`).join('<br>')}${s.length > 2 ? `<br><span class="muted">+${s.length - 2} more</span>` : ''}`;
       return `<tr data-index="${i}" tabindex="0">
         <td class="num">${i + 1}</td>
-        <td><a href="${esc(c.license_url)}" target="_blank" rel="noopener">${esc(c.registration_number)}</a><br>${esc(title(c.business_name))}<br><span class="muted">${esc(title(c.registered_address))}</span></td>
+        <td><a href="${esc(c.license_url)}" target="_blank" rel="noopener">${esc(c.registration_id)}</a><br>${esc(title(c.business_name))}<br><span class="muted">${esc(title(c.registered_address))}</span></td>
         <td><a href="${esc(c.listing_url)}" target="_blank" rel="noopener">${esc(c.listing_id)}</a><br>${esc(title(c.listing_name))}</td>
         <td>${esc(title(c.host_name))}</td>
         <td class="num">${distance(c.distance_m)}</td>
@@ -499,7 +499,7 @@
   // ---- viewer ----
   const select = document.getElementById('case-select');
   select.innerHTML = cases
-    .map((c, i) => `<option value="${i}">${i + 1}. ${esc(c.registration_number)} · ${esc(title(c.listing_name).slice(0, 48))}</option>`)
+    .map((c, i) => `<option value="${i}">${i + 1}. ${esc(c.registration_id)} · ${esc(title(c.listing_name).slice(0, 48))}</option>`)
     .join('');
   select.addEventListener('change', () => show(Number(select.value)));
   document.getElementById('prev').addEventListener('click', () => show((current - 1 + cases.length) % cases.length));
@@ -546,11 +546,11 @@
     tbody.querySelectorAll('tr').forEach((tr) => tr.classList.toggle('active', Number(tr.dataset.index) === index));
 
     document.getElementById('case-title').innerHTML =
-      `Case ${index + 1} of ${cases.length}: ${esc(c.registration_number)} <span class="finding-tag f-${c.finding}">${esc(FINDINGS[c.finding])}</span>`;
+      `Case ${index + 1} of ${cases.length}: ${esc(c.registration_id)} <span class="finding-tag f-${c.finding}">${esc(FINDINGS[c.finding])}</span>`;
     const finding = document.getElementById('case-finding');
     finding.className = `finding f-${c.finding}`;
     finding.textContent = findingText(c);
-    document.querySelectorAll('.case-number').forEach((el) => (el.textContent = c.registration_number));
+    document.querySelectorAll('.case-number').forEach((el) => (el.textContent = c.registration_id));
 
     const photo = c.photo_url
       ? `<img src="${esc(c.photo_url)}?im_w=480" alt="First photo on the Airbnb listing" loading="lazy" onerror="this.remove()">`
@@ -563,14 +563,14 @@
         <dt>Listing ID</dt><dd>${esc(c.listing_id)}</dd>
         <dt>Host</dt><dd><a href="https://www.airbnb.com/users/show/${esc(c.host_id)}" target="_blank" rel="noopener">${esc(title(c.host_name) || c.host_id)}</a></dd>
         <dt>Type</dt><dd>${esc(c.room_type)}${c.bedrooms ? `, ${esc(c.bedrooms)}` : ''}${c.guest_capacity ? `, ${c.guest_capacity} guests` : ''}</dd>
-        <dt>Number shown</dt><dd>${esc(c.registration_number)}</dd>
+        <dt>Number shown</dt><dd>${esc(c.registration_id)}</dd>
         <dt>Map pin</dt><dd>${pinLabel(c.listing_pin_is_exact)}, <a href="${mapsLink(c.listing_lat, c.listing_lng)}" target="_blank" rel="noopener">${c.listing_lat.toFixed(5)}, ${c.listing_lng.toFixed(5)}</a></dd>
         <dt>Seen</dt><dd>${esc(formatDate(c.listing_seen_date))}</dd>
       </dl>`;
     document.getElementById('registered-card').innerHTML = `
       <h4><i class="swatch" style="background:var(--registered);border-radius:2px"></i>Muni registration</h4>
       <dl>
-        <dt>Number</dt><dd><a href="${esc(c.license_url)}" target="_blank" rel="noopener">${esc(c.registration_number)}</a></dd>
+        <dt>Number</dt><dd><a href="${esc(c.license_url)}" target="_blank" rel="noopener">${esc(c.registration_id)}</a></dd>
         <dt>Business name</dt><dd>${esc(title(c.business_name)) || '<span class="muted">none given</span>'}</dd>
         <dt>Registered address</dt><dd>${esc(title(c.registered_address))}</dd>
         <dt>Geocoded as</dt><dd><a href="${mapsLink(c.registered_lat, c.registered_lng)}" target="_blank" rel="noopener">${esc(title(c.geocoded_address))}</a></dd>
@@ -578,7 +578,7 @@
         <dt>Issued</dt><dd>${esc(formatDate(c.issued_date))}</dd>
       </dl>`;
 
-    document.getElementById('siblings').innerHTML = c.listings_on_number
+    document.getElementById('siblings').innerHTML = c.listings_on_registration
       .map((o) => `<li>${o.listing_id === c.listing_id ? '<strong>This listing</strong>: ' : ''}<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(title(o.name))}</a>
         <span class="muted">· ${esc(title(o.host_name))} · ${pinLabel(o.pin_is_exact === true || o.pin_is_exact === 'true').toLowerCase()} pin · ${distance(o.distance_m)} from the registered address</span></li>`)
       .join('');
@@ -587,7 +587,7 @@
     const shown = [...near.filter((r) => r.reasons.length), ...near.filter((r) => !r.reasons.length)].slice(0, 8);
     document.getElementById('nearby').innerHTML = near.length === 0
       ? '<li class="muted">None.</li>'
-      : shown.map((r) => `<li><a href="${esc(r.license_url)}" target="_blank" rel="noopener">${esc(r.registration_number)}</a> ${esc(title(r.business_name))}
+      : shown.map((r) => `<li><a href="${esc(r.license_url)}" target="_blank" rel="noopener">${esc(r.registration_id)}</a> ${esc(title(r.business_name))}
           <span class="muted">· ${esc(title(r.address))} · ${distance(r.distance_m)}</span>
           ${r.reasons.length ? `<br><span style="color:var(--match)">Matches: ${esc(r.reasons.join('; '))}</span>` : ''}</li>`).join('') +
         (near.length > shown.length ? `<li class="muted">and ${near.length - shown.length} more</li>` : '');
@@ -605,14 +605,14 @@
     for (const r of near) {
       const matched = r.reasons.length > 0;
       L.marker([r.lat, r.lng], { icon: pin(matched ? 'pin-match' : 'pin-other', matched ? '✓' : '', matched ? 18 : 12), zIndexOffset: matched ? 200 : 0 })
-        .bindPopup(`<b>${esc(r.registration_number)}</b><br>${esc(title(r.business_name))}<br>${esc(title(r.address))}` +
+        .bindPopup(`<b>${esc(r.registration_id)}</b><br>${esc(title(r.business_name))}<br>${esc(title(r.address))}` +
           `${matched ? `<br><span style="color:var(--match)">${esc(r.reasons.join('; '))}</span>` : ''}`)
         .addTo(caseLayer);
     }
-    for (const o of c.listings_on_number) {
+    for (const o of c.listings_on_registration) {
       if (o.listing_id === c.listing_id) continue;
       L.marker([o.lat, o.lng], { icon: pin('pin-sibling', '', 16), zIndexOffset: 300 })
-        .bindPopup(`<b>Also displays ${esc(c.registration_number)}</b><br>${esc(title(o.name))}<br>${distance(o.distance_m)} from the registered address`)
+        .bindPopup(`<b>Also displays ${esc(c.registration_id)}</b><br>${esc(title(o.name))}<br>${distance(o.distance_m)} from the registered address`)
         .addTo(caseLayer);
     }
 
@@ -620,14 +620,14 @@
       .bindTooltip(distance(c.distance_m), { permanent: true, direction: 'center', className: 'distance' })
       .addTo(caseLayer);
     L.marker(registeredLL, { icon: pin('pin-registered', 'R', 24), zIndexOffset: 1000 })
-      .bindPopup(`<b>Registered address of ${esc(c.registration_number)}</b><br>${esc(title(c.registered_address))}<br><span class="muted">Geocoded as ${esc(title(c.geocoded_address))}</span>`)
+      .bindPopup(`<b>Registered address of ${esc(c.registration_id)}</b><br>${esc(title(c.registered_address))}<br><span class="muted">Geocoded as ${esc(title(c.geocoded_address))}</span>`)
       .addTo(caseLayer);
     L.marker(listingLL, { icon: pin('pin-listing', 'A', 24), zIndexOffset: 1100 })
       .bindPopup(`<b>Airbnb location</b><br>${esc(title(c.listing_name))}<br>${pinLabel(c.listing_pin_is_exact)} pin`)
       .addTo(caseLayer);
 
     map.invalidateSize();
-    fit([listingLL, registeredLL, ...c.listings_on_number.map((o) => [o.lat, o.lng])], 17);
+    fit([listingLL, registeredLL, ...c.listings_on_registration.map((o) => [o.lat, o.lng])], 17);
   }
 
   const fromHash = /^#case-(\d+)$/.exec(location.hash);

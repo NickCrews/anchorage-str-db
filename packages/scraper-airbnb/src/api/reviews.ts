@@ -24,7 +24,7 @@ export interface ReviewPage {
 
 export interface FetchReviewPageOptions {
   apiKey: string;
-  roomId: string;
+  listingId: string;
   offset: number;
   limit: number;
   language: string;
@@ -55,8 +55,8 @@ export async function fetchReviewPage(options: FetchReviewPageOptions): Promise<
     locale: options.language,
     currency: options.currency,
     variables: JSON.stringify({
-      // A GraphQL id: base64 of `StayListing:<room id>`.
-      id: Buffer.from(`StayListing:${options.roomId}`).toString('base64'),
+      // A GraphQL id: base64 of `StayListing:<listing id>`.
+      id: Buffer.from(`StayListing:${options.listingId}`).toString('base64'),
       pdpReviewsRequest: {
         fieldSelector: 'for_p3_translation_only',
         forPreview: false,
@@ -88,24 +88,24 @@ export async function fetchReviewPage(options: FetchReviewPageOptions): Promise<
       },
     },
   );
-  return toReviewPage(data, options.roomId);
+  return toReviewPage(data, options.listingId);
 }
 
-export function toReviewPage(data: ReviewsResponse, roomId: string): ReviewPage {
+export function toReviewPage(data: ReviewsResponse, listingId: string): ReviewPage {
   if (data.errors?.length) {
     const messages = data.errors.map((error) => error.message ?? '?').join('; ');
-    throw new Error(`reviews query for room ${roomId} returned errors: ${messages}`);
+    throw new Error(`reviews query for listing ${listingId} returned errors: ${messages}`);
   }
   const reviews = data.data?.presentation?.stayProductDetailPage?.reviews;
   const totalCount = reviews?.metadata?.reviewsCount;
   if (typeof totalCount !== 'number') {
-    throw new Error(`reviews response for room ${roomId} has no reviewsCount`);
+    throw new Error(`reviews response for listing ${listingId} has no reviewsCount`);
   }
   // Every review must have a date: the caller locates the oldest review by
   // counting positions, so a dropped entry would shift it.
   const createdAt = (reviews?.reviews ?? []).map((review) => {
     if (typeof review.createdAt !== 'string') {
-      throw new Error(`a review for room ${roomId} has no createdAt`);
+      throw new Error(`a review for listing ${listingId} has no createdAt`);
     }
     return review.createdAt;
   });

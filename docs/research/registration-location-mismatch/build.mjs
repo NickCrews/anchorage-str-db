@@ -91,7 +91,7 @@ const cases = rows.map((row) => {
   const near = (row.registrations_near_listing ?? []).map((n) => {
     const reasons = [];
     if (namesMatch(n.business_name, row.business_name)) {
-      reasons.push(`same business name as ${row.registration_number}`);
+      reasons.push(`same business name as ${row.registration_id}`);
     }
     if (namesMatch(n.business_name, row.host_name)) {
       reasons.push("business name matches the listing's Airbnb host name");
@@ -109,8 +109,8 @@ const cases = rows.map((row) => {
   const suggested = near.filter((n) => n.reasons.length > 0);
   // One digit apart is only telling for a single candidate: an operator who
   // registered several units at once has consecutive numbers.
-  if (suggested.length === 1 && oneDigitApart(suggested[0].registration_number, row.registration_number)) {
-    suggested[0].reasons.push(`number differs from ${row.registration_number} by one digit`);
+  if (suggested.length === 1 && oneDigitApart(suggested[0].registration_id, row.registration_id)) {
+    suggested[0].reasons.push(`number differs from ${row.registration_id} by one digit`);
   }
   const atRegistered = listings.filter((o) => o.distance_m <= NEAR_REGISTERED_M);
 
@@ -142,6 +142,6 @@ writeFileSync(join(here, 'report.html'), template.replace('__REPORT_DATA__', () 
 
 const counts = Object.groupBy(cases, (c) => c.finding);
 console.log(
-  `${cases.length} listings, ${new Set(cases.map((c) => c.registration_number)).size} registrations:`,
+  `${cases.length} listings, ${new Set(cases.map((c) => c.registration_id)).size} registrations:`,
   Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, v.length])),
 );

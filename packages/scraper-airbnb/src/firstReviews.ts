@@ -1,8 +1,8 @@
 /**
  * Resolve each listing's earliest review date, once per listing.
  *
- * A room's first review is a public signal from before this project started
- * collecting, and an upper bound on when the room went live: it was booked,
+ * A listing's first review is a public signal from before this project started
+ * collecting, and an upper bound on when the listing went live: it was booked,
  * so listed, on or before that date. The date never changes once a review
  * exists, so a listing is resolved once and never fetched again
  * (`pendingFirstReviews` in `store.ts` skips resolved listings).
@@ -54,34 +54,34 @@ export const TAIL_WINDOW = 5;
 
 /** A listing to resolve, with search's review count to position the request. */
 export interface FirstReviewCandidate {
-  roomId: string;
+  listingId: string;
   reviewCountHint: number | null;
 }
 
 export interface FirstReviewResult {
-  roomId: string;
+  listingId: string;
   /** The UTC date of the oldest review; null when the listing has none. */
   firstReviewDate: IsoDate | null;
   error: string | null;
 }
 
 /** One page of a listing's reviews, newest first. */
-export type FetchReviewPage = (roomId: string, offset: number, limit: number) => Promise<ReviewPage>;
+export type FetchReviewPage = (listingId: string, offset: number, limit: number) => Promise<ReviewPage>;
 
 export function liveReviewPageFetcher(apiKey: string): FetchReviewPage {
-  return (roomId, offset, limit) =>
+  return (listingId, offset, limit) =>
     withRetries(
       () =>
         fetchReviewPage({
           apiKey,
-          roomId,
+          listingId,
           offset,
           limit,
           language: 'en',
           currency: 'USD',
         }),
       {
-        label: `reviews for room ${roomId} at offset ${offset}`,
+        label: `reviews for listing ${listingId} at offset ${offset}`,
         attempts: FIRST_REVIEW_MAX_RETRIES,
         backoffMs: RETRY_BACKOFF_MS,
       },
@@ -101,18 +101,18 @@ export async function findFirstReviewDate(
   candidate: FirstReviewCandidate,
   fetchPage: FetchReviewPage,
 ): Promise<IsoDate | null> {
-  const { roomId } = candidate;
+  const { listingId } = candidate;
   let offset = Math.max(0, (candidate.reviewCountHint ?? 0) - TAIL_WINDOW);
-  let page = await fetchPage(roomId, offset, TAIL_WINDOW);
+  let page = await fetchPage(listingId, offset, TAIL_WINDOW);
   if (page.totalCount === 0) return null;
 
   if (!reachesEnd(page, offset)) {
     offset = Math.max(0, page.totalCount - TAIL_WINDOW);
-    page = await fetchPage(roomId, offset, TAIL_WINDOW);
+    page = await fetchPage(listingId, offset, TAIL_WINDOW);
     if (page.totalCount === 0) return null;
     if (!reachesEnd(page, offset)) {
       throw new Error(
-        `room ${roomId}: ${page.createdAt.length} reviews at offset ${offset} ` +
+        `listing ${listingId}: ${page.createdAt.length} reviews at offset ${offset} ` +
           `do not reach the reported total of ${page.totalCount}`,
       );
     }
@@ -145,11 +145,11 @@ export async function fetchFirstReviews(
     async (candidate): Promise<FirstReviewResult> => {
       try {
         const firstReviewDate = await findFirstReviewDate(candidate, options.fetchPage);
-        return { roomId: candidate.roomId, firstReviewDate, error: null };
+        return { listingId: candidate.listingId, firstReviewDate, error: null };
       } catch (err) {
         if (err instanceof RateLimitedError) throw err;
         return {
-          roomId: candidate.roomId,
+          listingId: candidate.listingId,
           firstReviewDate: null,
           error: describeError(rootCause(err)),
         };
@@ -158,7 +158,7 @@ export async function fetchFirstReviews(
   );
   for (const result of results) {
     if (result.error) {
-      log.warn(`first-review fetch failed for room ${result.roomId}: ${result.error}`);
+      log.warn(`first-review fetch failed for listing ${result.listingId}: ${result.error}`);
     }
   }
   return results;

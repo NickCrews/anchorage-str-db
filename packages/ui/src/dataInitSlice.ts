@@ -9,8 +9,8 @@ import type { StateCreator } from 'zustand';
  */
 export const LAKE_TABLES = [
   'listings',
-  'listings_current',
-  'listings_current_with_host',
+  'listings_active',
+  'listings_active_with_host',
   'hosts',
   'host_portfolios',
   'airbnb_listing_observations',
@@ -24,8 +24,8 @@ export const LAKE_TABLES = [
   'muni_license_page_reads',
   'muni_str_registry_runs',
   'registrations',
-  'registrations_current',
-  'listings_current_with_registration',
+  'registrations_active',
+  'listings_active_with_registration',
 ] as const;
 
 const DB_FILE_URL = `${import.meta.env.BASE_URL}anchorage_str.duckdb`;

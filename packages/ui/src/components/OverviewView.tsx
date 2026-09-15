@@ -36,7 +36,7 @@ const occupancyConfig = {
 } satisfies ChartConfig;
 
 const strConfig = {
-  distinctStrs: { label: 'Distinct STRs', color: 'hsl(var(--chart-3))' },
+  distinctListings: { label: 'Distinct listings', color: 'hsl(var(--chart-3))' },
 } satisfies ChartConfig;
 
 const listingAgeConfig = {
@@ -56,9 +56,9 @@ export const OverviewView: FC = () => {
     activeListings: number;
     operatingTonight: number | null;
     bookedTonight: number | null;
-    distinctStrsLastYear: number;
+    distinctListingsLastYear: number;
     latestScrapeDate: number | null;
-    registrationsCurrent: number;
+    registrationsActive: number;
     listingsRegistered: number;
     latestRegistryDate: number | null;
   }>({
@@ -71,7 +71,7 @@ export const OverviewView: FC = () => {
         FROM calendar_current
         WHERE night_date = CURRENT_DATE
       ),
-      active AS (SELECT count(*)::INT AS n FROM listings WHERE is_current),
+      active AS (SELECT count(*)::INT AS n FROM listings WHERE is_active),
       last_year AS (
         SELECT count(DISTINCT listing_id)::INT AS n
         FROM airbnb_listing_observations
@@ -80,21 +80,21 @@ export const OverviewView: FC = () => {
       latest_run AS (SELECT max(scrape_date) AS d FROM airbnb_scrape_runs),
       registry AS (
         SELECT
-          (SELECT count(*) FROM registrations_current)::INT AS n,
+          (SELECT count(*) FROM registrations_active)::INT AS n,
           (SELECT max(scrape_date) FROM muni_str_registry_runs WHERE registrations_seen IS NOT NULL) AS d
       ),
       registered AS (
         SELECT count(*)::INT AS n
-        FROM listings_current_with_registration
-        WHERE registration_is_current
+        FROM listings_active_with_registration
+        WHERE registration_is_active
       )
       SELECT
         active.n AS "activeListings",
         tonight.operating_tonight AS "operatingTonight",
         tonight.booked_tonight AS "bookedTonight",
-        last_year.n AS "distinctStrsLastYear",
+        last_year.n AS "distinctListingsLastYear",
         latest_run.d AS "latestScrapeDate",
-        registry.n AS "registrationsCurrent",
+        registry.n AS "registrationsActive",
         registered.n AS "listingsRegistered",
         registry.d AS "latestRegistryDate"
       FROM active, tonight, last_year, latest_run, registry, registered
@@ -121,13 +121,13 @@ export const OverviewView: FC = () => {
 
   const { data: strTrendData, isLoading: strTrendLoading } = useSql<{
     month: number;
-    distinctStrs: number;
+    distinctListings: number;
   }>({
     enabled,
     query: `
       SELECT
         date_trunc('month', scrape_date)::DATE AS "month",
-        count(DISTINCT listing_id)::INT AS "distinctStrs"
+        count(DISTINCT listing_id)::INT AS "distinctListings"
       FROM airbnb_listing_observations
       GROUP BY ALL
       ORDER BY month
@@ -152,7 +152,7 @@ export const OverviewView: FC = () => {
         count(*) FILTER (WHERE NOT coalesce(l.first_review_date <= l.first_seen_date, false))::INT
           AS "fromFirstSeen",
         count(*) FILTER (WHERE r.listing_id IS NULL)::INT AS "reviewsUnread"
-      FROM listings_current l
+      FROM listings_active l
       LEFT JOIN airbnb_listing_first_reviews r USING (listing_id)
       GROUP BY ALL
       ORDER BY "year"
@@ -170,7 +170,7 @@ export const OverviewView: FC = () => {
         coalesce(bedrooms, 'Not listed') AS "bedroomsLabel",
         count(*)::INT AS "nListings"
       FROM listings
-      WHERE is_current
+      WHERE is_active
       GROUP BY bedrooms
       ORDER BY
         bedrooms IS NULL,
@@ -206,8 +206,8 @@ export const OverviewView: FC = () => {
           }
         />
         <StatCard
-          label="Distinct STRs, last 365 days"
-          value={kpiLoading ? '…' : (kpi?.distinctStrsLastYear ?? '—')}
+          label="Distinct listings, last 365 days"
+          value={kpiLoading ? '…' : (kpi?.distinctListingsLastYear ?? '—')}
           detail="Under-counts until the archive has run a full year"
         />
         <StatCard
@@ -226,12 +226,12 @@ export const OverviewView: FC = () => {
           }
         />
         <StatCard
-          label="Current Muni STR registrations"
-          value={kpiLoading ? '…' : (kpi?.registrationsCurrent ?? '—')}
+          label="Active Muni STR registrations"
+          value={kpiLoading ? '…' : (kpi?.registrationsActive ?? '—')}
           detail="Published by the Municipal Clerk"
         />
         <StatCard
-          label="Listings showing a current registration"
+          label="Listings showing an active registration"
           value={kpiLoading ? '…' : (kpi?.listingsRegistered ?? '—')}
           detail={
             kpi?.activeListings
@@ -303,7 +303,7 @@ export const OverviewView: FC = () => {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium">
-              Distinct STRs operating, by month
+              Distinct listings operating, by month
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -332,8 +332,8 @@ export const OverviewView: FC = () => {
                     }
                   />
                   <Bar
-                    dataKey="distinctStrs"
-                    fill="var(--color-distinctStrs)"
+                    dataKey="distinctListings"
+                    fill="var(--color-distinctListings)"
                     radius={4}
                   />
                 </BarChart>
@@ -345,7 +345,7 @@ export const OverviewView: FC = () => {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium">
-              Current listings by year first available
+              Active listings by year first available
             </CardTitle>
             <CardDescription className="text-xs">
               The year of a listing's first review, or of the first scrape that
@@ -383,7 +383,7 @@ export const OverviewView: FC = () => {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium">
-              Bedroom-size mix, current inventory
+              Bedroom-size mix, active listings
             </CardTitle>
           </CardHeader>
           <CardContent>

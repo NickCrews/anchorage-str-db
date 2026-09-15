@@ -27,7 +27,7 @@ import { pct, shortDate } from '../format';
 import { useRoomStore } from '../store';
 
 /**
- * Display cutoffs for "hosts with at least N live listings". The database
+ * Display cutoffs for "hosts with at least N active listings". The database
  * stores counts only; where an owner ends and an operator begins is left to
  * the reader, and the card says so.
  */
@@ -41,12 +41,12 @@ const trendConfig = {
   pctHeld: { label: '% of listings', color: 'hsl(var(--chart-5))' },
 } satisfies ChartConfig;
 
-// Each host with live listings at the latest run.
+// Each host with active listings at the latest run.
 const NOW = `
-  SELECT host_id, listings_live
+  SELECT host_id, listings_active
   FROM host_portfolios
   WHERE scrape_date = (SELECT max(scrape_date) FROM host_portfolios)
-    AND listings_live > 0
+    AND listings_active > 0
 `;
 
 export const HostConcentrationCard: FC = () => {
@@ -64,16 +64,16 @@ export const HostConcentrationCard: FC = () => {
     enabled,
     query: `
       WITH ranked AS (
-        SELECT listings_live, row_number() OVER (ORDER BY listings_live DESC, host_id) AS rnk
+        SELECT listings_active, row_number() OVER (ORDER BY listings_active DESC, host_id) AS rnk
         FROM (${NOW})
       )
       SELECT
         count(*)::INT AS "hosts",
-        count(*) FILTER (WHERE listings_live >= ${cutoff})::INT AS "hostsAtCutoff",
-        coalesce(sum(listings_live), 0)::INT AS "attributed",
-        coalesce(sum(listings_live) FILTER (WHERE listings_live >= ${cutoff}), 0)::INT AS "heldAtCutoff",
-        coalesce(sum(listings_live) FILTER (WHERE rnk <= 10), 0)::INT AS "heldByTop10",
-        (SELECT count(*) FROM listings_current WHERE host_id IS NULL)::INT AS "unknownHost"
+        count(*) FILTER (WHERE listings_active >= ${cutoff})::INT AS "hostsAtCutoff",
+        coalesce(sum(listings_active), 0)::INT AS "attributed",
+        coalesce(sum(listings_active) FILTER (WHERE listings_active >= ${cutoff}), 0)::INT AS "heldAtCutoff",
+        coalesce(sum(listings_active) FILTER (WHERE rnk <= 10), 0)::INT AS "heldByTop10",
+        (SELECT count(*) FROM listings_active WHERE host_id IS NULL)::INT AS "unknownHost"
       FROM ranked
     `,
   });
@@ -86,16 +86,16 @@ export const HostConcentrationCard: FC = () => {
     query: `
       SELECT
         CASE
-          WHEN listings_live >= 20 THEN '20+'
-          WHEN listings_live >= 10 THEN '10–19'
-          WHEN listings_live >= 5 THEN '5–9'
-          WHEN listings_live >= 3 THEN '3–4'
-          ELSE listings_live::VARCHAR
+          WHEN listings_active >= 20 THEN '20+'
+          WHEN listings_active >= 10 THEN '10–19'
+          WHEN listings_active >= 5 THEN '5–9'
+          WHEN listings_active >= 3 THEN '3–4'
+          ELSE listings_active::VARCHAR
         END AS "bucket",
-        sum(listings_live)::INT AS "listings"
+        sum(listings_active)::INT AS "listings"
       FROM (${NOW})
       GROUP BY 1
-      ORDER BY min(listings_live)
+      ORDER BY min(listings_active)
     `,
   });
 
@@ -108,8 +108,8 @@ export const HostConcentrationCard: FC = () => {
       SELECT
         scrape_date AS "scrapeDate",
         round(
-          100.0 * coalesce(sum(listings_live) FILTER (WHERE listings_live >= ${cutoff}), 0)
-            / nullif(sum(listings_live), 0),
+          100.0 * coalesce(sum(listings_active) FILTER (WHERE listings_active >= ${cutoff}), 0)
+            / nullif(sum(listings_active), 0),
           1
         )::DOUBLE AS "pctHeld"
       FROM host_portfolios
@@ -140,12 +140,12 @@ export const HostConcentrationCard: FC = () => {
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
-            <span className="text-muted-foreground">live listings</span>
+            <span className="text-muted-foreground">active listings</span>
           </div>
         </div>
         <CardDescription className="text-xs">
           The cutoff is a display choice: the database stores each host's
-          listing counts and no owner/operator threshold. Counts cover only
+          listing counts and no commercial-host threshold. Counts cover only
           listings in the Anchorage search area, and a host is an Airbnb
           account, so one property manager's account can list for many owners.
         </CardDescription>
@@ -166,7 +166,7 @@ export const HostConcentrationCard: FC = () => {
             {s.unknownHost > 0 ? (
               <span className="text-muted-foreground">
                 {' '}
-                {s.unknownHost} current listings have no known host and are left out.
+                {s.unknownHost} active listings have no known host and are left out.
               </span>
             ) : null}
           </p>
@@ -175,7 +175,7 @@ export const HostConcentrationCard: FC = () => {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div>
             <div className="text-muted-foreground mb-1 text-xs">
-              Live listings held, by the host's portfolio size
+              Active listings held, by the host's portfolio size
             </div>
             {distributionLoading ? (
               <SpinnerPane className="h-56" />

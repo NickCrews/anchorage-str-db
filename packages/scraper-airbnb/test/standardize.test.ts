@@ -70,7 +70,7 @@ describe('standardizeSearchResponse', () => {
     expect(pageCount).toBe(3);
     expect(listings).toEqual([
       {
-        roomId: 1602507228357075578n,
+        listingId: 1602507228357075578n,
         name: 'Denali View',
         title: 'Apartment in Wasilla',
         latitude: 61.443,

@@ -59,7 +59,7 @@ it publishes only the jittered datasets.
 ### 3a. Legal compulsion
 
 Cities require platforms either to disclose each listing's address, parcel or
-host, or to refuse bookings for listings without a valid registration number.
+host, or to refuse bookings for listings without a valid registration id.
 
 - **California SB 346** (effective 2026-01-01): lets cities compel platforms
   to disclose, per listing, the parcel number (APN), address, listing URL and
@@ -72,7 +72,7 @@ host, or to refuse bookings for listings without a valid registration number.
   notes that before SB 346, compliance vendors matched listings to properties
   because platforms wouldn't share the data.
 - **New York City, Local Law 18 of 2022:** hosts register with the Office of
-  Special Enforcement, and platforms must verify the registration number
+  Special Enforcement, and platforms must verify the registration id
   before processing a booking. Active Airbnb listings reportedly fell from
   ~22,000 to ~2,300 within about a year. Source:
   https://en.wikipedia.org/wiki/Local_Law_18_of_2022 (secondary; the numbers
@@ -160,7 +160,7 @@ host, or to refuse bookings for listings without a valid registration number.
 - **`CodeForBc/airbnb-regulation`** (MIT): a Code for BC project that scrapes
   Airbnb and checks listings against BC's business registry, with a Grafana
   dashboard. It checks for a license number rather than resolving addresses,
-  which is closest to checking Anchorage registration numbers. Source:
+  which is closest to checking Anchorage registration ids. Source:
   https://github.com/CodeForBc/airbnb-regulation.
 - **Apify "Airbnb Address Finder":** a commercial actor claiming to resolve
   addresses; internals unverified. https://apify.com/kawsar/airbnb-address-finder.

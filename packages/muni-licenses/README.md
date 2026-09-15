@@ -12,7 +12,7 @@ the registration layer lacks:
 
 | field | example |
 | --- | --- |
-| `licenseeNumber` | `LC260500349` (the layer's `ApplicationNumber`) |
+| `licenseeId` | `LC260500349` (the layer's `ApplicationNumber`) |
 | `businessName` | `Echo Ridge Mountain Retreat` |
 | `licenseType` | `Short-Term Rentals` |
 | `status` | `Active` |
@@ -56,7 +56,7 @@ value, and an unlinked item just before it is its label. Every other item is
 a value with a null label. Each value keeps its `link`: a linked value comes
 from the Muni's property records (a parcel id, or the record's address, which
 is the registration layer's `Location`); an unlinked value is text the
-applicant typed that matched no record.
+registrant typed that matched no record.
 
 Plain `fetch` works through the portal's Cloudflare front. A page takes
 ~0.5s. A first batch of 1000 pages at 2/s had no failures; a second batch of

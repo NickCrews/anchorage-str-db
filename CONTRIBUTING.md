@@ -1,5 +1,9 @@
 # Contributing
 
+Every name in this repo — table, column, identifier, comment, UI string —
+comes from [CONTEXT.md](./CONTEXT.md). Read it before adding a concept, and
+add the term there before using it.
+
 ## Setup
 
 ```sh
@@ -73,6 +77,14 @@ To change a table:
 
 The next run applies the migration to the published database.
 
+To **rename** a column, hand-write the migration instead: drizzle-kit reads a
+rename as a drop and an add, which would discard the archive.
+`0001_ubiquitous_language.sql` is the worked example — `ALTER TABLE … RENAME
+COLUMN` keeps each column's position, which `appendRows` depends on. Edit
+`schema.ts` and `meta/<n>_snapshot.json` to match, add the `_journal.json`
+entry, and cover it the way `connect.test.ts` covers 0001: seed a database
+from `0000_baseline.sql` under the old names and assert the rows survive.
+
 Views are SQL in `packages/db/src/views.ts`. They need no migration.
 
 ### Dependencies
@@ -117,7 +129,7 @@ aggregate.
 Every run fetches each listing's own page for fields the search response
 lacks or reports unreliably: Airbnb's `isExactLocation` flag (whether
 `location_lat`/`location_lng` is the real position or jittered), the
-municipal STR registration number, the primary host's user id, room type,
+municipal STR registration id, the primary host's user id, room type,
 guest, bed, bedroom and bathroom counts, and photos. All but photos are
 stored on the same `airbnb_listing_observations` row as the search fields. When a
 page fetch fails, the `listings` view carries the previous values forward.
@@ -211,7 +223,7 @@ Each run:
 2. Reads up to `LICENSE_PAGE_MAX_PER_RUN` (500) CityView license pages
    (`muni-licenses`), chosen by `chooseLicensePages`: never-read licenses
    first, then licenses that left the layer and haven't been read since, then
-   current licenses whose latest read is `LICENSE_PAGE_REFRESH_DAYS` (7) old.
+   active licenses whose latest read is `LICENSE_PAGE_REFRESH_DAYS` (7) old.
    A failed read writes nothing and is retried next run.
 3. Writes the day's layer snapshot and the pages, then runs the checks.
 
@@ -305,7 +317,7 @@ Every run fails with `LegacySchemaError` until someone:
   listing that retires and later relists, and a bug in version logic is
   fixed by editing a view. This matters because the published `.duckdb` is
   the only copy of the archive.
-- **Retirement is a view predicate.** A listing is current if seen within
+- **Retirement is a view predicate.** A listing is active if seen within
   `RETIREMENT_GRACE_DAYS` (5) of the latest completed run, because search
   results occasionally omit a listing for a day. "Latest completed run" is
   the later of `max(scrape_date)` in the observations and in `airbnb_scrape_runs`
@@ -315,13 +327,13 @@ Every run fails with `LegacySchemaError` until someone:
 - **Registrations are stored raw, and joined to listings in views.**
   `muni_str_registration_observations` and `muni_license_page_reads` hold what the Muni publishes, with its field values
   unchanged. `registrations` derives one row per registration from them, and
-  `listings_current_with_registration` joins Airbnb listings on
-  `str_registration_id`, so a cleaning or join rule is fixed by editing a
+  `listings_active_with_registration` joins Airbnb listings on
+  `registration_id`, so a cleaning or join rule is fixed by editing a
   view. The registration snapshot is stored every run, like
   `airbnb_listing_observations`, rather than change-only: ~2500 rows compress to
   ~50 KB a day, and a row per run gives exact first- and last-seen dates.
 - **Read `calendar_current`, not `airbnb_calendar_status`.** A retired listing's
-  calendar is no longer fetched, so its future nights stay `is_current` in
+  calendar is no longer fetched, so its future nights stay `is_active` in
   the raw table for up to twelve months. `calendar_current` drops nights after
   the listing's last sighting and keeps the ones before it.
 - **Undated search.** `searchAnchorage` sends no check-in/check-out, so
@@ -352,9 +364,10 @@ Every run fails with `LegacySchemaError` until someone:
   `raw-html`, and photos from `state` alone (JSON-LD lists at most 8). The
   `*_coverage` and `photo_coverage` checks fail the run when a field stops
   being produced.
-- **Room counts and type come from the listing page, not search.** Search
-  cards show them only as free text, carry no guest line, and drop the bath
-  line on some days, which would open a spurious version each time.
+- **Bed, bedroom and bathroom counts, and room type, come from the listing
+  page, not search.** Search cards show them only as free text, carry no
+  guest line, and drop the bath line on some days, which would open a
+  spurious version each time.
 - **Text is stored as Airbnb writes it.** Room type, bedrooms and bathrooms
   exist only as display text (`Entire home/apt`, `Studio`, `Shared
   bathroom`), so they are stored verbatim rather than mapped to categories or
@@ -377,7 +390,7 @@ so start by investigating what is reachable. Then:
   file per endpoint, and call it from `packages/scraper`.
 - Add a `source` column (default `'airbnb'`) to `airbnb_listing_observations` and
   `airbnb_calendar_status`, and change the views' `PARTITION BY listing_id` to
-  `PARTITION BY source, listing_id`, since room ids are unique only per
+  `PARTITION BY source, listing_id`, since listing ids are unique only per
   source.
 - Most queries in `docs/policy_questions.sql` then need only a
   `GROUP BY source`.
@@ -413,5 +426,5 @@ only places real requests are made.
 
 When Airbnb changes something, `scraper-airbnb/src/api/` and `parse.ts` break
 without failing a test. To debug a production failure, run `searchAnchorage` over a
-small box and `livePageFetcher` against a few known room ids, and check the
+small box and `livePageFetcher` against a few known listing ids, and check the
 `extraction_layer_*_alive` results from the last run.

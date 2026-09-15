@@ -31,7 +31,7 @@ export interface CalendarDay {
 
 export interface FetchCalendarOptions {
   apiKey: string;
-  roomId: string;
+  listingId: string;
   currency: string;
   language: string;
   /** The month the window starts at. Defaults to the current UTC month. */
@@ -73,7 +73,7 @@ export async function fetchCalendar(options: FetchCalendarOptions): Promise<Cale
     variables: JSON.stringify({
       request: {
         count: MONTHS,
-        listingId: options.roomId,
+        listingId: options.listingId,
         month: from.getUTCMonth() + 1,
         year: from.getUTCFullYear(),
       },

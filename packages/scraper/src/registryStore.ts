@@ -20,12 +20,12 @@ import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 export interface RegistrationStats {
   seen: number;
   new: number;
-  departed: number;
+  lapsed: number;
 }
 
 /**
  * Write one registry run's registrations. Idempotent per scrape date: re-running a
- * day replaces its rows. Throws on a repeated registration number, which the
+ * day replaces its rows. Throws on a repeated registration id, which the
  * layer should never publish.
  */
 export async function recordRegistrations(
@@ -33,10 +33,10 @@ export async function recordRegistrations(
   scrapeDate: IsoDate,
   registrations: readonly Registration[],
 ): Promise<RegistrationStats> {
-  const numbers = new Set(registrations.map((r) => r.registrationNumber));
+  const numbers = new Set(registrations.map((r) => r.registrationId));
   if (numbers.size !== registrations.length) {
     throw new Error(
-      `the registration layer repeats ${registrations.length - numbers.size} registration numbers`,
+      `the registration layer repeats ${registrations.length - numbers.size} registration ids`,
     );
   }
 
@@ -44,26 +44,26 @@ export async function recordRegistrations(
     scrapeDate,
   ]);
 
-  const previous = await db.rows<{ registration_number: string; last_seen: string }>(
-    'SELECT registration_number, max(scrape_date) AS last_seen FROM muni_str_registration_observations ' +
-      'GROUP BY registration_number',
+  const previous = await db.rows<{ registration_id: string; last_seen: string }>(
+    'SELECT registration_id, max(scrape_date) AS last_seen FROM muni_str_registration_observations ' +
+      'GROUP BY registration_id',
   );
   const previousRunDate = previous.reduce<string | null>(
     (latest, row) => (latest === null || row.last_seen > latest ? row.last_seen : latest),
     null,
   );
-  const everSeen = new Set(previous.map((row) => row.registration_number));
+  const everSeen = new Set(previous.map((row) => row.registration_id));
 
   await db.appendRows(
     muniStrRegistrationObservations,
     registrations.map((r) => ({
-      registrationNumber: r.registrationNumber,
+      registrationId: r.registrationId,
       scrapeDate,
-      applicationNumber: r.applicationNumber,
+      licenseeId: r.licenseeId,
       submittedDate: r.submittedDate,
       issuedDate: r.issuedDate,
       expiresDate: r.expiresDate,
-      location: r.location,
+      registeredAddress: r.registeredAddress,
       businessName: r.businessName,
       status: r.status,
       statusUrl: r.statusUrl,
@@ -78,9 +78,9 @@ export async function recordRegistrations(
 
   return {
     seen: registrations.length,
-    new: registrations.filter((r) => !everSeen.has(r.registrationNumber)).length,
-    departed: previous.filter(
-      (row) => row.last_seen === previousRunDate && !numbers.has(row.registration_number),
+    new: registrations.filter((r) => !everSeen.has(r.registrationId)).length,
+    lapsed: previous.filter(
+      (row) => row.last_seen === previousRunDate && !numbers.has(row.registration_id),
     ).length,
   };
 }
@@ -108,7 +108,7 @@ export async function recordLicensePages(
     pages.map((page) => ({
       licenseId: page.licenseId,
       scrapeDate,
-      licenseeNumber: page.licenseeNumber,
+      licenseeId: page.licenseeId,
       businessName: page.businessName,
       licenseType: page.licenseType,
       status: page.status,
@@ -161,7 +161,7 @@ export function chooseLicensePages(selection: LicensePageSelection): number[] {
   const byId = (a: number, b: number) => a - b;
 
   const unread = [...today].filter((id) => !lastRead.has(id)).sort(byId);
-  const departed = [...lastSeen]
+  const lapsed = [...lastSeen]
     .filter(([id, seen]) => !today.has(id) && (lastRead.get(id) ?? '') <= seen)
     .map(([id]) => id)
     .sort(byId);
@@ -173,7 +173,7 @@ export function chooseLicensePages(selection: LicensePageSelection): number[] {
     })
     .sort((a, b) => lastRead.get(a)!.localeCompare(lastRead.get(b)!) || a - b);
 
-  return [...unread, ...departed, ...stale].slice(0, selection.max);
+  return [...unread, ...lapsed, ...stale].slice(0, selection.max);
 }
 
 /** `chooseLicensePages` over the database's history and today's layer. */

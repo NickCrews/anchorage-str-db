@@ -6,7 +6,7 @@ A daily record of Airbnb short-term rentals (STRs) in the Municipality of
 Anchorage, Alaska, for answering questions like:
 
 - How many listings are there, how many are active?
-- What is the character of these rentals: number of rooms, price, operated by on-premise property owner vs someone with many listings
+- What is the character of these rentals: number of bedrooms, price, run by an on-premise owner vs a host with many listings
 - How has that changed over time? How does it vary between neighborhoods, price bands, size, room type, etc?
 
 ## What you get
@@ -24,7 +24,7 @@ duckdb anchorage_str.duckdb
 ```
 
 ```sql
-SELECT count(*) FROM listings WHERE is_current;
+SELECT count(*) FROM listings WHERE is_active;
 ```
 
 ## Daily run
@@ -68,14 +68,14 @@ CityView license pages). Views have no prefix.
 - `airbnb_listing_photos`: each listing's photo URLs, one row per distinct set, cover
   photo first. `listing_photos_current` *(view)* has each listing's latest
   set. Photos never open a listing version.
-- `airbnb_scrape_runs`: one row per run, with counts and errors
+- `airbnb_scrape_runs`: one row per daily run, with counts and errors
 - `listings` *(view)*: one row per listing version, derived from the
-  observations. `listings_current` filters to `is_current`. `host_id` is the
+  observations. `listings_active` filters to `is_active`. `host_id` is the
   primary host's Airbnb user id (`airbnb.com/users/show/<host_id>`), stable
   for the life of the host account; a change of host opens a new version.
   Co-hosts are not recorded. `first_available_date_est` is the earlier of
-  `first_review_date` and `first_seen_date`: the room was listed on or before
-  it. It is an estimate that can only be late: a room with no reviews from
+  `first_review_date` and `first_seen_date`: the listing existed on or before
+  it. It is an estimate that can only be late: a listing with no reviews from
   before `first_seen_date` looks as new as the day it was first scraped.
   - `room_type`: Airbnb's text, as written: `Entire home/apt`,
     `Private room`, `Shared room`, `Hotel room`. `property_title`
@@ -96,15 +96,15 @@ CityView license pages). Views have no prefix.
   carries the last one forward. `hosting_started_on` is derived from
   `timeAsHost`, which Airbnb reports in whole months, so it can be up to a
   month late.
-- `host_portfolios` *(view)*: per host per scrape date, `listings_live` and
+- `host_portfolios` *(view)*: per host per scrape date, `listings_active` and
   `listings_ever_seen`. Counts only listings in the Anchorage search area: a
-  host with 2 listings here and 40 elsewhere has 2. No owner/operator
-  threshold is stored.
-- `listings_current_with_host` *(view)*: `listings_current` plus the host's
+  host with 2 listings here and 40 elsewhere has 2. No threshold marking
+  where a casual host ends and a commercial one begins is stored.
+- `listings_active_with_host` *(view)*: `listings_active` plus the host's
   name, years hosting, and portfolio counts as of the latest run
-- `calendar_current` *(view)*: use this instead of `airbnb_calendar_status` for
-  "how many are operating/booked"; it drops the frozen future nights of
-  retired listings
+- `calendar_current` *(view)*: the current version of each night. Use this
+  instead of `airbnb_calendar_status` for "how many are operating/booked";
+  it drops the frozen future nights of retired listings
 
 From the Municipal Clerk's
 [Short Term Rental Registration Viewer](https://experience.arcgis.com/experience/22b40a78a9fc459e9950a16249b37ed2)
@@ -112,8 +112,9 @@ and the Muni's license portal, stored as published:
 
 - `muni_str_registration_observations`: one row per registration per registry run.
   The Muni publishes only active registrations, so a registration missing
-  from a run has lapsed or been withdrawn. `location` is the address on the
-  license: a Muni property record's address, or the applicant's typed text.
+  from a run has lapsed or been withdrawn. `registered_address` is the address
+  on the license: a Muni property record's address, or the registrant's typed
+  text.
   `geocoded_address`, the point, `community_council` and `parcel_type` are
   the Muni's derivations from it.
 - `muni_license_page_reads`: the CityView license page
@@ -123,17 +124,17 @@ and the Muni's license portal, stored as published:
   meeting space and overnight lodging."), `locations`, and every
   certificate `issuances` records. A location with a `link` comes from the
   Muni's property records (a parcel id, or that record's address); one
-  without is text the applicant typed.
+  without is text the registrant typed.
 - `muni_str_registry_runs`: one row per registry run
 - `registrations` *(view)*: one row per registration ever published, with
   its latest license page. `parcel_id` joins to
   [anchorage-property](https://github.com/NickCrews/anchorage-property)'s
-  parcels. `airbnb_listings_current` counts the current Airbnb listings
-  showing the number. `registrations_current` filters to `is_current`.
-- `listings_current_with_registration` *(view)*: `listings_current` plus
-  the registration matching `str_registration_id`: its address, parcel,
+  parcels. `airbnb_listings_active` counts the active Airbnb listings
+  showing the id. `registrations_active` filters to `is_active`.
+- `listings_active_with_registration` *(view)*: `listings_active` plus
+  the registration matching `registration_id`: its address, parcel,
   business name and description. `registration_found` is false when the
-  listing shows no number or one not in the registry, which includes numbers
+  listing shows no id, or one not in the registry, which includes ids
   issued since the Muni's last publish.
 
 ## Known gaps
@@ -145,8 +146,8 @@ and the Muni's license portal, stored as published:
   [`docs/research/airbnb-calendar-price.md`](docs/research/airbnb-calendar-price.md).
 
 - **Unregistered listings have no street address.** A listing showing a
-  registration number gets the registered address and parcel from
-  `listings_current_with_registration` (2047 of 2628 current listings on
+  registration id gets the registered address and parcel from
+  `listings_active_with_registration` (2047 of 2628 active listings on
   2026-09-13). For the rest, `location_exact_address` is null unless the
   host published one. Join on `location_lat`/`location_lng`, and filter on
   `location_is_exact` first: about half those coordinates are Airbnb's
@@ -170,5 +171,6 @@ A pnpm workspace sharing `tsconfig.base.json`:
 - `packages/utils`: dependency-free helpers shared by the scrapers.
 - `packages/ui`: the browser viewer.
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) to run or change the pipeline, and
-the [PRD](./docs/prd.md) for goals.
+See [CONTEXT.md](./CONTEXT.md) for the vocabulary these tables and docs use,
+[CONTRIBUTING.md](./CONTRIBUTING.md) to run or change the pipeline, and the
+[PRD](./docs/prd.md) for goals.

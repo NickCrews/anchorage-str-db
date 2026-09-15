@@ -8,7 +8,7 @@ Measured 2026-08-26 on Girdwood listings. Explains
 exact, via an `isExactLocation` boolean. It is `true` for roughly half of
 Girdwood listings, whose coordinates are the host's published position. The
 rest are jittered and can't be recovered. The page also carries the
-Municipality of Anchorage STR registration number as a structured field.
+Municipality of Anchorage STR registration id as a structured field.
 
 ## Where the data is
 
@@ -71,7 +71,7 @@ read by the quality checks, not stored):
 | --- | --- | --- |
 | `json-ld` | schema.org block | coordinate |
 | `state` | embedded GraphQL, found by shape | everything, including the flag |
-| `raw-html` | regex over the raw document | flag, registration number |
+| `raw-html` | regex over the raw document | flag, registration id |
 
 The `state` layer does not use the path above. It searches every JSON script
 for an object with a boolean key matching `exact…location` and reads the
@@ -88,7 +88,7 @@ distinct value. On the measured pages each pattern had one distinct match.
 
 ## Measurements
 
-29 current listings sampled at random (seed 7), plus a separate 12, each
+29 active listings sampled at random (seed 7), plus a separate 12, each
 fetched once:
 
 | Finding | Result |
@@ -98,7 +98,7 @@ fetched once:
 | `isExactLocation: true` | 13/29 (45%) and 7/12 (58%) |
 | `exactAddress` non-null | 0/41 |
 | `defaultZoomLevel` | 12 for all 41 |
-| STR registration number present | 27/29 (93%) and 11/12 (92%) |
+| STR registration id present | 27/29 (93%) and 11/12 (92%) |
 
 - **Repeated fetching doesn't reduce the jitter.** The offset is stored, not
   redrawn per request, as Airbnb's obfuscation patent (US 11,774,260) describes.
@@ -110,7 +110,7 @@ fetched once:
 In all 41 listings, `isExactLocation` was `true` exactly when both latitude
 and longitude had four or fewer decimal places, and `false` when they had five
 or more. Exact coordinates appear to be rounded to 4 dp (~11 m) and jittered
-ones emitted at 5 dp. Applied to 286 current listings at the time, this gave
+ones emitted at 5 dp. Applied to 286 active listings at the time, this gave
 136 (48%) exact, consistent with both samples.
 
 This is undocumented and could change, so the pipeline stores the flag and
@@ -142,7 +142,7 @@ without a number are the notable ones; see
 
 The page fields are stored on the same `airbnb_listing_observations` row as the
 search fields, so `location_is_exact` is next to the coordinate it describes.
-They are part of the version key, so adding a registration number or changing
+They are part of the version key, so adding a registration id or changing
 exact-location status opens a new version in `listings`. `page_seen_date` is
 derived (the last scrape date with `page_fetch_ok`), so re-reading a page
 daily does not open versions.
@@ -158,7 +158,7 @@ failed fetch doesn't restore a number the host removed.
    given Girdwood's parcel sizes.
 2. **The other half stays unresolved.** Nothing here reverses the jitter; the
    registry remains the practical route.
-3. **The registration number is the more useful field.** It answers the
+3. **The registration id is the more useful field.** It answers the
    compliance question for ~92% of listings without an address.
 
 ## Ethics
@@ -174,7 +174,7 @@ pnpm daily
 ```
 
 ```sql
-SELECT location_is_exact, count(*), count(str_registration_id)
-FROM listings WHERE is_current AND page_seen_date IS NOT NULL
+SELECT location_is_exact, count(*), count(registration_id)
+FROM listings WHERE is_active AND page_seen_date IS NOT NULL
 GROUP BY ALL;
 ```

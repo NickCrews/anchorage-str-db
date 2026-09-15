@@ -54,11 +54,11 @@ export async function runRegistryChecks(
   const run = (
     await db.rows<{
       registrations_seen: number | null;
-      registrations_departed: number | null;
+      registrations_lapsed: number | null;
       license_page_attempted: number | null;
       license_page_failed: number | null;
     }>(
-      'SELECT registrations_seen, registrations_departed, license_page_attempted, ' +
+      'SELECT registrations_seen, registrations_lapsed, license_page_attempted, ' +
         'license_page_failed FROM muni_str_registry_runs WHERE scrape_date = CAST(? AS DATE) ' +
         'ORDER BY run_started_at DESC LIMIT 1',
       [scrapeDate],
@@ -78,28 +78,28 @@ export async function runRegistryChecks(
     `${seen} registrations in the layer, expected [${lo}, ${hi}]`,
   );
 
-  // Airbnb's registration numbers have this shape, so another one would not
+  // Airbnb's registration ids have this shape, so another one would not
   // join to listings.
   const malformed = await db.count(
     'SELECT count(*) FROM muni_str_registration_observations ' +
-      "WHERE scrape_date = CAST(? AS DATE) AND NOT regexp_full_match(registration_number, 'STR\\d{8}')",
+      "WHERE scrape_date = CAST(? AS DATE) AND NOT regexp_full_match(registration_id, 'STR\\d{8}')",
     [scrapeDate],
   );
   check(
-    'registration_number_format',
+    'registration_id_format',
     'warn',
     malformed === 0,
-    `${malformed} registration numbers today are not STR followed by 8 digits`,
+    `${malformed} registration ids today are not STR followed by 8 digits`,
   );
 
   const withoutLicense = await db.count(
-    'SELECT count(*) FROM registrations WHERE is_current AND license_id IS NULL',
+    'SELECT count(*) FROM registrations WHERE is_active AND license_id IS NULL',
   );
   check(
     'registration_license_id_present',
     'warn',
     withoutLicense === 0,
-    `${withoutLicense} current registrations have no licenseId in status_url, so their ` +
+    `${withoutLicense} active registrations have no licenseId in status_url, so their ` +
       'license page is never read',
   );
 
@@ -112,14 +112,14 @@ export async function runRegistryChecks(
       'ORDER BY scrape_date DESC, run_started_at DESC LIMIT 1',
     [scrapeDate],
   );
-  const departed = run.registrations_departed ?? 0;
+  const lapsed = run.registrations_lapsed ?? 0;
   if (previousSeen) {
-    const share = departed / previousSeen;
+    const share = lapsed / previousSeen;
     check(
-      'registrations_departed_share',
+      'registrations_lapsed_share',
       'warn',
       share <= MAX_REGISTRATION_DEPARTURE_SHARE,
-      `${departed}/${previousSeen} of the previous run's registrations are gone ` +
+      `${lapsed}/${previousSeen} of the previous run's registrations are gone ` +
         `(${percent(share)}, max ${percent(MAX_REGISTRATION_DEPARTURE_SHARE)})`,
     );
   }
@@ -154,12 +154,12 @@ export async function runRegistryChecks(
   }
 
   const cited = await db.count(
-    'SELECT count(DISTINCT str_registration_id) FROM listings_current ' +
-      'WHERE str_registration_id IS NOT NULL',
+    'SELECT count(DISTINCT registration_id) FROM listings_active ' +
+      'WHERE registration_id IS NOT NULL',
   );
   if (cited) {
     const matched = await db.count(
-      'SELECT count(DISTINCT str_registration_id) FROM listings_current_with_registration ' +
+      'SELECT count(DISTINCT registration_id) FROM listings_active_with_registration ' +
         'WHERE registration_found',
     );
     const share = matched / cited;
@@ -167,7 +167,7 @@ export async function runRegistryChecks(
       'airbnb_registration_match',
       'warn',
       share >= MIN_AIRBNB_REGISTRATION_MATCH_SHARE,
-      `${matched}/${cited} registration numbers on current Airbnb listings are in the registry ` +
+      `${matched}/${cited} registration ids on active Airbnb listings are in the registry ` +
         `(${percent(share)}, min ${percent(MIN_AIRBNB_REGISTRATION_MATCH_SHARE)})`,
     );
   }

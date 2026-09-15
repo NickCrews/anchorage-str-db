@@ -82,8 +82,8 @@ function stubPages(byBand: Record<BandKey, SearchPage>): FetchPage {
   return async (band) => byBand[bandKey(band)] ?? { listings: [], pageCount: 1 };
 }
 
-function page(roomIds: readonly number[], pageCount = 1): SearchPage {
-  return { listings: roomIds.map((id) => makeSearchListing(id)), pageCount };
+function page(listingIds: readonly number[], pageCount = 1): SearchPage {
+  return { listings: listingIds.map((id) => makeSearchListing(id)), pageCount };
 }
 
 describe('searchAnchorage', () => {
@@ -112,7 +112,7 @@ describe('searchAnchorage', () => {
 
     // Only the halves' listings, not the parent's.
     expect(
-      result.listings.map((listing) => listing.roomId).sort((a, b) => (a < b ? -1 : 1)),
+      result.listings.map((listing) => listing.listingId).sort((a, b) => (a < b ? -1 : 1)),
     ).toEqual([
       1000n, 1001n, 1002n, 1003n, 1004n, 2000n, 2001n, 2002n, 2003n, 2004n, 2005n, 2006n,
     ]);
@@ -140,7 +140,7 @@ describe('searchAnchorage', () => {
     });
 
     expect(calls).toBe(1);
-    expect(result.listings.map((listing) => listing.roomId)).toEqual([1n]);
+    expect(result.listings.map((listing) => listing.listingId)).toEqual([1n]);
   });
 });
 

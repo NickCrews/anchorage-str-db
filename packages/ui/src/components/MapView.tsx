@@ -27,8 +27,8 @@ const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json
 /**
  * One point per short-term rental we know of, as WKB geometry for
  * `@sqlrooms/deck` (needs the spatial extension loaded in `store.ts`): every
- * current Airbnb listing, plus every current Muni registration that no current
- * Airbnb listing cites (rentals listed elsewhere, such as VRBO, or not listed).
+ * active Airbnb listing, plus every active Muni registration that no active
+ * Airbnb listing cites (units listed elsewhere, such as VRBO, or not listed).
  * Registrations the Muni's geocoder could not place are left out.
  *
  * A listing's point is the Muni's geocoding of the registration it cites when
@@ -45,8 +45,8 @@ const RENTALS_QUERY = `
     o.review_count,
     o.price_hint_per_night,
     ${registrationStatusSql('l')} AS registration_status,
-    l.str_registration_id,
-    l.registration_location,
+    l.registration_id,
+    l.registration_address,
     CASE
       WHEN r.geocoded_lat IS NOT NULL THEN 'License address'
       WHEN l.location_is_exact THEN 'Exact Airbnb pin'
@@ -57,9 +57,9 @@ const RENTALS_QUERY = `
       coalesce(r.geocoded_lng, l.location_lng),
       coalesce(r.geocoded_lat, l.location_lat)
     )) AS geometry
-  FROM listings_current_with_registration l
+  FROM listings_active_with_registration l
   LEFT JOIN registrations r
-    ON r.registration_number = l.str_registration_id
+    ON r.registration_id = l.registration_id
     AND r.geocoded_lat IS NOT NULL
     AND r.geocoded_lng IS NOT NULL
   LEFT JOIN (
@@ -75,13 +75,13 @@ const RENTALS_QUERY = `
   SELECT
     business_name AS name,
     '${NOT_ON_AIRBNB}' AS registration_status,
-    registration_number AS str_registration_id,
-    location AS registration_location,
+    registration_id AS registration_id,
+    location AS registration_address,
     'License address' AS location_source,
     true AS is_precise,
     ST_AsWKB(ST_Point(geocoded_lng, geocoded_lat)) AS geometry
-  FROM registrations_current
-  WHERE airbnb_listings_current = 0
+  FROM registrations_active
+  WHERE airbnb_listings_active = 0
     AND geocoded_lat IS NOT NULL
     AND geocoded_lng IS NOT NULL
 `;
@@ -157,8 +157,8 @@ type RentalRow = {
   review_count: number | null;
   price_hint_per_night: number | null;
   registration_status: string | null;
-  str_registration_id: string | null;
-  registration_location: string | null;
+  registration_id: string | null;
+  registration_address: string | null;
   location_source: string;
 };
 
@@ -178,13 +178,13 @@ const rentalTooltip = (row: RentalRow): string[] => {
   }
   if (row.registration_status) {
     lines.push(
-      row.str_registration_id
-        ? `${row.registration_status}: ${row.str_registration_id}`
+      row.registration_id
+        ? `${row.registration_status}: ${row.registration_id}`
         : row.registration_status,
     );
   }
-  if (row.registration_location) {
-    lines.push(`Registered at ${row.registration_location}`);
+  if (row.registration_address) {
+    lines.push(`Registered at ${row.registration_address}`);
   }
   lines.push(`Location: ${row.location_source}`);
   return lines;
@@ -306,13 +306,13 @@ export const MapView: FC = () => {
         <div className="pointer-events-none absolute inset-0 z-20">
           <div className="bg-background/90 pointer-events-auto absolute top-3 left-3 w-72 rounded-md border shadow-lg backdrop-blur">
             <div className="border-b px-3 py-2">
-              <p className="text-sm font-medium">Current short-term rentals</p>
+              <p className="text-sm font-medium">Active short-term rentals</p>
               <p className="text-muted-foreground mt-0.5 text-[11px] leading-tight">
-                Every current Airbnb listing, plus every current Muni
+                Every active Airbnb listing, plus every active Muni
                 registration no Airbnb listing cites. Filled dots are at a
-                known location: the registered license address, or an exact
-                Airbnb pin. Rings are Airbnb pins shifted by up to a few
-                hundred meters, so read them as a neighborhood, not an address.
+                known point: the registered address, or an exact Airbnb pin.
+                Rings are Airbnb pins jittered by up to a few hundred
+                meters, so read them as a neighborhood, not an address.
               </p>
             </div>
             <div className="space-y-1.5 px-3 py-2">

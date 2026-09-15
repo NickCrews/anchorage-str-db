@@ -36,7 +36,7 @@ import { withRetries } from '@anchorage-str-db/utils/retry';
  * the Muni's property records: `Property` is a parcel id, and `Address` is
  * that record's address in the Muni's parcel-address style (all caps, units
  * as `Unit:APT 1`). The ArcGIS layer's `Location` is the same string. An
- * unlinked value is text the applicant typed that matched no property
+ * unlinked value is text the registrant typed that matched no property
  * record, such as `525 w 3rd Ave #501, anchorage AK 99501`; it usually has no
  * label, and the registration then has no parcel id.
  */
@@ -58,14 +58,14 @@ export interface LicenseIssuance {
   issuedDate: IsoDate | null;
   expiresDate: IsoDate | null;
   status: string | null;
-  /** The registration number, `STR20260309`. */
+  /** The registration id, `STR20260309`. */
   number: string | null;
 }
 
 export interface LicensePage {
   licenseId: number;
   /** `LC260500349`: the layer's `ApplicationNumber`. */
-  licenseeNumber: string;
+  licenseeId: string;
   businessName: string | null;
   /** `Short-Term Rentals`. */
   licenseType: string | null;
@@ -215,11 +215,11 @@ export function parseLicensePage(html: string, licenseId: number): LicensePage {
   const root = parse(html.replace(/\r\n?/g, '\n'));
   const labels = root.querySelectorAll('label');
   try {
-    const licenseeNumber = summaryValue(root, labels, 'Licensee Number');
-    if (licenseeNumber === null) throw new Error('empty "Licensee Number"');
+    const licenseeId = summaryValue(root, labels, 'Licensee Number');
+    if (licenseeId === null) throw new Error('empty "Licensee Number"');
     return {
       licenseId,
-      licenseeNumber,
+      licenseeId,
       businessName: summaryValue(root, labels, 'Business Name'),
       licenseType: summaryValue(root, labels, 'License Type'),
       status: summaryValue(root, labels, 'Application Status'),

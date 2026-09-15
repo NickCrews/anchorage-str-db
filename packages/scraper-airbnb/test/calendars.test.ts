@@ -56,13 +56,13 @@ describe('fetchCalendars', () => {
     const results = await fetchCalendars(['1', '2', '3'], {
       minDate: '2026-08-15',
       concurrency: 2,
-      fetchOne: async (roomId): Promise<CalendarResult> =>
-        roomId === '2'
-          ? { roomId, nights: [], error: 'HttpError: HTTP 503' }
-          : { roomId, nights: toNights([day('2026-08-20', true)], '2026-08-15'), error: null },
+      fetchOne: async (listingId): Promise<CalendarResult> =>
+        listingId === '2'
+          ? { listingId, nights: [], error: 'HttpError: HTTP 503' }
+          : { listingId, nights: toNights([day('2026-08-20', true)], '2026-08-15'), error: null },
     });
 
-    expect(results.map((result) => result.roomId)).toEqual(['1', '2', '3']);
+    expect(results.map((result) => result.listingId)).toEqual(['1', '2', '3']);
     expect(results.filter((result) => result.error)).toHaveLength(1);
   });
 
@@ -74,12 +74,12 @@ describe('fetchCalendars', () => {
       {
         minDate: '2026-08-15',
         concurrency: 3,
-        fetchOne: async (roomId) => {
+        fetchOne: async (listingId) => {
           inFlight += 1;
           peak = Math.max(peak, inFlight);
           await new Promise((resolve) => setTimeout(resolve, 1));
           inFlight -= 1;
-          return { roomId, nights: [], error: null };
+          return { listingId, nights: [], error: null };
         },
       },
     );

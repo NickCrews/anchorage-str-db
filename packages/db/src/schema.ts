@@ -23,7 +23,7 @@
  *   distinct set, written only when the set differs from the listing's
  *   previous one.
  * - `airbnb_host_observations`: append-only, one row per (host, scrape date)
- *   for every host owning a listing observed that day: the host card from
+ *   for every host of a listing observed that day: the host card from
  *   the listing page.
  * - `airbnb_scrape_runs`: one row per daily run.
  *
@@ -118,7 +118,7 @@ export const airbnbListingObservations = pgTable(
     locationExactAddress: varchar('location_exact_address'),
     locationSubtitle: varchar('location_subtitle'),
     locationVerified: boolean('location_verified'),
-    strRegistrationId: varchar('str_registration_id'),
+    registrationId: varchar('registration_id'),
     // The primary host's Airbnb user id (airbnb.com/users/show/<host_id>).
     hostId: id('host_id'),
     // Airbnb's text, verbatim: 'Entire home/apt', 'Private room', ...
@@ -189,7 +189,7 @@ export const airbnbScrapeRuns = pgTable('airbnb_scrape_runs', {
   firstReviewFetchFailed: integer('first_review_fetch_failed'),
   quoteFetchAttempted: integer('quote_fetch_attempted'),
   quoteFetchFailed: integer('quote_fetch_failed'),
-  // Distinct hosts owning a listing observed this run, and how many of them
+  // Distinct hosts of a listing observed this run, and how many of them
   // had no host card read.
   hostProfileAttempted: integer('host_profile_attempted'),
   hostProfileFailed: integer('host_profile_failed'),
@@ -239,11 +239,11 @@ export const airbnbHostObservations = pgTable(
 export const muniStrRegistrationObservations = pgTable(
   'muni_str_registration_observations',
   {
-    // 'STR20260309'; Airbnb listings show it as str_registration_id.
-    registrationNumber: varchar('registration_number').notNull(),
+    // 'STR20260309'; Airbnb listings show it as registration_id.
+    registrationId: varchar('registration_id').notNull(),
     scrapeDate: day('scrape_date').notNull(),
     // 'LC260500349', the license page's Licensee Number.
-    applicationNumber: varchar('application_number'),
+    licenseeId: varchar('licensee_id'),
     submittedDate: day('submitted_date'),
     issuedDate: day('issued_date'),
     expiresDate: day('expires_date'),
@@ -251,9 +251,9 @@ export const muniStrRegistrationObservations = pgTable(
     // record, this is that record's address in the Muni's parcel-address
     // style ('7730 MAYFAIR DR, Unit:APT 1, ANCHORAGE, AK 99502', or just
     // '311 MELODY PL' when the record has no city); otherwise it is the text
-    // the applicant typed ('525 w 3rd Ave #501, anchorage AK 99501'). See
+    // the registrant typed ('525 w 3rd Ave #501, anchorage AK 99501'). See
     // muni_license_page_reads.locations for which.
-    location: varchar('location'),
+    registeredAddress: varchar('registered_address'),
     // The string 'None' when the registrant gave no business name.
     businessName: varchar('business_name'),
     status: varchar('status'),
@@ -265,19 +265,20 @@ export const muniStrRegistrationObservations = pgTable(
     // 'Residential' or 'Commercial'. Can be NULL even when the license names
     // a parcel and the address geocoded (7821 MAYFAIR DR, Unit:APT C).
     parcelType: varchar('parcel_type'),
-    // The Muni geocoder's (MOA_Multirole_Locator) reading of location, in its
-    // own style: '7821 Mayfair Dr, Apartment C, Anchorage, Alaska, 99502'.
+    // The Muni geocoder's (MOA_Multirole_Locator) reading of
+    // registered_address, in its own style: '7821 Mayfair Dr, Apartment C,
+    // Anchorage, Alaska, 99502'.
     // It rewrites typed text too ('#501' becomes 'Apartment 501', 'ROOM 4' is
-    // dropped). A location with no city or zip gets
+    // dropped). An address with no city or zip gets
     // 'Incomplete address provided. No Match.' and a placeholder point.
     geocodedAddress: varchar('geocoded_address'),
-    // The geocoded point, not a location the applicant gave.
+    // The geocoded point, not a position the registrant gave.
     geocodedLat: doublePrecision('geocoded_lat'),
     geocodedLng: doublePrecision('geocoded_lng'),
     // The layer's PUBDATE, naive UTC.
     publishedAt: naiveTimestamp('published_at'),
   },
-  (t) => [primaryKey({ columns: [t.registrationNumber, t.scrapeDate] })],
+  (t) => [primaryKey({ columns: [t.registrationId, t.scrapeDate] })],
 );
 
 export interface LicenseLocation {
@@ -300,7 +301,7 @@ export const muniLicensePageReads = pgTable(
   {
     licenseId: integer('license_id').notNull(),
     scrapeDate: day('scrape_date').notNull(),
-    licenseeNumber: varchar('licensee_number').notNull(),
+    licenseeId: varchar('licensee_id').notNull(),
     businessName: varchar('business_name'),
     // 'Short-Term Rentals'.
     licenseType: varchar('license_type'),
@@ -310,7 +311,7 @@ export const muniLicensePageReads = pgTable(
     // In page order. A value with a link is from the Muni's property records,
     // and the link is the portal's property search for it: label 'Property'
     // holds a parcel id, 'Address' the record's address. A value without a
-    // link is text the applicant typed that matched no record, and usually
+    // link is text the registrant typed that matched no record, and usually
     // has no label. The label can be the portal's own lookup error
     // (license 13966).
     locations: structList<LicenseLocation>(
@@ -335,7 +336,7 @@ export const muniStrRegistryRuns = pgTable('muni_str_registry_runs', {
   registrationsSeen: integer('registrations_seen'),
   registrationsNew: integer('registrations_new'),
   // In the previous run's layer but not this one's.
-  registrationsDeparted: integer('registrations_departed'),
+  registrationsLapsed: integer('registrations_lapsed'),
   licensePageAttempted: integer('license_page_attempted'),
   licensePageFailed: integer('license_page_failed'),
   errorSummary: varchar('error_summary'),

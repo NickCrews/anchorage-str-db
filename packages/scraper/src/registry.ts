@@ -81,13 +81,13 @@ export async function runRegistry(options: RunRegistryOptions): Promise<boolean>
         layerDataEditedAt: dataEditedAt,
         registrationsSeen: stats.seen,
         registrationsNew: stats.new,
-        registrationsDeparted: stats.departed,
+        registrationsLapsed: stats.lapsed,
         licensePageAttempted: licenseStats.attempted,
         licensePageFailed: licenseStats.failed,
         errorSummary: null,
       });
       log.info(
-        `registrations: ${stats.new} new, ${stats.departed} gone since the previous run`,
+        `registrations: ${stats.new} new, ${stats.lapsed} gone since the previous run`,
       );
     });
 
@@ -112,7 +112,7 @@ function failedRunRow(scrapeDate: IsoDate, startedAt: string, errorSummary: stri
     layerDataEditedAt: null,
     registrationsSeen: null,
     registrationsNew: null,
-    registrationsDeparted: null,
+    registrationsLapsed: null,
     licensePageAttempted: null,
     licensePageFailed: null,
     errorSummary,
