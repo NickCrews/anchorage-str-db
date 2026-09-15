@@ -165,13 +165,13 @@ it('fails search_single_page when a band needed more than one page', async () =>
   expect(report(all)).toBe(false);
 });
 
-it('passes coords_within_municipality when every current listing is inside', async () => {
+it('passes coords_within_municipality when every active listing is inside', async () => {
   const db = await seedMinimal();
   const { byName } = await check(db);
   expect(byName['coords_within_municipality']!.passed).toBe(true);
 });
 
-it('warns coords_within_municipality for a current listing outside the Municipality', async () => {
+it('warns coords_within_municipality for an active listing outside the Municipality', async () => {
   // Palmer, in the Matanuska-Susitna Borough.
   const palmer = makeListing(99_999, 'Palmer cabin', { lat: 61.6 });
   const db = await seedMinimal([], undefined, [palmer]);

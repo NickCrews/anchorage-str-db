@@ -116,7 +116,7 @@ ones emitted at 5 dp. Applied to 286 active listings at the time, this gave
 This is undocumented and could change, so the pipeline stores the flag and
 `exact_flag_matches_coordinate_precision` only warns on a mismatch.
 
-### Registration number
+### Registration id
 
 The number appears in the long description under a `<b>Registration
 Details</b>` heading, and as a `BasicListItem`:

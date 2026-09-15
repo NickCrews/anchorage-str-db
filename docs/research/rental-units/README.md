@@ -51,8 +51,8 @@ one listing mix entire homes with private rooms.
 
 There are two useful grains, and they answer different questions:
 
-- **Dwelling unit:** a house or apartment. Answers how much housing STRs take
-  from long-term use. A house rented by the room is one dwelling.
+- **Dwelling unit:** a house or apartment. Answers how much housing short-term
+  rentals take from long-term use. A house rented by the room is one dwelling.
 - **Bookable space:** the smallest thing a guest can book alone, such as a
   room, a suite or one unit of a triplex. Answers capacity and nights booked.
 
