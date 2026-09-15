@@ -13,10 +13,15 @@ import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
 
+import { CURRENCY, LANGUAGE } from './api/http.ts';
 import { fetchPriceQuote, standardizePriceQuote } from './api/priceQuote.ts';
 import type { CalendarResult } from './calendars.ts';
-import * as config from './config.ts';
-import { withRetries } from './retry.ts';
+import { RETRY_BACKOFF_MS, withRetries } from './retry.ts';
+
+/** Concurrency, attempts and timeout for price quotes. */
+const QUOTE_CONCURRENCY = 6;
+const QUOTE_MAX_RETRIES = 3;
+const QUOTE_TIMEOUT_MS = 15_000;
 
 export interface StayWindow {
   roomId: string;
@@ -70,15 +75,15 @@ export function liveQuoteFetcher(apiKey: string): FetchOneQuote {
               roomId: window.roomId,
               checkIn: window.checkIn,
               checkOut: addDays(window.checkIn, window.nights),
-              currency: config.CURRENCY,
-              language: config.LANGUAGE,
-              timeoutMs: config.QUOTE_TIMEOUT_MS,
+              currency: CURRENCY,
+              language: LANGUAGE,
+              timeoutMs: QUOTE_TIMEOUT_MS,
             }),
           ),
         {
           label: `price quote for room ${window.roomId}`,
-          attempts: config.QUOTE_MAX_RETRIES,
-          backoffMs: config.RETRY_BACKOFF_MS,
+          attempts: QUOTE_MAX_RETRIES,
+          backoffMs: RETRY_BACKOFF_MS,
         },
       );
       return { ...window, ...response, error: null };
@@ -108,7 +113,7 @@ export async function fetchPriceQuotes(
     .filter((window): window is StayWindow => window !== null);
   const quotes = await mapWithConcurrency(
     windows,
-    options.concurrency ?? config.QUOTE_CONCURRENCY,
+    options.concurrency ?? QUOTE_CONCURRENCY,
     (window) => options.fetchOne(window),
   );
   for (const quote of quotes) {

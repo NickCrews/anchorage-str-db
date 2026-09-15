@@ -6,11 +6,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { BoundingBox } from '../src/api/search.ts';
-import * as config from '../src/config.ts';
 import { resetPace } from '../src/pace.ts';
 import {
   auditCoverage,
+  COVERAGE_AUDIT_SAMPLE,
   missRate,
+  PRICE_BAND_MIN_WIDTH_USD,
+  PRICE_BAND_SEEDS_USD,
   PriceBand,
   searchAnchorage,
   type FetchPage,
@@ -31,7 +33,7 @@ function covers(bands: readonly PriceBand[], price: number): boolean {
 
 describe('price bands', () => {
   it('leave no gap at any whole dollar', () => {
-    const bands = config.PRICE_BAND_SEEDS_USD.map(([lo, hi]) => new PriceBand(lo, hi));
+    const bands = PRICE_BAND_SEEDS_USD.map(([lo, hi]) => new PriceBand(lo, hi));
     const uncovered = [...Array(5000).keys()].filter((price) => !covers(bands, price));
     expect(uncovered).toEqual([]);
   });
@@ -62,7 +64,7 @@ describe('price bands', () => {
   });
 
   it('report null when too narrow to split', () => {
-    expect(new PriceBand(100, 100 + config.PRICE_BAND_MIN_WIDTH_USD - 1).split()).toBeNull();
+    expect(new PriceBand(100, 100 + PRICE_BAND_MIN_WIDTH_USD - 1).split()).toBeNull();
   });
 });
 
@@ -86,7 +88,7 @@ function page(roomIds: readonly number[], pageCount = 1): SearchPage {
 
 describe('searchAnchorage', () => {
   it('accepts a single-page band as complete', async () => {
-    const seeds = config.PRICE_BAND_SEEDS_USD;
+    const seeds = PRICE_BAND_SEEDS_USD;
     const first = seeds[0]!;
     const result = await searchAnchorage({
       fetchPage: stubPages({ [`${first[0]}:${first[1]}`]: page([...Array(10).keys()]) }),
@@ -98,7 +100,7 @@ describe('searchAnchorage', () => {
   });
 
   it('splits a multi-page band rather than paginating it', async () => {
-    const capped = config.PRICE_BAND_SEEDS_USD[0]!;
+    const capped = PRICE_BAND_SEEDS_USD[0]!;
     const halves = new PriceBand(capped[0], capped[1]).split()!;
     const result = await searchAnchorage({
       fetchPage: stubPages({
@@ -153,7 +155,7 @@ describe('auditCoverage', () => {
       fetchPage: async () => page([1, 2]),
     });
 
-    expect(audit.boxes).toBe(config.COVERAGE_AUDIT_SAMPLE);
+    expect(audit.boxes).toBe(COVERAGE_AUDIT_SAMPLE);
     expect(audit.missedIds).toHaveLength(0);
     expect(missRate(audit)).toBe(0);
   });

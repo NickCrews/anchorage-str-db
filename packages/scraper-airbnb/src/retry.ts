@@ -13,6 +13,9 @@ import { pace } from './pace.ts';
 
 export { RetriesExhaustedError } from '@anchorage-str-db/utils/retry';
 
+/** Backoff between retries of a failed fetch: `RETRY_BACKOFF_MS * attempt`. */
+export const RETRY_BACKOFF_MS = 500;
+
 export function withRetries<T>(
   attempt: () => Promise<T>,
   options: Omit<RetryOptions, 'pacer' | 'isRateLimited'>,

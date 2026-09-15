@@ -9,8 +9,77 @@ import type { IsoDate } from '@anchorage-str-db/utils/dates';
 import { log } from '@anchorage-str-db/utils/log';
 import { inMunicipality } from '@anchorage-str-db/utils/muni_geography';
 
-import * as config from './config.ts';
 import type { PageFetchStats, QuoteStats } from './store.ts';
+
+/**
+ * A run fails if the current listing count is outside this range, which
+ * suggests a broken bbox, a blocked scrape, or an API change. The floor is
+ * well above the 280 a single unsplit query returns.
+ */
+export const PLAUSIBLE_LISTING_COUNT: readonly [number, number] = [1000, 8000];
+
+/**
+ * Fraction of audit-box listings the price bands may miss before the run
+ * fails. The measured rate is 0% (68 listings in 4 usable boxes); a
+ * paginating search misses ~8%. Non-zero to allow minor inconsistency between
+ * the two query shapes.
+ */
+const MAX_COVERAGE_MISS_RATE = 0.05;
+
+/** A calendar-fetch failure rate above this fails the run. */
+const MAX_CALENDAR_FAILURE_RATE = 0.25;
+
+/** A listing-page failure rate above this fails the run. */
+const MAX_PAGE_FAILURE_RATE = 0.25;
+
+/**
+ * The share of current, page-read listings with a value below which the run
+ * fails, for each page field every listing has: `host_id`, `room_type`,
+ * `guest_capacity`, `beds`, `bathrooms`, and photos. Every real page sampled
+ * (41 for the host, 44 for the rest) yielded each one, so a shortfall means
+ * the extraction broke. `registryChecks.ts` holds license pages to the same
+ * share.
+ */
+export const MIN_PAGE_FIELD_SHARE = 0.95;
+
+/**
+ * The same for `bedrooms`, which rooms and some campers omit: 33 of 44
+ * sampled pages had a bedroom or studio line.
+ */
+const MIN_BEDROOMS_SHARE = 0.6;
+
+/** A price-quote failure rate above this fails the run. */
+const MAX_QUOTE_FAILURE_RATE = 0.25;
+
+/**
+ * The share of quotes read without error that carry a price, below which the
+ * run fails. A quote can lack one when a stay was booked between the calendar
+ * fetch and the quote, or Airbnb's advance-notice rules block it.
+ */
+const MIN_QUOTE_PRICE_SHARE = 0.8;
+
+/**
+ * A first-review failure rate above this fails the `first_review_failure_rate`
+ * check, at warn severity.
+ */
+const MAX_FIRST_REVIEW_FAILURE_RATE = 0.25;
+
+/**
+ * Warn-severity gates on the host dimension. A failed page is the ordinary
+ * cause of an unread card, so the failure rate mirrors
+ * `MAX_PAGE_FAILURE_RATE`. The views carry each host's last read forward, so
+ * only hosts never once read can lack a profile; 2616 of 2618 pages measured
+ * yielded a card.
+ */
+const MAX_HOST_PROFILE_FAILURE_RATE = 0.25;
+const MIN_HOST_PROFILE_SHARE = 0.95;
+
+/**
+ * How far the start dates implied by one host's `timeAsHost` readings may
+ * spread before `host_start_date_stable` warns. Readings in whole months
+ * taken on different days of the month disagree by up to about a month.
+ */
+const HOST_START_MAX_SPREAD_DAYS = 45;
 
 export type Severity = 'error' | 'warn';
 
@@ -63,10 +132,10 @@ export async function runChecks(
     check(
       'search_coverage',
       'error',
-      rate <= config.MAX_COVERAGE_MISS_RATE,
+      rate <= MAX_COVERAGE_MISS_RATE,
       `${coverage.missedIds.length}/${coverage.seen} listings in ${coverage.boxes} audit ` +
         `boxes were missed by the price bands (${percent(rate)}, max ` +
-        `${percent(config.MAX_COVERAGE_MISS_RATE)})` +
+        `${percent(MAX_COVERAGE_MISS_RATE)})` +
         (coverage.missedIds.length ? `; e.g. ${coverage.missedIds.slice(0, 5).join(', ')}` : ''),
     );
   } else {
@@ -75,7 +144,7 @@ export async function runChecks(
   }
 
   const currentCount = await db.count('SELECT count(*) FROM listings WHERE is_current');
-  const [lo, hi] = config.PLAUSIBLE_LISTING_COUNT;
+  const [lo, hi] = PLAUSIBLE_LISTING_COUNT;
   check(
     'listing_count_plausible',
     'error',
@@ -144,7 +213,7 @@ export async function runChecks(
     check(
       'calendar_failure_rate',
       'error',
-      rate <= config.MAX_CALENDAR_FAILURE_RATE,
+      rate <= MAX_CALENDAR_FAILURE_RATE,
       `${failed}/${attempted} calendar fetches failed (${percent(rate)})`,
     );
   } else {
@@ -161,9 +230,9 @@ export async function runChecks(
     check(
       'first_review_failure_rate',
       'warn',
-      rate <= config.MAX_FIRST_REVIEW_FAILURE_RATE,
+      rate <= MAX_FIRST_REVIEW_FAILURE_RATE,
       `${failed}/${reviewsAttempted} first-review fetches failed (${percent(rate)}, max ` +
-        `${percent(config.MAX_FIRST_REVIEW_FAILURE_RATE)})`,
+        `${percent(MAX_FIRST_REVIEW_FAILURE_RATE)})`,
     );
   }
 
@@ -185,7 +254,7 @@ export async function runChecks(
     check(
       'listing_page_failure_rate',
       'error',
-      rate <= config.MAX_PAGE_FAILURE_RATE,
+      rate <= MAX_PAGE_FAILURE_RATE,
       `${pageStats.failed}/${pageStats.attempted} listing-page fetches failed (${percent(rate)})`,
     );
   }
@@ -208,9 +277,9 @@ export async function runChecks(
     check(
       'photo_coverage',
       'error',
-      photoShare >= config.MIN_PAGE_FIELD_SHARE,
+      photoShare >= MIN_PAGE_FIELD_SHARE,
       `${pageStats.withPhotos}/${fetched} pages read this run had photos ` +
-        `(${percent(photoShare)}, min ${percent(config.MIN_PAGE_FIELD_SHARE)})`,
+        `(${percent(photoShare)}, min ${percent(MIN_PAGE_FIELD_SHARE)})`,
     );
 
     // Warn when an extraction layer contributed to no pages. See listingPage.ts.
@@ -229,7 +298,7 @@ export async function runChecks(
   // stops finding one stores NULL, which opens a spurious version for every
   // affected listing, and again when the parser is fixed. Failing the run
   // keeps that day out of the published archive.
-  const minShare = config.MIN_PAGE_FIELD_SHARE;
+  const minShare = MIN_PAGE_FIELD_SHARE;
   const pageRead = await db.count(
     'SELECT count(*) FROM listings WHERE is_current AND page_seen_date IS NOT NULL',
   );
@@ -239,7 +308,7 @@ export async function runChecks(
       ['room_type', minShare],
       ['guest_capacity', minShare],
       ['beds', minShare],
-      ['bedrooms', config.MIN_BEDROOMS_SHARE],
+      ['bedrooms', MIN_BEDROOMS_SHARE],
       ['bathrooms', minShare],
     ] as const;
     for (const [column, min] of minimums) {
@@ -267,7 +336,7 @@ export async function runChecks(
     check(
       'price_quote_failure_rate',
       'error',
-      failureRate <= config.MAX_QUOTE_FAILURE_RATE,
+      failureRate <= MAX_QUOTE_FAILURE_RATE,
       `${quoteStats.failed}/${quoteStats.attempted} price quotes failed (${percent(failureRate)})`,
     );
     const read = quoteStats.attempted - quoteStats.failed;
@@ -276,9 +345,9 @@ export async function runChecks(
       check(
         'price_quote_priced',
         'error',
-        pricedShare >= config.MIN_QUOTE_PRICE_SHARE,
+        pricedShare >= MIN_QUOTE_PRICE_SHARE,
         `${quoteStats.priced}/${read} price quotes read carried a price ` +
-          `(${percent(pricedShare)}, min ${percent(config.MIN_QUOTE_PRICE_SHARE)})`,
+          `(${percent(pricedShare)}, min ${percent(MIN_QUOTE_PRICE_SHARE)})`,
       );
     }
   }
@@ -302,9 +371,9 @@ export async function runChecks(
     check(
       'host_profile_failure_rate',
       'warn',
-      rate <= config.MAX_HOST_PROFILE_FAILURE_RATE,
+      rate <= MAX_HOST_PROFILE_FAILURE_RATE,
       `${hostFailed}/${hostAttempted} hosts with a listing observed today had no host card ` +
-        `read (${percent(rate)}, max ${percent(config.MAX_HOST_PROFILE_FAILURE_RATE)})`,
+        `read (${percent(rate)}, max ${percent(MAX_HOST_PROFILE_FAILURE_RATE)})`,
     );
   }
 
@@ -322,9 +391,9 @@ export async function runChecks(
     check(
       'host_profile_coverage',
       'warn',
-      share >= config.MIN_HOST_PROFILE_SHARE,
+      share >= MIN_HOST_PROFILE_SHARE,
       `${resolved}/${owned} current listings with a host_id resolve to a read host profile ` +
-        `(${percent(share)}, min ${percent(config.MIN_HOST_PROFILE_SHARE)})`,
+        `(${percent(share)}, min ${percent(MIN_HOST_PROFILE_SHARE)})`,
     );
   }
 
@@ -334,14 +403,14 @@ export async function runChecks(
   const moved = await db.rows<{ host_id: string; spread: number }>(
     'SELECT host_id, hosting_start_spread_days AS spread FROM hosts ' +
       'WHERE is_current AND hosting_start_spread_days > ? ORDER BY spread DESC',
-    [config.HOST_START_MAX_SPREAD_DAYS],
+    [HOST_START_MAX_SPREAD_DAYS],
   );
   check(
     'host_start_date_stable',
     'warn',
     moved.length === 0,
     `${moved.length} current hosts whose hosting start date moved by more than ` +
-      `${config.HOST_START_MAX_SPREAD_DAYS} days between readings` +
+      `${HOST_START_MAX_SPREAD_DAYS} days between readings` +
       (moved.length
         ? `; e.g. ${moved.slice(0, 5).map((row) => `${row.host_id} (${row.spread}d)`).join(', ')}`
         : ''),

@@ -14,7 +14,6 @@ each listing's page, calendar, price quote and earliest review, in memory.
 | `firstReviews` | `fetchFirstReviews`: each listing's oldest review date |
 | `api/` | one file per Airbnb endpoint; see its README |
 | `pace`, `retry` | the process-wide Airbnb request rate, and the attempt loop that aborts on a 429 |
-| `config` | price bands, rates, concurrency and retries |
 
 Each pass takes its fetcher as an argument (`fetchPage`, `fetchOne`), so
 tests run without the network; the `live*Fetcher` functions make the real

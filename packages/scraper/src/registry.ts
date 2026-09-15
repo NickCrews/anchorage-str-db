@@ -15,7 +15,6 @@ import { toSqlTimestamp, todayUtc, type IsoDate } from '@anchorage-str-db/utils/
 import { describeError, log } from '@anchorage-str-db/utils/log';
 
 import { report } from './checks.ts';
-import * as config from './config.ts';
 import { runRegistryChecks } from './registryChecks.ts';
 import {
   logRegistryRun,
@@ -24,6 +23,23 @@ import {
   recordRegistrations,
   type RegistryRunRow,
 } from './registryStore.ts';
+
+/**
+ * License pages read per run (see `pendingLicensePages`). The ~2500 current
+ * registrations need ~360 reads a day at `LICENSE_PAGE_REFRESH_DAYS`, so a
+ * backfill from empty takes about 5 runs. Reading 1000 in a run took 9
+ * minutes once and 24 minutes the next, when the portal began timing out and
+ * the pacer backed off to 0.5/s; this cap keeps the run well inside the CI
+ * timeout either way.
+ */
+const LICENSE_PAGE_MAX_PER_RUN = 500;
+
+/**
+ * A current registration's license page is re-read once its latest read is
+ * this old. The ArcGIS layer is republished about weekly, and a page's
+ * description and parcel rarely change.
+ */
+const LICENSE_PAGE_REFRESH_DAYS = 7;
 
 export interface RunRegistryOptions {
   dbPath: string;
@@ -46,8 +62,8 @@ export async function runRegistry(options: RunRegistryOptions): Promise<boolean>
     );
 
     const pending = await pendingLicensePages(db, scrapeDate, registrations, {
-      refreshDays: config.LICENSE_PAGE_REFRESH_DAYS,
-      max: config.LICENSE_PAGE_MAX_PER_RUN,
+      refreshDays: LICENSE_PAGE_REFRESH_DAYS,
+      max: LICENSE_PAGE_MAX_PER_RUN,
     });
     const licenseResults = await fetchLicensePages(pending);
     const pages = licenseResults.flatMap((result) => (result.page ? [result.page] : []));
