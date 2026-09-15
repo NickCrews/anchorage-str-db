@@ -235,7 +235,7 @@ status.
 
 The license page is the only source for the licensee's own description of
 the business, the parcel id, and every certificate issued under the license.
-The layer's `StatusUrl` links to it; its `licenseId` keys `muni_license_page_reads`.
+The layer's `StatusUrl` links to it; its `cityviewLicenseId` keys `muni_license_page_reads`.
 
 What the Muni publishes, and how it is cleaned:
 

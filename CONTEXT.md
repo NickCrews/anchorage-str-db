@@ -125,7 +125,8 @@ _Avoid_: neighborhood, district, area
 **`_id`, not `_number`**:
 Every identifier here is alphanumeric (`STR20260309`, `LC260500349`) or an
 opaque integer, so it is an id. Reserve `_number` for something countable.
-_Avoid_: `registration_number`, `application_number`, `licensee_number`
+_Avoid_: `registration_number`, `application_number`, `licensee_number`,
+`licensee_id` (it names a license, not a licensee)
 
 **Three ids, one license**:
 A registration, the license it was issued under, and that license's CityView
@@ -135,22 +136,29 @@ Retreat, read 2026-09-15:
 | Id | Value | Where it comes from | Who sees it |
 | --- | --- | --- | --- |
 | `registration_id` | `STR20260309` | the STR Certificate issued under the license | printed on the Airbnb listing — the only one the public sees |
-| `licensee_id` | `LC260500349` | the license page's "Licensee Number", and the layer's `ApplicationNumber` | anyone opening the license page |
-| `license_id` | `13923` | the `licenseId` in that page's URL | nobody — CityView's internal row id |
+| `license_id` | `LC260500349` | the license page's "Licensee Number", and the layer's `ApplicationNumber` | anyone opening the license page |
+| `cityview_license_id` | `13923` | the `licenseId` in that page's URL | nobody — CityView's internal row id |
 
 The three are one-to-one-to-one. On 2026-09-15 the layer held 2,564
 registrations, 2,564 distinct `license_id`s and 2,564 distinct
-`licensee_id`s, with no value of any one shared across two of another. So
-joining on any of them is equivalent; `license_id` is used because it keys
-`muni_license_page_reads`.
+`cityview_license_id`s, with no value of any one shared across two of
+another, so joining on any of them is equivalent.
+`packages/scraper/test/identifiers.test.ts` asserts this against both live
+sources, and fails rather than drifts if the Muni changes how it issues them.
 
-**The `LC` id is not a licensee**:
-It identifies one license, despite the portal labelling it "Licensee
-Number". Every one of the 312 business names holding more than one
-registration holds a separate `LC` id for each: SWITZER SUITES has
+**The `LC` id names the license, not the licensee**:
+Which is why it is `license_id` and not `licensee_id`, despite the portal
+labelling it "Licensee Number". Every one of the 312 business names holding
+more than one registration holds a separate one for each: SWITZER SUITES has
 STR20260008-11 under LC260500044-47 and CityView ids 13615-18 — four
 licenses, not one licensee with four registrations. Never group by it to
 count operators.
+
+**`cityview_license_id`**:
+CityView's own row id for a license, `13923`, read from the `licenseId`
+query parameter of the registration's `status_url`. It keys
+`muni_license_page_reads` because it is what fetches a page; it is an
+implementation detail of the portal and means nothing outside it.
 
 **`registration_id`**:
 `STR20260309`. On a registration it is the Clerk's; on a listing it is what

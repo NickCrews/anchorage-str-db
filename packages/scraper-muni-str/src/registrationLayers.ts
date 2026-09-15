@@ -48,7 +48,7 @@ export interface Registration {
    * license rather than the licensee: one per registration, so a business
    * with four registrations has four.
    */
-  licenseeId: string | null;
+  licenseId: string | null;
   submittedDate: IsoDate | null;
   issuedDate: IsoDate | null;
   expiresDate: IsoDate | null;
@@ -108,7 +108,7 @@ export function toRegistration(feature: ArcgisFeature): Registration {
   }
   return {
     registrationId,
-    licenseeId: text(a, 'ApplicationNumber'),
+    licenseId: text(a, 'ApplicationNumber'),
     submittedDate: dateOnly(a, 'Submitted'),
     issuedDate: dateOnly(a, 'Issued'),
     expiresDate: dateOnly(a, 'Expires'),
@@ -125,8 +125,8 @@ export function toRegistration(feature: ArcgisFeature): Registration {
   };
 }
 
-/** The CityView `licenseId` in a registration's `statusUrl`, or null. */
-export function licenseIdFromStatusUrl(statusUrl: string | null): number | null {
+/** The CityView `cityviewLicenseId` in a registration's `statusUrl`, or null. */
+export function cityviewLicenseIdFromStatusUrl(statusUrl: string | null): number | null {
   const match = statusUrl?.match(/[?&]licenseId=(\d+)/);
   return match ? Number(match[1]) : null;
 }

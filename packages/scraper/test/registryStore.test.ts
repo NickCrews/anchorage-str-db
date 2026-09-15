@@ -37,17 +37,17 @@ async function freshDb(): Promise<Database> {
   return db;
 }
 
-function registration(number: string, licenseId: number, overrides: Partial<Registration> = {}): Registration {
+function registration(number: string, cityviewLicenseId: number, overrides: Partial<Registration> = {}): Registration {
   return {
     registrationId: number,
-    licenseeId: `LC${number.slice(3)}0`,
+    licenseId: `LC${number.slice(3)}0`,
     submittedDate: '2026-05-01',
     issuedDate: '2026-05-01',
     expiresDate: '2027-04-30',
     registeredAddress: '257 ECHO RIDGE DR, GIRDWOOD, AK 99587',
     businessName: 'Echo Ridge Mountain Retreat',
     status: 'Active',
-    statusUrl: `https://www.muni.org/CityViewPortal/License/Status?licenseId=${licenseId}&category=B`,
+    statusUrl: `https://www.muni.org/CityViewPortal/License/Status?licenseId=${cityviewLicenseId}&category=B`,
     communityCouncil: 'Girdwood',
     parcelType: 'Residential',
     geocodedAddress: '257 Echo Ridge Dr, Girdwood, Alaska, 99587',
@@ -58,10 +58,10 @@ function registration(number: string, licenseId: number, overrides: Partial<Regi
   };
 }
 
-function licensePage(licenseId: number, overrides: Partial<LicensePage> = {}): LicensePage {
+function licensePage(cityviewLicenseId: number, overrides: Partial<LicensePage> = {}): LicensePage {
   return {
-    licenseId,
-    licenseeId: 'LC260500349',
+    cityviewLicenseId,
+    licenseId: 'LC260500349',
     businessName: 'Echo Ridge Mountain Retreat',
     licenseType: 'Short-Term Rentals',
     status: 'Active',
@@ -191,12 +191,12 @@ describe('registrations view', () => {
     await registryRun(db, '2026-09-11', [registration('STR20260309', 13923)], [licensePage(13923)]);
 
     const [row] = await db.rows(
-      'SELECT license_id, license_read_date, license_description, parcel_id, ' +
+      'SELECT cityview_license_id, license_read_date, license_description, parcel_id, ' +
         'license_parcel_ids, license_addresses FROM registrations',
     );
 
     expect(row).toEqual({
-      license_id: 13923,
+      cityview_license_id: 13923,
       license_read_date: '2026-09-11',
       license_description: 'Provides short term rentals, logistics, meeting space and overnight lodging.',
       parcel_id: '07606227000',
@@ -271,11 +271,11 @@ describe('recordLicensePages', () => {
     await recordLicensePages(db, '2026-09-10', [licensePage(1), licensePage(2, { status: 'Active' })]);
     await recordLicensePages(db, '2026-09-10', [licensePage(2, { status: 'Revoked' })]);
 
-    const rows = await db.rows('SELECT license_id, status FROM muni_license_page_reads ORDER BY 1');
+    const rows = await db.rows('SELECT cityview_license_id, status FROM muni_license_page_reads ORDER BY 1');
 
     expect(rows).toEqual([
-      { license_id: 1, status: 'Active' },
-      { license_id: 2, status: 'Revoked' },
+      { cityview_license_id: 1, status: 'Active' },
+      { cityview_license_id: 2, status: 'Revoked' },
     ]);
   });
 

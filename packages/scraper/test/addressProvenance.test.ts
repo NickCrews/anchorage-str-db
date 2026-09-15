@@ -24,7 +24,7 @@ import {
 } from '@anchorage-str-db/muni-licenses/licensePage';
 import {
   fetchRegistrations,
-  licenseIdFromStatusUrl,
+  cityviewLicenseIdFromStatusUrl,
   NO_MATCH_GEOCODED_ADDRESS,
   type Registration,
 } from '@anchorage-str-db/scraper-muni-str/registrationLayers';
@@ -41,7 +41,7 @@ const FROM_PROPERTY_RECORDS = {
 } as const;
 
 /** A property record address whose label the portal replaced with its own lookup error. */
-const LOOKUP_ERROR = { registrationId: 'STR20260352', licenseId: 13966 } as const;
+const LOOKUP_ERROR = { registrationId: 'STR20260352', cityviewLicenseId: 13966 } as const;
 
 const TYPED_BY_REGISTRANT = {
   STR20262410: 15993,
@@ -58,11 +58,11 @@ beforeAll(async () => {
   const ids = [
     ...Object.values(FROM_PROPERTY_RECORDS),
     ...Object.values(TYPED_BY_REGISTRANT),
-    LOOKUP_ERROR.licenseId,
+    LOOKUP_ERROR.cityviewLicenseId,
   ];
   for (const result of await fetchLicensePages(ids)) {
-    if (!result.page) throw new Error(`license ${result.licenseId}: ${result.error}`);
-    pages.set(result.licenseId, result.page);
+    if (!result.page) throw new Error(`license ${result.cityviewLicenseId}: ${result.error}`);
+    pages.set(result.cityviewLicenseId, result.page);
   }
 });
 
@@ -79,29 +79,29 @@ function linked(page: LicensePage, label: string): LicenseLocation[] {
 describe('registration addresses', () => {
   it.each(Object.entries(FROM_PROPERTY_RECORDS))(
     '%s: Location is the address the license page links to a property record',
-    (registrationId, licenseId) => {
+    (registrationId, cityviewLicenseId) => {
       const registration = layer(registrationId);
-      const page = pages.get(licenseId)!;
+      const page = pages.get(cityviewLicenseId)!;
 
-      expect(licenseIdFromStatusUrl(registration.statusUrl)).toBe(licenseId);
+      expect(cityviewLicenseIdFromStatusUrl(registration.statusUrl)).toBe(cityviewLicenseId);
       expect(linked(page, 'Address').map((l) => l.value)).toEqual([registration.registeredAddress]);
     },
   );
 
   it.each(Object.entries(TYPED_BY_REGISTRANT))(
     '%s: Location is the unlinked text on a license page with no property record',
-    (registrationId, licenseId) => {
+    (registrationId, cityviewLicenseId) => {
       const registration = layer(registrationId);
-      const page = pages.get(licenseId)!;
+      const page = pages.get(cityviewLicenseId)!;
 
-      expect(licenseIdFromStatusUrl(registration.statusUrl)).toBe(licenseId);
+      expect(cityviewLicenseIdFromStatusUrl(registration.statusUrl)).toBe(cityviewLicenseId);
       expect(page.locations.filter((l) => l.link !== null)).toEqual([]);
       expect(page.locations.map((l) => l.value)).toEqual([registration.registeredAddress]);
     },
   );
 
   it('keeps Location when the portal prints a lookup error in place of the label', () => {
-    const page = pages.get(LOOKUP_ERROR.licenseId)!;
+    const page = pages.get(LOOKUP_ERROR.cityviewLicenseId)!;
 
     expect(page.locations).toEqual([
       {

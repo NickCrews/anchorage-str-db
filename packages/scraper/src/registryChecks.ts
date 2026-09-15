@@ -93,13 +93,13 @@ export async function runRegistryChecks(
   );
 
   const withoutLicense = await db.count(
-    'SELECT count(*) FROM registrations WHERE is_active AND license_id IS NULL',
+    'SELECT count(*) FROM registrations WHERE is_active AND cityview_license_id IS NULL',
   );
   check(
     'registration_license_id_present',
     'warn',
     withoutLicense === 0,
-    `${withoutLicense} active registrations have no licenseId in status_url, so their ` +
+    `${withoutLicense} active registrations have no cityviewLicenseId in status_url, so their ` +
       'license page is never read',
   );
 

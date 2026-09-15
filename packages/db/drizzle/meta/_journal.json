@@ -15,6 +15,13 @@
       "when": 1789411461171,
       "tag": "0001_ubiquitous_language",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789411461172,
+      "tag": "0002_license_id_is_the_license",
+      "breakpoints": true
     }
   ]
 }

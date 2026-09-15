@@ -453,8 +453,8 @@ COMMENT ON COLUMN host_portfolios.listings_ever_seen IS 'Distinct listings obser
 COMMENT ON VIEW listings_active_with_host IS 'listings_active plus the host''s name, tenure, and host_portfolios counts as of the latest run. NULL when the host is unknown. Portfolio counts cover only the Anchorage search area.';
 `;
 
-/** A registration's CityView licenseId, read from its `status_url`. */
-export const LICENSE_ID_SQL = "nullif(regexp_extract(status_url, '[?&]licenseId=(\\d+)', 1), '')::INTEGER";
+/** CityView's own row id for a registration's license, read from its `status_url`. */
+export const CITYVIEW_LICENSE_ID_SQL = "nullif(regexp_extract(status_url, '[?&]licenseId=(\\d+)', 1), '')::INTEGER";
 
 const REGISTRY_VIEWS_SQL = `
 -- The latest registry run that completed its writes.
@@ -464,7 +464,7 @@ WHERE registrations_seen IS NOT NULL;
 
 CREATE OR REPLACE VIEW license_pages_latest AS
 SELECT * FROM muni_license_page_reads
-QUALIFY row_number() OVER (PARTITION BY license_id ORDER BY scrape_date DESC) = 1;
+QUALIFY row_number() OVER (PARTITION BY cityview_license_id ORDER BY scrape_date DESC) = 1;
 
 -- One row per registration ever published, with its latest published fields
 -- and latest license page. A registration is active if it was in the
@@ -479,7 +479,7 @@ WITH activity AS (
     GROUP BY registration_id
 ),
 latest AS (
-    SELECT *, ${LICENSE_ID_SQL} AS license_id
+    SELECT *, ${CITYVIEW_LICENSE_ID_SQL} AS cityview_license_id
     FROM muni_str_registration_observations
     QUALIFY row_number() OVER (PARTITION BY registration_id ORDER BY scrape_date DESC) = 1
 ),
@@ -491,8 +491,8 @@ airbnb AS (
 )
 SELECT
     o.registration_id,
-    o.licensee_id,
     o.license_id,
+    o.cityview_license_id,
     o.status,
     o.submitted_date,
     o.issued_date,
@@ -529,7 +529,7 @@ SELECT
     a.last_seen_date = (SELECT scrape_date FROM latest_registry_date) AS is_active
 FROM latest o
 JOIN activity a USING (registration_id)
-LEFT JOIN license_pages_latest p ON p.license_id = o.license_id
+LEFT JOIN license_pages_latest p ON p.cityview_license_id = o.cityview_license_id
 LEFT JOIN airbnb b USING (registration_id);
 
 CREATE OR REPLACE VIEW registrations_active AS
