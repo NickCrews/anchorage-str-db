@@ -1027,7 +1027,7 @@ describe('calendar_current', () => {
       );
 
     expect(await operating('airbnb_calendar_status')).toBe(2); // the raw table still holds both
-    expect(await operating('calendar_current')).toBe(1); // only listing 1 is still live
+    expect(await operating('calendar_current')).toBe(1); // only listing 1 is still active
   });
 
   it('keeps a retired listing’s nights up to its last sighting', async () => {

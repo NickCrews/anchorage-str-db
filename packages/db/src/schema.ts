@@ -111,7 +111,7 @@ export const airbnbListingObservations = pgTable(
     priceQualifier: varchar('price_qualifier'),
 
     // From the listing's own page, a separate request. `page_fetch_ok`
-    // distinguishes "read the page, no STR number" from "page not read";
+    // distinguishes "read the page, no registration id" from "page not read";
     // the columns below it are NULL when it is false.
     pageFetchOk: boolean('page_fetch_ok').notNull(),
     locationIsExact: boolean('location_is_exact'),
@@ -242,7 +242,9 @@ export const muniStrRegistrationObservations = pgTable(
     // 'STR20260309'; Airbnb listings show it as registration_id.
     registrationId: varchar('registration_id').notNull(),
     scrapeDate: day('scrape_date').notNull(),
-    // 'LC260500349', the license page's Licensee Number.
+    // 'LC260500349', the license page's "Licensee Number". Despite the label
+    // it identifies the license, not the licensee: a business holding four
+    // licenses has four. One per registration, like license_id.
     licenseeId: varchar('licensee_id'),
     submittedDate: day('submitted_date'),
     issuedDate: day('issued_date'),

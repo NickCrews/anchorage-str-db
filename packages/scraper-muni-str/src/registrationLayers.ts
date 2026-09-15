@@ -43,7 +43,11 @@ export const NO_MATCH_POINT = { lng: -150.20935, lat: 61.153442 } as const;
 export interface Registration {
   /** `STR` + 8 digits, e.g. `STR20260309`. Airbnb's `registration_id`. */
   registrationId: string;
-  /** `LC` + 9 digits: the license application, the page's "Licensee Number". */
+  /**
+   * `LC` + 9 digits, the license page's "Licensee Number". It identifies the
+   * license rather than the licensee: one per registration, so a business
+   * with four registrations has four.
+   */
   licenseeId: string | null;
   submittedDate: IsoDate | null;
   issuedDate: IsoDate | null;

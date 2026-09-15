@@ -12,7 +12,7 @@ the registration layer lacks:
 
 | field | example |
 | --- | --- |
-| `licenseeId` | `LC260500349` (the layer's `ApplicationNumber`) |
+| `licenseeId` | `LC260500349` (the layer's `ApplicationNumber`); one per license, not per licensee |
 | `businessName` | `Echo Ridge Mountain Retreat` |
 | `licenseType` | `Short-Term Rentals` |
 | `status` | `Active` |

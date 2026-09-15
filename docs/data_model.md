@@ -28,6 +28,13 @@ reasons do not.
 `listings_active_with_registration` is every active listing with the
 registration its id matches, if any.
 
+A registration's **license** is not a fourth entity. Each license holds
+exactly one STR Certificate, whose number is the `registration_id`, so the
+two are one-to-one: on 2026-09-15 the layer held 2,564 registrations, 2,564
+`license_id`s and 2,564 `licensee_id`s, none shared. `registrations` carries
+the license's fields on the registration's own row for that reason. See
+[CONTEXT.md](../CONTEXT.md) for which id comes from where.
+
 ## Relationships
 
 ```
@@ -101,6 +108,10 @@ Neither source identifies the owner of a property.
   registrations had 1,675 distinct business names, 20 were blank and 17 read
   "Airbnb". The same business is spelled several ways ("3rd Avenue
   Investments", "3RD AVENUE INVESTMENTS ").
+- **Licensee** is no better. The `LC` id labelled "Licensee Number" belongs
+  to the license, not the licensee: all 312 business names on more than one
+  registration have a separate `LC` id per registration (SWITZER SUITES has
+  four). Grouping by it counts licenses, not operators.
 - **Parcel id**, which would link to the assessor's owner of record, is set on
   457 of 2,549 active registrations (2026-09-14).
 
