@@ -1,40 +1,4 @@
-/**
- * Constants for the Airbnb scraper.
- *
- * The bounding box covers the Municipality of Anchorage, including Girdwood,
- * and is derived from parcel extents in
- * https://github.com/NickCrews/anchorage-property:
- *
- *     duckdb -c "
- *       ATTACH 'https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage-current.duckdb' AS parcels_db (READ_ONLY);
- *       SELECT min(centroid_lon), max(centroid_lon), min(centroid_lat), max(centroid_lat)
- *         FROM parcels_db.parcels_current;"
- */
-
-import type { BoundingBox } from './api/search.ts';
-
-/**
- * Parcel extents of the Municipality of Anchorage (98,550 parcels), from the
- * query in the module docstring. `test/config.test.ts` asserts `BBOX`
- * contains it.
- */
-export const MUNICIPALITY_EXTENT: BoundingBox = {
-  swLat: 60.7837,
-  swLng: -150.2417,
-  neLat: 61.4833,
-  neLng: -148.8448,
-};
-
-/**
- * The search area: MUNICIPALITY_EXTENT padded on every side. Listings outside
- * it are never searched, so an undersized box undercounts without any error.
- */
-export const BBOX: BoundingBox = {
-  swLat: 60.77,
-  swLng: -150.35,
-  neLat: 61.5,
-  neLng: -148.8,
-};
+/** Constants for the Airbnb scraper. */
 
 /**
  * Sent to Airbnb's map search but has no effect on results: zoom 11 through

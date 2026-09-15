@@ -10,6 +10,7 @@
 
 import { epochDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { log } from '@anchorage-str-db/utils/log';
+import { MUNICIPALITY_BOUNDING_BOX } from '@anchorage-str-db/utils/muni_geography';
 
 import {
   fetchSearchPage,
@@ -118,11 +119,14 @@ export interface SearchOptions {
 
 /**
  * Search the whole box, splitting by price until no query needs a second
- * page. Every query uses the same `box`, so the scrape's scope is exactly the
- * box tested against parcel extents in `config.test.ts`.
+ * page. Every query uses the same `box`, by default the bounding box of the
+ * Municipality's boundary, which is already padded by 1 km. Listings outside
+ * the box are never searched. The box also takes in Hope, Palmer and
+ * Wasilla, so the daily run keeps only the listings inside the boundary
+ * itself.
  */
 export async function searchAnchorage(options: SearchOptions): Promise<SearchResult> {
-  const box = options.box ?? config.BBOX;
+  const box = options.box ?? MUNICIPALITY_BOUNDING_BOX;
   const seeds = options.seeds ?? config.PRICE_BAND_SEEDS_USD;
   const result: SearchResult = { listings: [], queries: 0, unresolved: [] };
 

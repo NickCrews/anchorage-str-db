@@ -77,8 +77,9 @@ split by geography instead.
   results; there is only `results.searchResults`.
 - **Text search.** `query=Anchorage, Alaska` has the same 280 cap, and 26% of
   its results fell outside the municipality (826 in Mat-Su). It also found
-  fewer listings inside the municipality than the bbox. A bbox can be tested
-  against parcel data, which `test/config.test.ts` does.
+  fewer listings inside the municipality than the bbox. A bbox can be derived
+  from the Municipality's boundary (`utils/src/muni_geography`), and results
+  outside the boundary dropped.
 - **Zoom.** Zoom 11 through 15 return identical sets for the same box.
 - **Unioning two partitions.** Geographic and price splits each found ~2400
   listings, with ~150 differences each way. Their union reached 2560;

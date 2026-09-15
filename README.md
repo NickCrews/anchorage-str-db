@@ -36,9 +36,9 @@ pnpm install
 pnpm daily
 ```
 
-This searches the Anchorage bounding box, fetches each listing's page and
-calendar, writes the day to the database in one transaction, and runs the
-data-quality checks.
+This searches the Anchorage bounding box, keeps the listings inside the
+Municipality's boundary, fetches each listing's page and calendar, writes the
+day to the database in one transaction, and runs the data-quality checks.
 
 ```sh
 pnpm registry

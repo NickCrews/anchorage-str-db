@@ -7,6 +7,7 @@ import { afterEach, expect, it } from 'vitest';
 import { connect } from '@anchorage-str-db/db/connect';
 import type { Database } from '@anchorage-str-db/db/database';
 import { collectHostCards, emptyListingPage, type ListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
+import type { ParsedListing } from '@anchorage-str-db/scraper-airbnb/parse';
 import { emptyAudit, PriceBand, type CoverageAudit, type SearchResult } from '@anchorage-str-db/scraper-airbnb/search';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
@@ -33,10 +34,14 @@ afterEach(async () => {
   for (const dir of temporary.splice(0)) await rm(dir, { recursive: true, force: true });
 });
 
-/** Enough rows for listing_count_plausible and observations_written_today to pass. */
+/**
+ * Enough rows for listing_count_plausible and observations_written_today to
+ * pass, plus any `extra` listings.
+ */
 async function seedMinimal(
   pages: readonly ListingPage[] = [],
   firstReviews: { attempted: number; failed: number } = { attempted: 0, failed: 0 },
+  extra: readonly ParsedListing[] = [],
 ): Promise<Database> {
   const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
   temporary.push(dir);
@@ -44,7 +49,7 @@ async function seedMinimal(
   open.push(db);
 
   const [floor] = config.PLAUSIBLE_LISTING_COUNT;
-  const listings = [...Array(floor).keys()].map((i) => makeListing(i, `Cabin ${i}`));
+  const listings = [...[...Array(floor).keys()].map((i) => makeListing(i, `Cabin ${i}`)), ...extra];
   await recordObservations(db, DAY, listings, pages);
   const hostStats = await recordHostObservations(db, DAY, collectHostCards(pages));
   await logRun(db, {
@@ -159,6 +164,24 @@ it('fails search_single_page when a band needed more than one page', async () =>
   expect(byName['search_single_page']!.severity).toBe('error');
   expect(byName['search_single_page']!.detail).toContain(String(stuck));
   expect(report(all)).toBe(false);
+});
+
+it('passes coords_within_municipality when every current listing is inside', async () => {
+  const db = await seedMinimal();
+  const { byName } = await check(db);
+  expect(byName['coords_within_municipality']!.passed).toBe(true);
+});
+
+it('warns coords_within_municipality for a current listing outside the Municipality', async () => {
+  // Palmer, in the Matanuska-Susitna Borough.
+  const palmer = makeListing(99_999, 'Palmer cabin', { lat: 61.6 });
+  const db = await seedMinimal([], undefined, [palmer]);
+
+  const { byName, all } = await check(db);
+  expect(byName['coords_within_municipality']!.passed).toBe(false);
+  expect(byName['coords_within_municipality']!.severity).toBe('warn');
+  expect(byName['coords_within_municipality']!.detail).toContain('99999');
+  expect(report(all)).toBe(true);
 });
 
 /** A complete page read for each of the first `count` seeded listings. */

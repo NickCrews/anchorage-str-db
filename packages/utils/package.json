@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Dependency-free helpers shared by the scrapers: dates, logging, concurrency, request pacing and retries",
+  "description": "Dependency-free helpers shared by the scrapers: dates, logging, concurrency, request pacing and retries, the Municipality boundary",
   "license": "MIT",
   "exports": {
+    "./muni_geography": "./src/muni_geography/index.ts",
     "./*": "./src/*.ts"
   },
   "scripts": {

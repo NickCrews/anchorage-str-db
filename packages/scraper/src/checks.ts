@@ -4,10 +4,10 @@
  */
 
 import type { Database } from '@anchorage-str-db/db/database';
-import { BBOX } from '@anchorage-str-db/scraper-airbnb/config';
 import { missRate, type CoverageAudit, type SearchResult } from '@anchorage-str-db/scraper-airbnb/search';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 import { log } from '@anchorage-str-db/utils/log';
+import { inMunicipality } from '@anchorage-str-db/utils/muni_geography';
 
 import * as config from './config.ts';
 import type { PageFetchStats, QuoteStats } from './store.ts';
@@ -107,18 +107,22 @@ export async function runChecks(
     `${overlap} overlapping SCD2 intervals`,
   );
 
-  const bbox = BBOX;
-  const outOfBbox = await db.count(
-    'SELECT count(*) FROM listings WHERE is_current AND ' +
-      '(location_lat IS NULL OR location_lng IS NULL OR location_lat < ? ' +
-      'OR location_lat > ? OR location_lng < ? OR location_lng > ?)',
-    [bbox.swLat - 0.05, bbox.neLat + 0.05, bbox.swLng - 0.05, bbox.neLng + 0.05],
+  // The pipeline drops listings outside the boundary before storing them, so
+  // this finds listings with no coordinates, and listings stored before the
+  // boundary last changed that have not yet retired (RETIREMENT_GRACE_DAYS).
+  const coords = await db.rows<{ listing_id: string; lat: number | null; lng: number | null }>(
+    'SELECT listing_id, location_lat AS lat, location_lng AS lng FROM listings ' +
+      'WHERE is_current ORDER BY listing_id',
+  );
+  const outside = coords.filter(
+    ({ lat, lng }) => lat === null || lng === null || !inMunicipality(lat, lng),
   );
   check(
-    'coords_within_bbox',
+    'coords_within_municipality',
     'warn',
-    outOfBbox === 0,
-    `${outOfBbox} current listings outside the Anchorage bbox (+buffer)`,
+    outside.length === 0,
+    `${outside.length} current listings with no coordinates or outside the Municipality` +
+      (outside.length ? `; e.g. ${outside.slice(0, 5).map((row) => row.listing_id).join(', ')}` : ''),
   );
 
   const runs = await db.rows<{

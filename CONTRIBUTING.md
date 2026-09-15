@@ -15,7 +15,7 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 | `packages/scraper-airbnb` | searches Airbnb and fetches listing pages, calendars, price quotes and reviews | `utils`, `impit` |
 | `packages/scraper-muni-str` | fetches the Municipal Clerk's STR registration layers from ArcGIS | `utils` |
 | `packages/muni-licenses` | fetches and parses the Muni's CityView license pages | `utils` |
-| `packages/utils` | dates, logging, concurrency, request pacing and retries, `fetch` | none |
+| `packages/utils` | dates, logging, concurrency, request pacing and retries, `fetch`, the Municipality boundary | none |
 | `packages/ui` | the browser viewer | |
 
 Provider packages (`scraper-airbnb`, `scraper-muni-str`, `muni-licenses`)
@@ -41,9 +41,10 @@ pnpm registry              # the Municipal STR registry, same database
 The default `--db` is resolved from the scraper's source, so it is the repo's
 `data/anchorage_str.duckdb` from any working directory.
 
-A run searches the Anchorage bounding box, fetches every listing's page and
-calendar and up to 1000 listings' earliest review dates, writes the day to the
-database, and runs the data-quality checks.
+A run searches the Anchorage bounding box, keeps the listings inside the
+Municipality's boundary (`utils/src/muni_geography`), fetches every listing's
+page and calendar and up to 1000 listings' earliest review dates, writes the
+day to the database, and runs the data-quality checks.
 It exits non-zero if an error-severity check fails; the log names which one.
 `--verbose` logs passing checks too.
 
@@ -361,9 +362,11 @@ Every run fails with `LegacySchemaError` until someone:
   anything from the original. The parser only picks out which line is which.
   Guest capacity and beds are integers in Airbnb's data and are stored as
   such.
-- **The bounding box is derived from parcel data.** See the docstring in
-  `config.ts`; recompute it from `anchorage-property` rather than editing
-  coordinates by hand.
+- **The Municipality boundary is generated from the Muni's community council
+  polygons.** `utils/src/muni_geography/municipality.sql` builds
+  `municipality.geojson` and explains the 1 km padding; rerun it rather than
+  editing the GeoJSON by hand. The Airbnb search covers the boundary's
+  bounding box (`MUNICIPALITY_BOUNDING_BOX`).
 
 ## Adding Vrbo
 
