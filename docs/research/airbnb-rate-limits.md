@@ -118,7 +118,7 @@ a Chrome 120 User-Agent still tripped at a stable ~130 requests.
 ## Reducing requests
 
 The page pass is 2600 of a run's ~5400 requests and mostly re-reads two
-fields that rarely change (`location_is_exact`, `str_registration_id`).
+fields that rarely change (`location_is_exact`, `registration_id`).
 Fetching pages only for new listings plus a rotating 1/7 of the rest would cut
 that pass to ~400 requests.
 

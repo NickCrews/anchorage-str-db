@@ -6,7 +6,7 @@ import {registrationStatusSql} from '../registrationStatus';
 import {DataStatusGate} from './DataStatusGate';
 
 /**
- * One row per host with current listings. `business_names` are the names on
+ * One row per host with active listings. `business_names` are the names on
  * the registrations the host's listings cite; a property manager's listings
  * cite many owners' registrations, so a host is not an owner (see
  * docs/data_model.md). `search_text` exists only for filtering.
@@ -16,21 +16,21 @@ const HOSTS_QUERY = `
     l.host_name,
     l.host_id,
     any_value(l.host_years_hosting) AS host_years_hosting,
-    count(*)::INT AS listings_current,
+    count(*)::INT AS listings_active,
     any_value(l.host_listings_ever_seen) AS host_listings_ever_seen,
-    count(DISTINCT l.str_registration_id)::INT AS registration_numbers,
+    count(DISTINCT l.registration_id)::INT AS registration_ids,
     count(*) FILTER (WHERE status = 'Registered')::INT AS listings_registered,
-    count(*) FILTER (WHERE status = 'Registration not current')::INT AS listings_registration_not_current,
-    count(*) FILTER (WHERE status = 'Number not in registry')::INT AS listings_number_not_in_registry,
-    count(*) FILTER (WHERE status = 'No number shown')::INT AS listings_no_number_shown,
+    count(*) FILTER (WHERE status = 'Registration lapsed')::INT AS listings_registration_lapsed,
+    count(*) FILTER (WHERE status = 'Id not in registry')::INT AS listings_id_not_in_registry,
+    count(*) FILTER (WHERE status = 'No id shown')::INT AS listings_no_id_shown,
     string_agg(DISTINCT trim(r.registration_business_name), '; ') AS business_names,
     'https://www.airbnb.com/users/show/' || l.host_id AS host_url,
     concat_ws(' ', l.host_name, string_agg(DISTINCT r.registration_business_name, ' '),
-      string_agg(DISTINCT l.str_registration_id, ' ')) AS search_text
-  FROM listings_current_with_host l
+      string_agg(DISTINCT l.registration_id, ' ')) AS search_text
+  FROM listings_active_with_host l
   JOIN (
     SELECT *, ${registrationStatusSql('r')} AS status
-    FROM listings_current_with_registration r
+    FROM listings_active_with_registration r
   ) r USING (listing_id)
   GROUP BY l.host_id, l.host_name
 `;
@@ -38,14 +38,14 @@ const HOSTS_QUERY = `
 const SCOPES = {
   all: 'All',
   multi: '2+ listings',
-  noNumber: 'Some listings show no number',
+  noId: 'Some listings show no id',
 } as const;
 type Scope = keyof typeof SCOPES;
 
 const SCOPE_FILTER: Record<Scope, string | null> = {
   all: null,
-  multi: 'listings_current >= 2',
-  noNumber: 'listings_no_number_shown > 0',
+  multi: 'listings_active >= 2',
+  noId: 'listings_no_id_shown > 0',
 };
 
 export const HostsView: FC = () => {
@@ -61,7 +61,7 @@ export const HostsView: FC = () => {
     const where = filters.map((f) => `\n  AND ${f}`).join('');
     return (
       `SELECT * EXCLUDE (search_text)\nFROM (${HOSTS_QUERY})\nWHERE true${where}` +
-      `\nORDER BY listings_current DESC, host_name`
+      `\nORDER BY listings_active DESC, host_name`
     );
   }, [search, scope]);
 
@@ -70,7 +70,7 @@ export const HostsView: FC = () => {
       <div className="flex h-full flex-col gap-2 p-3">
         <div className="flex flex-wrap items-center gap-2">
           <Input
-            placeholder="Filter by host, business name or registration number…"
+            placeholder="Filter by host, business name or registration id…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="max-w-sm"
@@ -93,7 +93,7 @@ export const HostsView: FC = () => {
           Each row is an Airbnb host account with at least one active listing.
           A host is whoever runs the listing on Airbnb, often a property
           management company, and not necessarily the owner. "Business names"
-          are the names on the city registrations the host's listings show,
+          are the registrants on the registrations the host's listings show,
           which is the closest thing to the owners this data has.
         </p>
         <div className="min-h-0 flex-1">

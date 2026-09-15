@@ -29,26 +29,26 @@ const COUNCILS_SHOWN = 15;
 
 const statusConfig = {
   registered: { label: 'Registered', color: 'hsl(var(--chart-2))' },
-  notCurrent: { label: 'Registration not current', color: 'hsl(var(--chart-4))' },
-  notInRegistry: { label: 'Number not in registry', color: 'hsl(var(--chart-5))' },
-  noNumber: { label: 'No number shown', color: 'hsl(var(--chart-1))' },
+  lapsed: { label: 'Registration lapsed', color: 'hsl(var(--chart-4))' },
+  notInRegistry: { label: 'Id not in registry', color: 'hsl(var(--chart-5))' },
+  noId: { label: 'No id shown', color: 'hsl(var(--chart-1))' },
 } satisfies ChartConfig;
 
 const councilConfig = {
-  registrations: { label: 'Current registrations', color: 'hsl(var(--chart-3))' },
+  registrations: { label: 'Active registrations', color: 'hsl(var(--chart-3))' },
   listings: { label: 'Airbnb listings citing them', color: 'hsl(var(--chart-2))' },
 } satisfies ChartConfig;
 
 const STATUS_COUNTS = `
   count(*) FILTER (WHERE status = 'Registered')::INT AS "registered",
-  count(*) FILTER (WHERE status = 'Registration not current')::INT AS "notCurrent",
-  count(*) FILTER (WHERE status = 'Number not in registry')::INT AS "notInRegistry",
-  count(*) FILTER (WHERE status = 'No number shown')::INT AS "noNumber"
+  count(*) FILTER (WHERE status = 'Registration lapsed')::INT AS "lapsed",
+  count(*) FILTER (WHERE status = 'Id not in registry')::INT AS "notInRegistry",
+  count(*) FILTER (WHERE status = 'No id shown')::INT AS "noId"
 `;
 
 const LISTINGS_WITH_STATUS = `
   SELECT r.room_type, ${registrationStatusSql('r')} AS status
-  FROM listings_current_with_registration r
+  FROM listings_active_with_registration r
 `;
 
 export const RegistrationCard: FC = () => {
@@ -57,9 +57,9 @@ export const RegistrationCard: FC = () => {
   const { data: summaryData, isLoading: summaryLoading } = useSql<{
     listings: number;
     registered: number;
-    notCurrent: number;
+    lapsed: number;
     notInRegistry: number;
-    noNumber: number;
+    noId: number;
     registrations: number;
     registrationsWithoutListing: number;
     registryDate: number | null;
@@ -69,8 +69,8 @@ export const RegistrationCard: FC = () => {
       SELECT
         count(*)::INT AS "listings",
         ${STATUS_COUNTS},
-        (SELECT count(*) FROM registrations_current)::INT AS "registrations",
-        (SELECT count(*) FROM registrations_current WHERE airbnb_listings_current = 0)::INT
+        (SELECT count(*) FROM registrations_active)::INT AS "registrations",
+        (SELECT count(*) FROM registrations_active WHERE airbnb_listings_active = 0)::INT
           AS "registrationsWithoutListing",
         (SELECT max(scrape_date) FROM muni_str_registry_runs WHERE registrations_seen IS NOT NULL)
           AS "registryDate"
@@ -81,9 +81,9 @@ export const RegistrationCard: FC = () => {
   const { data: byRoomTypeData, isLoading: byRoomTypeLoading } = useSql<{
     roomType: string;
     registered: number;
-    notCurrent: number;
+    lapsed: number;
     notInRegistry: number;
-    noNumber: number;
+    noId: number;
   }>({
     enabled,
     query: `
@@ -104,8 +104,8 @@ export const RegistrationCard: FC = () => {
       SELECT
         coalesce(community_council, 'Address not geocoded') AS "council",
         count(*)::INT AS "registrations",
-        sum(airbnb_listings_current)::INT AS "listings"
-      FROM registrations_current
+        sum(airbnb_listings_active)::INT AS "listings"
+      FROM registrations_active
       GROUP BY community_council
       ORDER BY count(*) DESC, community_council
       LIMIT ${COUNCILS_SHOWN}
@@ -120,7 +120,7 @@ export const RegistrationCard: FC = () => {
       <CardHeader className="gap-2">
         <CardTitle className="text-sm font-medium">Municipal STR registration</CardTitle>
         <CardDescription className="text-xs">
-          Matches the registration number on each Airbnb listing page to the
+          Matches the registration id on each Airbnb listing page to the
           Municipal Clerk's published registrations
           {s?.registryDate ? ` as of ${shortDate(s.registryDate)}` : ''}. The Muni
           publishes only active registrations, and a number issued since its last
@@ -138,15 +138,15 @@ export const RegistrationCard: FC = () => {
         ) : s ? (
           <p className="text-sm">
             <span className="font-semibold tabular-nums">{pct(s.registered, s.listings)}</span>{' '}
-            ({s.registered} of {s.listings}) of current listings show a current
-            registration. {s.notInRegistry} show a number not in the registry,{' '}
-            {s.notCurrent} a registration no longer published, and {s.noNumber} no
-            number. Of <span className="tabular-nums">{s.registrations}</span> current
+            ({s.registered} of {s.listings}) of active listings show an active
+            registration. {s.notInRegistry} show an id not in the registry,{' '}
+            {s.lapsed} a lapsed registration, and {s.noId} no id. Of{' '}
+            <span className="tabular-nums">{s.registrations}</span> active
             registrations,{' '}
             <span className="font-semibold tabular-nums">
               {s.registrationsWithoutListing}
             </span>{' '}
-            are cited by no current Airbnb listing; they may list on other platforms
+            are cited by no active Airbnb listing; they may list on other platforms
             or not be operating.
           </p>
         ) : null}
@@ -154,7 +154,7 @@ export const RegistrationCard: FC = () => {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div>
             <div className="text-muted-foreground mb-1 text-xs">
-              Current listings by room type and registration status
+              Active listings by room type and registration status
             </div>
             {byRoomTypeLoading ? (
               <SpinnerPane className="h-72" />
@@ -175,7 +175,7 @@ export const RegistrationCard: FC = () => {
           </div>
           <div>
             <div className="text-muted-foreground mb-1 text-xs">
-              Community councils with the most current registrations (top{' '}
+              Community councils with the most active registrations (top{' '}
               {COUNCILS_SHOWN})
             </div>
             {councilLoading ? (

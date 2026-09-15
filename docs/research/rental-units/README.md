@@ -11,12 +11,12 @@ what Airbnb and the Muni registry say about it, and which of the two sources
 know about it.
 
 **Summary:** The two sources describe units at different and inconsistent
-grains, and the only link between them, the registration number, is missing,
+grains, and the only link between them, the registration id, is missing,
 wrong or shared often enough that grouping by it does not produce units. A
 unit table needs:
 
 - a definition of "unit" that handles listings that combine other listings;
-- matching beyond the registration number, which location alone cannot
+- matching beyond the registration id, which location alone cannot
   settle;
 - persisted unit ids, since matching is a judgment that changes over time.
 
@@ -86,7 +86,7 @@ One registration per dwelling, as the ordinance intends:
 - **1742 W 12th Ave:** [STR20261146] for APT A, [STR20261147] for APT B.
 
 So registration-to-unit is many-to-many too. Grouping listings by
-registration number merges the Ski Inn's 8 rooms into one unit and keeps
+registration id merges the Ski Inn's 8 rooms into one unit and keeps
 Turpin St's 4 rooms as 4.
 
 ## 3. Duplicate records in each source
@@ -116,25 +116,25 @@ one host, titled as a [studio][50156544], a [house][51688541] and a
 on one lot. The records look like the Chugach Park duplicate, and nothing in
 the registry tells the two cases apart.
 
-Of 2,538 current registrations the geocoder matched, 2,040 have a geocoded
-address no other current registration has. The other 498 share one with 1 to
+Of 2,538 active registrations the geocoder matched, 2,040 have a geocoded
+address no other active registration has. The other 498 share one with 1 to
 9 others. Each group can be separate units, rooms of one unit, or duplicates.
 
-## 4. Records with no registration number
+## 4. Records with no registration id
 
-554 current listings show no number and 18 show one that is not in the
-registry. 690 current registrations have no listing.
+554 active listings show no id and 18 show one that is not in the
+registry. 690 active registrations have no listing.
 
 **Some listings are outside the Muni.** Airbnb's search covers more than the
 Municipality: 47 unnumbered listings are in Hope, 34 in Palmer and 19 in
 Wasilla. They will never match a registration. [Evolve][121679638] has 51
-listings, and 46 of them show no number, including some in Wasilla.
+listings, and 46 of them show no id, including some in Wasilla.
 
 **Location is the only field both sources share, and it is imprecise.**
 
-- No current listing has a street address (`location_exact_address` is NULL
+- No active listing has a street address (`location_exact_address` is NULL
   on all 2,619).
-- For listings linked by number, the distance from the Airbnb pin to the
+- For listings linked by id, the distance from the Airbnb pin to the
   license's geocoded point is:
 
   | Pin | Listings | Median | 90th percentile |
@@ -158,11 +158,11 @@ an approximate one:
 
 Only 92 have exactly one candidate. That count also assumes a registration
 already cited by a listing cannot be this listing's unit, which §1 and §2
-show is false for rooms. Counting all current registrations, an approximate
+show is false for rooms. Counting all active registrations, an approximate
 pin has a median of 2 within 150 m, 10 at the 90th percentile and at most 43.
 
 **Example: 4425 E 6th Ave.** Host [Shanali][450844916] has 14 listings (12
-private rooms, 2 entire homes) and none shows a number. The Muni has 5
+private rooms, 2 entire homes) and none shows an id. The Muni has 5
 registrations at that address, none cited by a listing:
 
 | Registration | Location as typed |
@@ -183,11 +183,11 @@ or a fifth room.
 
 ## 5. Links that are wrong
 
-A matching number does not guarantee the listing is the registered unit. 30
+A matching id does not guarantee the listing is the registered unit. 30
 linked listings have a pin more than 1 km from the license's geocoded point.
 [registration-location-mismatch](../registration-location-mismatch/README.md)
-sorts them into three problems: 15 likely show the wrong number, 10 share a
-number with a listing at the registered address, and 5 are not near the
+sorts them into three problems: 15 likely show the wrong id, 10 share a
+id with a listing at the registered address, and 5 are not near the
 registered address at all. On 2026-09-14 its report was emailed to the
 Municipal Clerk's Office, asking them to look into these cases and have the
 hosts correct their listings.
@@ -198,7 +198,7 @@ hosts correct their listings.
   Suite][1662003281978078076]" have pins 29 km from Sundi St, about 100 m
   from two registrations named
   "Northern Stay", the host of all four listings. Those two listings likely
-  show the wrong number.
+  show the wrong id.
 - **[STR20262388]:** cited by listings from two hosts, "[Arbor du Nord 3 A
   One Bedroom Apt.][1447082877038361365]" and "[Beautifully updated city
   center condo!][50359680]". The registrant typed "4030 San Roberto Avenue,
@@ -211,7 +211,7 @@ hosts correct their listings.
   Place][1195142506449964239]", 1 bedroom, from different hosts. This may be
   a suite inside the house or a second unit.
 
-15 registration numbers are cited by listings from more than one host.
+15 registration ids are cited by listings from more than one host.
 
 ## 6. Identity over time
 
@@ -219,14 +219,14 @@ A unit needs an id that stays the same while its records change. With one
 day of data none of these is measured yet, but each follows from how the
 sources work:
 
-- **A listing adds or drops its number.** An "Airbnb only" unit and a
+- **A listing adds or drops its id.** An "Airbnb only" unit and a
   "registry only" unit become one unit. An id taken from either record, such
-  as `airbnb:<listing_id>` or `str:<registration_number>`, changes or
+  as `airbnb:<listing_id>` or `str:<registration_id>`, changes or
   collides.
 - **A host deletes and recreates a listing.** The new `listing_id` belongs to
   the same unit.
 - **A registration lapses and the unit registers again.** Whether a renewal
-  keeps its number is unknown until the data spans an expiry.
+  keeps its id is unknown until the data spans an expiry.
 - **A combo listing appears or is removed** while its component listings stay.
 - **Matching rules or thresholds change**, or a new record arrives near an
   existing match, and the grouping changes.
@@ -247,14 +247,14 @@ With several records per unit, most attributes have more than one value:
 - **Operator:** host and registration business name are different concepts
   (see [data_model.md](../../data_model.md#owners-are-not-modeled)), so both
   are kept, not coalesced.
-- **Status:** a listing can be current while its registration has lapsed, and
-  a registration can be current with no listing.
+- **Status:** a listing can be active while its registration has lapsed, and
+  a registration can be active with no listing.
 - **Calendar and price:** a booked compound blocks its component listings, so
   summing booked nights across listings counts one stay several times.
 
 ## 8. What each option does with these cases
 
-**B: group by registration number, or by listing when there is none.** The
+**B: group by registration id, or by listing when there is none.** The
 grouping is well defined, but its rows are often not units:
 
 | Case | B produces | Probable units |
@@ -267,8 +267,8 @@ grouping is well defined, but its rows are often not units:
 | Sundi St, [STR20260765] | 1 | 2 properties |
 
 On 2026-09-14, B would produce about 3,120 rows: 2,549 registrations plus 572
-listings with no matching number. The id changes when a listing adds its
-number.
+listings with no matching id. The id changes when a listing adds its
+id.
 
 **C: entity resolution.** Cases like these can be resolved, but that requires:
 
@@ -277,12 +277,12 @@ number.
 2. **Persisted tables:** `units` with assigned ids, and a membership table
    (source record, unit, match method, confidence, date). Listing membership
    is many-to-many for combo listings.
-3. **Matching rules in order of strength:** registration number, then
+3. **Matching rules in order of strength:** registration id, then
    registrations at the same normalized address and unit, then spatial
    proximity with a distance set by pin precision (§4).
 4. **Address normalization** across the registry's two styles (parcel-record
    style "7730 MAYFAIR DR, Unit:APT 1" and typed text "525 w 3rd Ave #501"),
-   and ideally parcel ids, which are set on 457 of 2,549 current registrations.
+   and ideally parcel ids, which are set on 457 of 2,549 active registrations.
 5. **A manual override table** for cases the rules cannot decide, such as the
    Shaligo rooms and the 829 E 13th Ave lot, plus a way to review candidates.
    [apify-addresses/review.html](../apify-addresses/review.html) is a prior

@@ -35,7 +35,7 @@ describe('license pages on the live portal', () => {
   it('reads every summary field, a parcel and an address, and an issuance', async () => {
     expect(await read(13923)).toEqual({
       licenseId: 13923,
-      licenseeNumber: 'LC260500349',
+      licenseeId: 'LC260500349',
       businessName: 'Echo Ridge Mountain Retreat',
       licenseType: 'Short-Term Rentals',
       status: 'Active',
@@ -164,7 +164,7 @@ describe('fetchLicensePages', () => {
   it('returns each page, and the error for a page that could not be read', async () => {
     const results = await fetchLicensePages([13923, 50]);
 
-    expect(results.map((result) => [result.licenseId, result.page?.licenseeNumber ?? null])).toEqual([
+    expect(results.map((result) => [result.licenseId, result.page?.licenseeId ?? null])).toEqual([
       [13923, 'LC260500349'],
       [50, null],
     ]);

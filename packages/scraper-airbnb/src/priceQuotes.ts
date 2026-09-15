@@ -23,7 +23,7 @@ const QUOTE_MAX_RETRIES = 3;
 const QUOTE_TIMEOUT_MS = 15_000;
 
 export interface StayWindow {
-  roomId: string;
+  listingId: string;
   checkIn: IsoDate;
   nights: number;
 }
@@ -55,7 +55,7 @@ export function chooseStayWindow(calendar: CalendarResult, firstCheckIn: IsoDate
     if (!bookable) continue;
     const checkOut = byDate.get(addDays(night.nightDate, nights));
     if (checkOut && !checkOut.availableForCheckout) continue;
-    return { roomId: calendar.roomId, checkIn: night.nightDate, nights };
+    return { listingId: calendar.listingId, checkIn: night.nightDate, nights };
   }
   return null;
 }
@@ -71,7 +71,7 @@ export function liveQuoteFetcher(apiKey: string): FetchOneQuote {
           standardizePriceQuote(
             await fetchPriceQuote({
               apiKey,
-              roomId: window.roomId,
+              listingId: window.listingId,
               checkIn: window.checkIn,
               checkOut: addDays(window.checkIn, window.nights),
               currency: 'USD',
@@ -80,7 +80,7 @@ export function liveQuoteFetcher(apiKey: string): FetchOneQuote {
             }),
           ),
         {
-          label: `price quote for room ${window.roomId}`,
+          label: `price quote for listing ${window.listingId}`,
           attempts: QUOTE_MAX_RETRIES,
           backoffMs: RETRY_BACKOFF_MS,
         },
@@ -116,7 +116,7 @@ export async function fetchPriceQuotes(
     (window) => options.fetchOne(window),
   );
   for (const quote of quotes) {
-    if (quote.error) log.warn(`price quote failed for room ${quote.roomId}: ${quote.error}`);
+    if (quote.error) log.warn(`price quote failed for listing ${quote.listingId}: ${quote.error}`);
   }
   return quotes;
 }

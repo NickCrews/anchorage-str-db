@@ -10,8 +10,8 @@ WITH d AS (
         ST_Point(l.location_lat, l.location_lng),
         ST_Point(r.geocoded_lat, r.geocoded_lng)
     ) AS meters
-    FROM listings_current l
-    JOIN registrations_current r ON r.registration_number = l.str_registration_id
+    FROM listings_active l
+    JOIN registrations_active r ON r.registration_id = l.registration_id
     WHERE r.geocoded_lat IS NOT NULL
       AND l.location_lat IS NOT NULL
 )

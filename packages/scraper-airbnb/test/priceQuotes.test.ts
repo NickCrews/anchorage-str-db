@@ -104,7 +104,7 @@ describe('standardizePriceQuote', () => {
 const TODAY: IsoDate = '2026-09-13';
 
 /** Nights from `TODAY`, each `open` or not, with the given minimum stay. */
-function calendar(pattern: string, minNights = 1, roomId = '1'): CalendarResult {
+function calendar(pattern: string, minNights = 1, listingId = '1'): CalendarResult {
   const nights: CalendarNight[] = [...pattern].map((c, i) => ({
     nightDate: addDays(TODAY, i),
     available: c !== 'x',
@@ -113,7 +113,7 @@ function calendar(pattern: string, minNights = 1, roomId = '1'): CalendarResult 
     minNights,
     maxNights: null,
   }));
-  return { roomId, nights, error: null };
+  return { listingId, nights, error: null };
 }
 
 describe('chooseStayWindow', () => {
@@ -121,7 +121,7 @@ describe('chooseStayWindow', () => {
   // -: booked, and no check-out allowed either.
   it('takes the first check-in night from tomorrow on', () => {
     expect(chooseStayWindow(calendar('oooo'), addDays(TODAY, 1))).toEqual({
-      roomId: '1',
+      listingId: '1',
       checkIn: '2026-09-14',
       nights: 1,
     });
@@ -134,7 +134,7 @@ describe('chooseStayWindow', () => {
   it('asks for the minimum stay, all of it available', () => {
     // Two nights from the 14th would run into the booked 15th.
     expect(chooseStayWindow(calendar('ooxooo', 2), addDays(TODAY, 1))).toEqual({
-      roomId: '1',
+      listingId: '1',
       checkIn: '2026-09-16',
       nights: 2,
     });
@@ -156,19 +156,19 @@ describe('fetchPriceQuotes', () => {
       [
         calendar('ooo', 1, '1'),
         calendar('xxx', 1, '2'),
-        { roomId: '3', nights: [], error: 'HttpError: HTTP 503' },
+        { listingId: '3', nights: [], error: 'HttpError: HTTP 503' },
       ],
       {
         firstCheckIn: addDays(TODAY, 1),
         fetchOne: async (window): Promise<PriceQuote> => {
-          asked.push(window.roomId);
+          asked.push(window.listingId);
           return { ...window, label: '$90 for 1 night', total: 90, breakdown: [], error: null };
         },
       },
     );
 
     expect(asked).toEqual(['1']);
-    expect(quotes.map((quote) => [quote.roomId, quote.checkIn, quote.total])).toEqual([
+    expect(quotes.map((quote) => [quote.listingId, quote.checkIn, quote.total])).toEqual([
       ['1', '2026-09-14', 90],
     ]);
   });

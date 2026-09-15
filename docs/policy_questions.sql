@@ -54,10 +54,10 @@ ORDER BY
     night_date;
 
 -- ============================================================
--- Q: How many distinct homes in Anchorage operated as an STR in the last year?
+-- Q: How many distinct listings in Anchorage operated in the last year?
 -- ============================================================
 SELECT
-    count(DISTINCT listing_id) AS distinct_strs_last_365_days
+    count(DISTINCT listing_id) AS distinct_listings_last_365_days
 FROM
     airbnb_listing_observations
 WHERE
@@ -66,7 +66,7 @@ WHERE
 -- Same, broken out by month, to see growth/decline over time:
 SELECT
     date_trunc('month', scrape_date) AS MONTH,
-    count(DISTINCT listing_id) AS distinct_strs_that_month
+    count(DISTINCT listing_id) AS distinct_listings_that_month
 FROM
     airbnb_listing_observations
 GROUP BY
@@ -75,7 +75,7 @@ ORDER BY
     MONTH;
 
 -- ============================================================
--- Q: How many STRs are currently active, and how has that count trended?
+-- Q: How many listings are active, and how has that count trended?
 -- ============================================================
 SELECT
     scrape_date,
@@ -97,7 +97,7 @@ ORDER BY
 -- SELECT night_date, available, valid_from FROM airbnb_calendar_status
 --   WHERE listing_id = :id ORDER BY night_date;
 -- ============================================================
--- Q: What is the bedroom mix of current listings?
+-- Q: What is the bedroom mix of active listings?
 -- ============================================================
 SELECT
     coalesce(bedrooms :: VARCHAR, 'studio/unknown') AS bedrooms,
@@ -105,7 +105,7 @@ SELECT
 FROM
     listings
 WHERE
-    is_current
+    is_active
 GROUP BY
     ALL
 ORDER BY
@@ -133,7 +133,7 @@ ORDER BY
 --             )) AS rn
 --     FROM listings l
 --     JOIN parcels.parcels_current p ON p.tax_district = '4'
---     WHERE l.is_current
+--     WHERE l.is_active
 -- )
 -- SELECT * FROM nearest
 -- WHERE rn = 1 AND match_m < 60  -- roughly the same lot
@@ -151,14 +151,14 @@ SELECT
 FROM
     listings
 WHERE
-    is_current
+    is_active
 GROUP BY
     ALL
 ORDER BY
     location_is_exact DESC NULLS LAST;
 
 -- ============================================================
--- Q: Which listings don't display a municipal STR registration number?
+-- Q: Which listings don't display a municipal STR registration id?
 -- AO 2025-115(S-2) requires the number in listings from 2026-07-31. Hosts
 -- type it in, so a number is a claim of registration, not a verification.
 -- ============================================================
@@ -170,14 +170,14 @@ SELECT
 FROM
     listings
 WHERE
-    is_current
+    is_active
     AND page_seen_date IS NOT NULL
-    AND str_registration_id IS NULL
+    AND registration_id IS NULL
 ORDER BY
     first_seen_date;
 
 -- ============================================================
--- Q: When did hosts start publishing registration numbers?
+-- Q: When did hosts start publishing registration ids?
 -- Counts listing versions that added a number, by the date first seen.
 -- ============================================================
 SELECT
@@ -186,7 +186,7 @@ SELECT
 FROM
     listings a
 WHERE
-    str_registration_id IS NOT NULL
+    registration_id IS NOT NULL
     AND NOT EXISTS (
         SELECT
             1
@@ -195,7 +195,7 @@ WHERE
         WHERE
             b.listing_id = a.listing_id
             AND b.valid_to = a.valid_from
-            AND b.str_registration_id IS NOT NULL
+            AND b.registration_id IS NOT NULL
     )
 GROUP BY
     ALL
@@ -203,7 +203,7 @@ ORDER BY
     changed_on;
 
 -- ============================================================
--- Q: Which listings show a registration number the Muni hasn't published?
+-- Q: Which listings show a registration id the Muni hasn't published?
 -- Either a typo, a lapsed registration, or one issued since the Muni's last
 -- publish (registrations.published_at).
 -- ============================================================
@@ -211,43 +211,43 @@ SELECT
     listing_id,
     name,
     url,
-    str_registration_id
+    registration_id
 FROM
-    listings_current_with_registration
+    listings_active_with_registration
 WHERE
-    str_registration_id IS NOT NULL
+    registration_id IS NOT NULL
     AND NOT registration_found
 ORDER BY
-    str_registration_id;
+    registration_id;
 
 -- ============================================================
--- Q: Which registration numbers appear on several Airbnb listings?
--- Rooms of one home, duplicate listings, or one number shown on several
--- properties; compare the listings' names and locations.
+-- Q: Which registration ids appear on several Airbnb listings?
+-- Private rooms of one home, duplicate listings, or one id shown on several
+-- units; compare the listings' names and points.
 -- ============================================================
 SELECT
-    registration_number,
+    registration_id,
     business_name,
     location,
-    airbnb_listings_current
+    airbnb_listings_active
 FROM
-    registrations_current
+    registrations_active
 WHERE
-    airbnb_listings_current > 1
+    airbnb_listings_active > 1
 ORDER BY
-    airbnb_listings_current DESC;
+    airbnb_listings_active DESC;
 
 -- ============================================================
--- Q: How many current registrations have no Airbnb listing showing them?
+-- Q: How many active registrations have no Airbnb listing showing them?
 -- They may be listed elsewhere (Vrbo, direct), listed without the number,
 -- or not operating.
 -- ============================================================
 SELECT
     parcel_type,
     count(*) AS registrations,
-    count(*) FILTER (WHERE airbnb_listings_current = 0) AS not_on_airbnb
+    count(*) FILTER (WHERE airbnb_listings_active = 0) AS not_on_airbnb
 FROM
-    registrations_current
+    registrations_active
 GROUP BY
     ALL
 ORDER BY
@@ -259,43 +259,43 @@ ORDER BY
 -- license_description is NULL until the page has been read.
 -- ============================================================
 SELECT
-    registration_number,
+    registration_id,
     business_name,
     license_description
 FROM
-    registrations_current
+    registrations_active
 WHERE
     license_description IS NOT NULL
 ORDER BY
-    registration_number;
+    registration_id;
 
 -- ============================================================
 -- Q: Which registered STR parcels claim the owner's-primary-residence
 -- exemption? Joins on the license's parcel id, so no spatial match is needed.
 -- ============================================================
 -- ATTACH 'https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage-current.duckdb' AS parcels (READ_ONLY);
--- SELECT r.registration_number, r.business_name, r.location, p.owner_name,
---        r.airbnb_listings_current
--- FROM registrations_current r
+-- SELECT r.registration_id, r.business_name, r.location, p.owner_name,
+--        r.airbnb_listings_active
+-- FROM registrations_active r
 -- JOIN parcels.parcels_current p ON p.parcel_id = r.parcel_id
 -- WHERE p.exemption_6_type = 'OWNERS PRIMARY RESIDENCE'
--- ORDER BY r.registration_number;
+-- ORDER BY r.registration_id;
 
 -- ============================================================
 -- Q: Parcel match for listings with an exact location.
 -- Run the ATTACH/LOAD lines from the parcel query above first.
 -- ============================================================
--- SELECT l.listing_id, l.name, l.str_registration_id, p.parcel_id, p.parcel_address, p.owner_name
+-- SELECT l.listing_id, l.name, l.registration_id, p.parcel_id, p.parcel_address, p.owner_name
 -- FROM listings l
 -- JOIN parcels.parcels_current p ON p.tax_district = '4'
--- WHERE l.is_current AND l.location_is_exact
+-- WHERE l.is_active AND l.location_is_exact
 --   AND ST_Distance(
 --         ST_Transform(ST_Point(l.location_lng, l.location_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true),
 --         ST_Transform(ST_Point(p.centroid_lon, p.centroid_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true)
 --       ) < 60;
 
 -- ============================================================
--- Q: Which hosts operate the most current listings?
+-- Q: Which hosts operate the most active listings?
 -- `host_id` is the primary host's account; a property manager running
 -- listings for several owners appears as one host.
 -- ============================================================
@@ -307,7 +307,7 @@ SELECT
 FROM
     listings
 WHERE
-    is_current
+    is_active
     AND host_id IS NOT NULL
 GROUP BY
     host_id
@@ -321,12 +321,12 @@ LIMIT
 -- Listings by the year they were first available on Airbnb, estimated as
 -- the earlier of their first review and first_seen_date
 -- (`first_available_date_est`). Caveats:
--- - The estimate is never early, only late: a room is listed before its
---   first review, often by months. A room with no reviews before this
+-- - The estimate is never early, only late: a listing exists before its
+--   first review, often by months. A listing with no reviews before this
 --   project first saw it counts as entering in the year collection began.
--- - Only rooms seen since collection began are counted. Rooms that left
---   Airbnb earlier are missing, so earlier years undercount the market of
---   that time. `cumulative_listings` counts entries, not rooms operating.
+-- - Only listings seen since collection began are counted. Listings retired
+--   earlier are missing, so earlier years undercount the market of
+--   that time. `cumulative_listings` counts entries, not listings operating.
 -- - Joining `airbnb_listing_first_reviews` drops listings whose reviews have not
 --   been read yet, which would otherwise count as new.
 -- ============================================================
@@ -385,8 +385,8 @@ ORDER BY
     o.scrape_date;
 
 -- ============================================================
--- Q: Which listings changed room type, e.g. a whole cabin now rented by
--- the room?
+-- Q: Which listings changed room type, e.g. a whole cabin now rented as
+-- private rooms?
 -- ============================================================
 SELECT
     listing_id,
@@ -407,7 +407,7 @@ ORDER BY
     changed_on DESC;
 
 -- ============================================================
--- Q: What do current whole-home STRs sleep, and what do they ask per night?
+-- Q: What do active whole-home listings sleep, and what do they ask per night?
 -- `bedrooms` is Airbnb's text ('2 bedrooms', 'Studio'). The nightly rate is
 -- each listing's latest quote divided by its nights: the asking price of its
 -- earliest open stay, so it leans toward nights that were still unbooked.
@@ -432,7 +432,7 @@ FROM
     listings l
     LEFT JOIN latest_quote q USING (listing_id)
 WHERE
-    l.is_current
+    l.is_active
     AND l.room_type = 'Entire home/apt'
 GROUP BY
     l.bedrooms
@@ -454,7 +454,7 @@ SELECT
 FROM
     hosts
 WHERE
-    is_current
+    is_active
 ORDER BY
     hosting_started_on;
 
@@ -467,15 +467,15 @@ ORDER BY
 -- ============================================================
 -- Q: How many listings does each host hold right now?
 SELECT
-    listings_live AS listings_per_host,
+    listings_active AS listings_per_host,
     count(*) AS hosts,
-    sum(listings_live) AS listings,
-    round(100.0 * sum(listings_live) / sum(sum(listings_live)) OVER (), 1) AS pct_of_attributed_listings
+    sum(listings_active) AS listings,
+    round(100.0 * sum(listings_active) / sum(sum(listings_active)) OVER (), 1) AS pct_of_attributed_listings
 FROM
     host_portfolios
 WHERE
     scrape_date = (SELECT scrape_date FROM latest_scrape_date)
-    AND listings_live > 0
+    AND listings_active > 0
 GROUP BY
     ALL
 ORDER BY
@@ -486,23 +486,23 @@ ORDER BY
 -- ============================================================
 WITH now AS (
     SELECT
-        listings_live
+        listings_active
     FROM
         host_portfolios
     WHERE
         scrape_date = (SELECT scrape_date FROM latest_scrape_date)
-        AND listings_live > 0
+        AND listings_active > 0
 ),
 cutoffs AS (
     SELECT unnest([1, 2, 3, 5, 10, 20]) AS n
 )
 SELECT
     c.n AS min_listings,
-    count(*) FILTER (WHERE now.listings_live >= c.n) AS hosts,
-    coalesce(sum(now.listings_live) FILTER (WHERE now.listings_live >= c.n), 0) AS listings_held,
+    count(*) FILTER (WHERE now.listings_active >= c.n) AS hosts,
+    coalesce(sum(now.listings_active) FILTER (WHERE now.listings_active >= c.n), 0) AS listings_held,
     round(
-        100.0 * coalesce(sum(now.listings_live) FILTER (WHERE now.listings_live >= c.n), 0)
-        / sum(now.listings_live),
+        100.0 * coalesce(sum(now.listings_active) FILTER (WHERE now.listings_active >= c.n), 0)
+        / sum(now.listings_active),
         1
     ) AS pct_of_attributed_listings
 FROM
@@ -518,11 +518,11 @@ ORDER BY
 -- ============================================================
 SELECT
     scrape_date,
-    count(*) FILTER (WHERE listings_live > 0) AS hosts_with_live_listings,
-    sum(listings_live) AS attributed_live_listings,
-    round(100.0 * sum(listings_live) FILTER (WHERE listings_live >= 2) / nullif(sum(listings_live), 0), 1) AS pct_held_by_2_plus,
-    round(100.0 * sum(listings_live) FILTER (WHERE listings_live >= 5) / nullif(sum(listings_live), 0), 1) AS pct_held_by_5_plus,
-    round(100.0 * sum(listings_live) FILTER (WHERE listings_live >= 10) / nullif(sum(listings_live), 0), 1) AS pct_held_by_10_plus
+    count(*) FILTER (WHERE listings_active > 0) AS hosts_with_live_listings,
+    sum(listings_active) AS attributed_live_listings,
+    round(100.0 * sum(listings_active) FILTER (WHERE listings_active >= 2) / nullif(sum(listings_active), 0), 1) AS pct_held_by_2_plus,
+    round(100.0 * sum(listings_active) FILTER (WHERE listings_active >= 5) / nullif(sum(listings_active), 0), 1) AS pct_held_by_5_plus,
+    round(100.0 * sum(listings_active) FILTER (WHERE listings_active >= 10) / nullif(sum(listings_active), 0), 1) AS pct_held_by_10_plus
 FROM
     host_portfolios
 GROUP BY
@@ -534,8 +534,8 @@ ORDER BY
 SELECT
     host_id,
     min(scrape_date) AS first_seen,
-    arg_min(listings_live, scrape_date) AS live_at_first_sight,
-    arg_max(listings_live, scrape_date) AS live_now,
+    arg_min(listings_active, scrape_date) AS live_at_first_sight,
+    arg_max(listings_active, scrape_date) AS live_now,
     max(listings_ever_seen) AS ever_seen
 FROM
     host_portfolios
@@ -548,7 +548,7 @@ LIMIT
     25;
 
 -- ============================================================
--- Q: Is this Girdwood room part of a large portfolio?
+-- Q: Is this Girdwood listing part of a large portfolio?
 -- NULL host columns mean the host is unknown, not a portfolio of one.
 -- ============================================================
 SELECT
@@ -557,12 +557,12 @@ SELECT
     url,
     host_name,
     host_years_hosting,
-    host_listings_live,
+    host_listings_active,
     host_listings_ever_seen
 FROM
-    listings_current_with_host
+    listings_active_with_host
 WHERE
     location_subtitle ILIKE 'Girdwood%'
 ORDER BY
-    host_listings_live DESC NULLS LAST,
+    host_listings_active DESC NULLS LAST,
     host_id;

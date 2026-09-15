@@ -186,7 +186,7 @@ it('reads the location flag and coordinate', () => {
   expect([page.lat, page.lng]).toEqual([60.9568, -149.1294]);
   expect(page.locationSubtitle).toBe('Anchorage, Alaska, United States');
   expect(page.locationVerified).toBe(true);
-  expect(page.strRegistrationId).toBe('STR20261897');
+  expect(page.registrationId).toBe('STR20261897');
   expect(page.locationSource).toBe('json-ld+state');
 });
 
@@ -248,9 +248,9 @@ describe('resilience', () => {
   });
 });
 
-// --- registration number --------------------------------------------------
+// --- registration id --------------------------------------------------
 
-describe('the STR registration number', () => {
+describe('the STR registration id', () => {
   it('prefers the structured item over the prose', () => {
     const page = parseListingPage(
       makePage({
@@ -260,13 +260,13 @@ describe('the STR registration number', () => {
       '1',
     );
 
-    expect(page.strRegistrationId).toBe('STR20261897');
+    expect(page.registrationId).toBe('STR20261897');
   });
 
   it.each(['STR20261897', 'str 20261897', 'STR-20261897', 'Str20261897'])(
     'normalizes the case and separators hosts type by hand: %s',
     (text) => {
-      expect(parseListingPage(makePage({ registration: text }), '1').strRegistrationId).toBe(
+      expect(parseListingPage(makePage({ registration: text }), '1').registrationId).toBe(
         'STR20261897',
       );
     },
@@ -275,7 +275,7 @@ describe('the STR registration number', () => {
   it('is null, not an error, when missing', () => {
     const page = parseListingPage(makePage({ registration: null }), '1');
 
-    expect(page.strRegistrationId).toBeNull();
+    expect(page.registrationId).toBeNull();
     expect(page.locationIsExact).toBe(true);
   });
 
@@ -285,7 +285,7 @@ describe('the STR registration number', () => {
       description: `Permit STR20260001 or maybe STR20260002. ${'Lovely cabin. '.repeat(20)}`,
     });
 
-    expect(parseListingPage(html, '1').strRegistrationId).toBeNull();
+    expect(parseListingPage(html, '1').registrationId).toBeNull();
   });
 });
 

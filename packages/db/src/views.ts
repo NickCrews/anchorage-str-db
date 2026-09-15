@@ -11,8 +11,8 @@
  * `airbnb_host_observations` the same way.
  *
  * `registrations` has one row per registration with its latest license page,
- * and `listings_current_with_registration` joins Airbnb listings to it on the
- * registration number. Cleaning (the `'None'` business name, the no-match
+ * and `listings_active_with_registration` joins Airbnb listings to it on the
+ * registration id. Cleaning (the `'None'` business name, the no-match
  * placeholder point) happens in the views, so the raw tables can always be
  * re-derived.
  *
@@ -24,7 +24,7 @@
 import { NO_MATCH_GEOCODED_ADDRESS } from '@anchorage-str-db/scraper-muni-str/registrationLayers';
 
 /**
- * Days a listing may be absent from search before `listings.is_current` goes
+ * Days a listing may be absent from search before `listings.is_active` goes
  * false. Search occasionally omits a listing for a day.
  */
 export const RETIREMENT_GRACE_DAYS = 5;
@@ -64,7 +64,7 @@ const PAGE_ATTRS_SQL = `{
     'location_exact_address': location_exact_address,
     'location_subtitle': location_subtitle,
     'location_verified': location_verified,
-    'str_registration_id': str_registration_id,
+    'registration_id': registration_id,
     'host_id': host_id,
     'room_type': room_type,
     'guest_capacity': guest_capacity,
@@ -88,7 +88,7 @@ SELECT max(scrape_date) AS scrape_date FROM (
 );
 
 -- Per listing: first and last seen, last successful page read, and whether
--- it is current. A listing is current if seen within RETIREMENT_GRACE_DAYS
+-- it is active. A listing is active if seen within RETIREMENT_GRACE_DAYS
 -- of the latest scrape, because search occasionally omits a listing for a
 -- day.
 CREATE OR REPLACE VIEW listing_activity AS
@@ -99,7 +99,7 @@ SELECT
     max(scrape_date) FILTER (WHERE page_fetch_ok) AS page_seen_date,
     max(scrape_date) >= (
         SELECT scrape_date FROM latest_scrape_date
-    ) - INTERVAL {grace} DAY AS is_current
+    ) - INTERVAL {grace} DAY AS is_active
 FROM airbnb_listing_observations
 GROUP BY listing_id;
 
@@ -110,7 +110,7 @@ WITH observed AS (
     SELECT
         * EXCLUDE (
             location_is_exact, location_exact_address, location_subtitle,
-            location_verified, str_registration_id, host_id,
+            location_verified, registration_id, host_id,
             room_type, guest_capacity, beds, bedrooms, bathrooms
         ),
         -- NULL when the page fetch failed, so the carry-forward skips it.
@@ -167,7 +167,7 @@ SELECT
     page_attrs.location_exact_address AS location_exact_address,
     page_attrs.location_subtitle AS location_subtitle,
     page_attrs.location_verified AS location_verified,
-    page_attrs.str_registration_id AS str_registration_id,
+    page_attrs.registration_id AS registration_id,
     page_attrs.host_id AS host_id,
     page_attrs.room_type AS room_type,
     page_attrs.guest_capacity AS guest_capacity,
@@ -196,7 +196,7 @@ SELECT
     v.location_exact_address,
     v.location_subtitle,
     v.location_verified,
-    v.str_registration_id,
+    v.registration_id,
     v.host_id,
     a.page_seen_date,
     a.first_seen_date,
@@ -213,13 +213,13 @@ SELECT
     v.version_last_seen_date,
     v.valid_from,
     v.valid_to,
-    v.valid_to IS NULL AND a.is_current AS is_current
+    v.valid_to IS NULL AND a.is_active AS is_active
 FROM listing_versions v
 JOIN listing_activity a USING (listing_id)
 LEFT JOIN airbnb_listing_first_reviews r USING (listing_id);
 
-CREATE OR REPLACE VIEW listings_current AS
-SELECT * FROM listings WHERE is_current;
+CREATE OR REPLACE VIEW listings_active AS
+SELECT * FROM listings WHERE is_active;
 
 -- Each listing's most recent photo set.
 CREATE OR REPLACE VIEW listing_photos_current AS
@@ -231,7 +231,8 @@ SELECT
 FROM airbnb_listing_photos
 QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY valid_from DESC) = 1;
 
--- Current calendar rows, minus the future nights of retired listings.
+-- The current version of each night, minus the future nights of retired
+-- listings.
 --
 -- A retired listing's calendar is no longer fetched, so its future nights
 -- stay is_current for up to twelve months. Nights up to its last_seen_date
@@ -241,9 +242,9 @@ SELECT c.*
 FROM airbnb_calendar_status c
 JOIN listing_activity a USING (listing_id)
 WHERE c.is_current
-  AND (a.is_current OR c.night_date <= a.last_seen_date);
+  AND (a.is_active OR c.night_date <= a.last_seen_date);
 
--- Per host: first and last seen, last card read, and whether current, on
+-- Per host: first and last seen, last card read, and whether active, on
 -- the same rule as \`listing_activity\`. \`hosting_started_on\` is the earliest
 -- start date any reading implies, and \`hosting_start_spread_days\` how far
 -- the readings disagree. Month rounding alone keeps the spread under about a
@@ -265,7 +266,7 @@ SELECT
         FILTER (WHERE profile_read_ok AND time_as_host_years IS NOT NULL) AS years_hosting,
     max(scrape_date) >= (
         SELECT scrape_date FROM latest_scrape_date
-    ) - INTERVAL {grace} DAY AS is_current
+    ) - INTERVAL {grace} DAY AS is_active
 FROM airbnb_host_observations
 GROUP BY host_id;
 
@@ -325,7 +326,7 @@ SELECT
     lead(valid_from) OVER (PARTITION BY host_id ORDER BY version_no) AS valid_to
 FROM aggregated;
 
--- The host dimension. Join to \`listings\` on host_id; filter \`is_current\`
+-- The host dimension. Join to \`listings\` on host_id; filter \`is_active\`
 -- for one row per host.
 CREATE OR REPLACE VIEW hosts AS
 SELECT
@@ -343,15 +344,15 @@ SELECT
     v.version_last_seen_date,
     v.valid_from,
     v.valid_to,
-    v.valid_to IS NULL AND a.is_current AS is_current
+    v.valid_to IS NULL AND a.is_active AS is_active
 FROM host_versions v
 JOIN host_activity a USING (host_id);
 
--- Listings per host per completed run date. Counts only: no threshold or
--- owner/operator label is stored; that line is drawn downstream.
+-- Listings per host per completed run date. Counts only: no threshold
+-- marking a commercial host is stored; that line is drawn downstream.
 --
--- listings_live       listings held by the host that were live on
---                     scrape_date: the \`listing_activity.is_current\` rule
+-- listings_active       listings held by the host that were live on
+--                     scrape_date: the \`listing_activity.is_active\` rule
 --                     evaluated as of that date.
 -- listings_ever_seen  distinct listings observed under the host on or before
 --                     scrape_date, live or not.
@@ -360,7 +361,7 @@ JOIN host_activity a USING (host_id);
 -- a portfolio winding down reads as zeros rather than missing rows. A
 -- listing's host is carried forward past failed page fetches as in
 -- \`listing_versions\`, so the latest date agrees with
--- \`listings_current.host_id\`. A listing whose page was never read has no
+-- \`listings_active.host_id\`. A listing whose page was never read has no
 -- known host and is counted under nobody.
 --
 -- Only listings in the Anchorage search area are counted, not a host's
@@ -395,7 +396,7 @@ live AS (
     ) = 1
 ),
 live_counts AS (
-    SELECT host_id, scrape_date, count(*) AS listings_live
+    SELECT host_id, scrape_date, count(*) AS listings_active
     FROM live
     WHERE host_id IS NOT NULL
     GROUP BY host_id, scrape_date
@@ -419,7 +420,7 @@ panel AS (
 SELECT
     p.host_id,
     p.scrape_date,
-    coalesce(l.listings_live, 0)::INTEGER AS listings_live,
+    coalesce(l.listings_active, 0)::INTEGER AS listings_active,
     sum(coalesce(n.listings_new, 0)) OVER (
         PARTITION BY p.host_id ORDER BY p.scrape_date
     )::INTEGER AS listings_ever_seen
@@ -427,18 +428,18 @@ FROM panel p
 LEFT JOIN live_counts l USING (host_id, scrape_date)
 LEFT JOIN newly_seen n USING (host_id, scrape_date);
 
--- \`listings_current\` plus the owning host's profile and portfolio as of the
--- latest run, so "is this Girdwood room part of a large portfolio?" needs no
+-- \`listings_active\` plus the owning host's profile and portfolio as of the
+-- latest run, so "is this Girdwood listing part of a large portfolio?" needs no
 -- join. The host columns are NULL when the host is unknown.
-CREATE OR REPLACE VIEW listings_current_with_host AS
+CREATE OR REPLACE VIEW listings_active_with_host AS
 SELECT
     l.*,
     h.name AS host_name,
     h.years_hosting AS host_years_hosting,
     h.hosting_started_on AS host_hosting_started_on,
-    p.listings_live AS host_listings_live,
+    p.listings_active AS host_listings_active,
     p.listings_ever_seen AS host_listings_ever_seen
-FROM listings_current l
+FROM listings_active l
 LEFT JOIN hosts h
   ON h.host_id = l.host_id AND h.valid_to IS NULL
 LEFT JOIN host_portfolios p
@@ -446,10 +447,10 @@ LEFT JOIN host_portfolios p
  AND p.scrape_date = (SELECT scrape_date FROM latest_scrape_date);
 
 -- Stored in the file, so readers of the published .duckdb see the scope.
-COMMENT ON VIEW host_portfolios IS 'Listings per Airbnb host account per scrape date. Counts only listings in the Anchorage search area, not a host''s listings elsewhere. No owner/operator threshold is stored.';
-COMMENT ON COLUMN host_portfolios.listings_live IS 'Listings held by this host that were live on scrape_date (seen within the retirement grace window ending that day).';
+COMMENT ON VIEW host_portfolios IS 'Listings per Airbnb host account per scrape date. Counts only listings in the Anchorage search area, not a host''s listings elsewhere. No threshold marking a commercial host is stored.';
+COMMENT ON COLUMN host_portfolios.listings_active IS 'Listings held by this host that were live on scrape_date (seen within the retirement grace window ending that day).';
 COMMENT ON COLUMN host_portfolios.listings_ever_seen IS 'Distinct listings observed under this host on or before scrape_date, live or retired.';
-COMMENT ON VIEW listings_current_with_host IS 'listings_current plus the host''s name, tenure, and host_portfolios counts as of the latest run. NULL when the host is unknown. Portfolio counts cover only the Anchorage search area.';
+COMMENT ON VIEW listings_active_with_host IS 'listings_active plus the host''s name, tenure, and host_portfolios counts as of the latest run. NULL when the host is unknown. Portfolio counts cover only the Anchorage search area.';
 `;
 
 /** A registration's CityView licenseId, read from its `status_url`. */
@@ -466,38 +467,38 @@ SELECT * FROM muni_license_page_reads
 QUALIFY row_number() OVER (PARTITION BY license_id ORDER BY scrape_date DESC) = 1;
 
 -- One row per registration ever published, with its latest published fields
--- and latest license page. A registration is current if it was in the
+-- and latest license page. A registration is active if it was in the
 -- latest registry run's layer, which lists only active registrations.
 CREATE OR REPLACE VIEW registrations AS
 WITH activity AS (
     SELECT
-        registration_number,
+        registration_id,
         min(scrape_date) AS first_seen_date,
         max(scrape_date) AS last_seen_date
     FROM muni_str_registration_observations
-    GROUP BY registration_number
+    GROUP BY registration_id
 ),
 latest AS (
     SELECT *, ${LICENSE_ID_SQL} AS license_id
     FROM muni_str_registration_observations
-    QUALIFY row_number() OVER (PARTITION BY registration_number ORDER BY scrape_date DESC) = 1
+    QUALIFY row_number() OVER (PARTITION BY registration_id ORDER BY scrape_date DESC) = 1
 ),
 airbnb AS (
-    SELECT str_registration_id AS registration_number, count(*)::INTEGER AS listings
-    FROM listings_current
-    WHERE str_registration_id IS NOT NULL
-    GROUP BY str_registration_id
+    SELECT registration_id AS registration_id, count(*)::INTEGER AS listings
+    FROM listings_active
+    WHERE registration_id IS NOT NULL
+    GROUP BY registration_id
 )
 SELECT
-    o.registration_number,
-    o.application_number,
+    o.registration_id,
+    o.licensee_id,
     o.license_id,
     o.status,
     o.submitted_date,
     o.issued_date,
     o.expires_date,
     nullif(o.business_name, 'None') AS business_name,
-    o.location,
+    o.registered_address,
     o.community_council,
     o.parcel_type,
     o.geocoded_address,
@@ -522,43 +523,43 @@ SELECT
     CASE WHEN len([l FOR l IN p.locations IF l.label = 'Property']) = 1
          THEN [l.value FOR l IN p.locations IF l.label = 'Property'][1] END AS parcel_id,
     p.issuances AS license_issuances,
-    coalesce(b.listings, 0) AS airbnb_listings_current,
+    coalesce(b.listings, 0) AS airbnb_listings_active,
     a.first_seen_date,
     a.last_seen_date,
-    a.last_seen_date = (SELECT scrape_date FROM latest_registry_date) AS is_current
+    a.last_seen_date = (SELECT scrape_date FROM latest_registry_date) AS is_active
 FROM latest o
-JOIN activity a USING (registration_number)
+JOIN activity a USING (registration_id)
 LEFT JOIN license_pages_latest p ON p.license_id = o.license_id
-LEFT JOIN airbnb b USING (registration_number);
+LEFT JOIN airbnb b USING (registration_id);
 
-CREATE OR REPLACE VIEW registrations_current AS
-SELECT * FROM registrations WHERE is_current;
+CREATE OR REPLACE VIEW registrations_active AS
+SELECT * FROM registrations WHERE is_active;
 
--- \`listings_current\` plus the registration its page cites. The registration
+-- \`listings_active\` plus the registration its page cites. The registration
 -- columns are NULL when the listing shows no number or the number is not in
 -- the registry, which includes numbers issued since the layer's last publish.
-CREATE OR REPLACE VIEW listings_current_with_registration AS
+CREATE OR REPLACE VIEW listings_active_with_registration AS
 SELECT
     l.*,
-    r.registration_number IS NOT NULL AS registration_found,
-    r.is_current AS registration_is_current,
+    r.registration_id IS NOT NULL AS registration_found,
+    r.is_active AS registration_is_active,
     r.business_name AS registration_business_name,
-    r.location AS registration_location,
+    r.registered_address AS registration_address,
     r.parcel_id AS registration_parcel_id,
     r.parcel_type AS registration_parcel_type,
     r.community_council AS registration_community_council,
     r.issued_date AS registration_issued_date,
     r.expires_date AS registration_expires_date,
     r.license_description AS registration_license_description,
-    r.airbnb_listings_current AS registration_airbnb_listings_current
-FROM listings_current l
-LEFT JOIN registrations r ON r.registration_number = l.str_registration_id;
+    r.airbnb_listings_active AS registration_airbnb_listings_active
+FROM listings_active l
+LEFT JOIN registrations r ON r.registration_id = l.registration_id;
 
-COMMENT ON VIEW registrations IS 'One row per STR registration the Municipal Clerk has published, with its latest license page. is_current means it was in the latest registry run; the Muni publishes only active registrations.';
-COMMENT ON VIEW listings_current_with_registration IS 'listings_current plus the Municipal registration matching str_registration_id. Registration columns are NULL when there is no match.';
+COMMENT ON VIEW registrations IS 'One row per STR registration the Municipal Clerk has published, with its latest license page. is_active means it was in the latest registry run; the Muni publishes only active registrations.';
+COMMENT ON VIEW listings_active_with_registration IS 'listings_active plus the Municipal registration matching registration_id. Registration columns are NULL when there is no match.';
 `;
 
-/** Every view, in dependency order: `registrations` reads `listings_current`. */
+/** Every view, in dependency order: `registrations` reads `listings_active`. */
 export function viewsSql(): string {
   const listingViews = LISTING_VIEWS_SQL.replaceAll('{grace}', String(RETIREMENT_GRACE_DAYS))
     .replaceAll('{hosting_start}', IMPLIED_HOSTING_START_SQL)

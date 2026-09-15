@@ -5,7 +5,7 @@
  * (https://experience.arcgis.com/experience/22b40a78a9fc459e9950a16249b37ed2).
  *
  * The layer has two kinds of address field. `Location` is the address on the
- * license, as the applicant gave it. The rest (`GeocodedAddress`, the point,
+ * license, as the registrant gave it. The rest (`GeocodedAddress`, the point,
  * `CommunityCouncil`, `ParcelType`) the Muni derived from it afterwards.
  * `test/addresses.test.ts` checks this against the live layer.
  *
@@ -41,10 +41,10 @@ export const NO_MATCH_GEOCODED_ADDRESS = 'Incomplete address provided. No Match.
 export const NO_MATCH_POINT = { lng: -150.20935, lat: 61.153442 } as const;
 
 export interface Registration {
-  /** `STR` + 8 digits, e.g. `STR20260309`. Airbnb's `str_registration_id`. */
-  registrationNumber: string;
+  /** `STR` + 8 digits, e.g. `STR20260309`. Airbnb's `registration_id`. */
+  registrationId: string;
   /** `LC` + 9 digits: the license application, the page's "Licensee Number". */
-  applicationNumber: string | null;
+  licenseeId: string | null;
   submittedDate: IsoDate | null;
   issuedDate: IsoDate | null;
   expiresDate: IsoDate | null;
@@ -53,11 +53,11 @@ export interface Registration {
    * location. For a license tied to a Muni property record it is that
    * record's address, in the Muni's parcel-address style
    * (`7730 MAYFAIR DR, Unit:APT 1, ANCHORAGE, AK 99502`, or `311 MELODY PL`
-   * when the record has no city). Otherwise it is the text the applicant
+   * when the record has no city). Otherwise it is the text the registrant
    * typed (`525 w 3rd Ave #501, anchorage AK 99501`). The license page, not
    * this layer, shows which.
    */
-  location: string | null;
+  registeredAddress: string | null;
   businessName: string | null;
   status: string | null;
   /** The CityView license page, `.../License/Status?licenseId=13923&category=B`. */
@@ -70,14 +70,14 @@ export interface Registration {
    */
   parcelType: string | null;
   /**
-   * The Muni geocoder's reading of `location`, in the geocoder's own style
+   * The Muni geocoder's reading of `registeredAddress`, in the geocoder's own style
    * (`7821 Mayfair Dr, Apartment C, Anchorage, Alaska, 99502`). It rewrites
    * typed text too: `#501` becomes `Apartment 501`, `ROOM 4` is dropped,
-   * `WENDY'S` becomes `Wendys`. A `location` without a city or zip gets
+   * `WENDY'S` becomes `Wendys`. A `registeredAddress` without a city or zip gets
    * `NO_MATCH_GEOCODED_ADDRESS`.
    */
   geocodedAddress: string | null;
-  /** The geocoded point, not a position the applicant gave. */
+  /** The geocoded point, not a position the registrant gave. */
   geocodedLat: number | null;
   geocodedLng: number | null;
   /** The layer's `PUBDATE`, naive UTC. */
@@ -95,20 +95,20 @@ function dateOnly(attributes: Record<string, unknown>, field: string): IsoDate |
   return value === null ? null : parseIsoDate(value);
 }
 
-/** Throws on a feature with no registration number, which could not be stored. */
+/** Throws on a feature with no registration id, which could not be stored. */
 export function toRegistration(feature: ArcgisFeature): Registration {
   const a = feature.attributes;
-  const registrationNumber = text(a, 'RegistrationNumber');
-  if (!registrationNumber) {
+  const registrationId = text(a, 'RegistrationNumber');
+  if (!registrationId) {
     throw new Error(`registration feature without a RegistrationNumber: ${JSON.stringify(a)}`);
   }
   return {
-    registrationNumber,
-    applicationNumber: text(a, 'ApplicationNumber'),
+    registrationId,
+    licenseeId: text(a, 'ApplicationNumber'),
     submittedDate: dateOnly(a, 'Submitted'),
     issuedDate: dateOnly(a, 'Issued'),
     expiresDate: dateOnly(a, 'Expires'),
-    location: text(a, 'Location'),
+    registeredAddress: text(a, 'Location'),
     businessName: text(a, 'BusinessName'),
     status: text(a, 'Status'),
     statusUrl: text(a, 'StatusUrl'),

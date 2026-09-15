@@ -143,25 +143,25 @@ export async function runChecks(
     check('search_coverage', 'warn', false, 'coverage audit did not run: no usable audit boxes');
   }
 
-  const currentCount = await db.count('SELECT count(*) FROM listings WHERE is_current');
+  const currentCount = await db.count('SELECT count(*) FROM listings WHERE is_active');
   const [lo, hi] = PLAUSIBLE_LISTING_COUNT;
   check(
     'listing_count_plausible',
     'error',
     lo <= currentCount && currentCount <= hi,
-    `${currentCount} current listings, expected [${lo}, ${hi}]`,
+    `${currentCount} active listings, expected [${lo}, ${hi}]`,
   );
 
   // This and the overlap check test the SCD2 logic in the `listings` view.
   const dupes = await db.count(
-    'SELECT count(*) FROM (SELECT listing_id FROM listings WHERE is_current ' +
+    'SELECT count(*) FROM (SELECT listing_id FROM listings WHERE is_active ' +
       'GROUP BY listing_id HAVING count(*) > 1)',
   );
   check(
-    'no_duplicate_current_listings',
+    'no_duplicate_active_listings',
     'error',
     dupes === 0,
-    `${dupes} listing_ids with >1 current row`,
+    `${dupes} listing_ids with >1 active row`,
   );
 
   const overlap = await db.count(`
@@ -181,7 +181,7 @@ export async function runChecks(
   // boundary last changed that have not yet retired (RETIREMENT_GRACE_DAYS).
   const coords = await db.rows<{ listing_id: string; lat: number | null; lng: number | null }>(
     'SELECT listing_id, location_lat AS lat, location_lng AS lng FROM listings ' +
-      'WHERE is_current ORDER BY listing_id',
+      'WHERE is_active ORDER BY listing_id',
   );
   const outside = coords.filter(
     ({ lat, lng }) => lat === null || lng === null || !inMunicipality(lat, lng),
@@ -190,7 +190,7 @@ export async function runChecks(
     'coords_within_municipality',
     'warn',
     outside.length === 0,
-    `${outside.length} current listings with no coordinates or outside the Municipality` +
+    `${outside.length} active listings with no coordinates or outside the Municipality` +
       (outside.length ? `; e.g. ${outside.slice(0, 5).map((row) => row.listing_id).join(', ')}` : ''),
   );
 
@@ -300,7 +300,7 @@ export async function runChecks(
   // keeps that day out of the published archive.
   const minShare = MIN_PAGE_FIELD_SHARE;
   const pageRead = await db.count(
-    'SELECT count(*) FROM listings WHERE is_current AND page_seen_date IS NOT NULL',
+    'SELECT count(*) FROM listings WHERE is_active AND page_seen_date IS NOT NULL',
   );
   if (pageRead) {
     const minimums = [
@@ -314,14 +314,14 @@ export async function runChecks(
     for (const [column, min] of minimums) {
       const present = await db.count(
         'SELECT count(*) FROM listings ' +
-          `WHERE is_current AND page_seen_date IS NOT NULL AND ${column} IS NOT NULL`,
+          `WHERE is_active AND page_seen_date IS NOT NULL AND ${column} IS NOT NULL`,
       );
       const share = present / pageRead;
       check(
         `${column}_coverage`,
         'error',
         share >= min,
-        `${present}/${pageRead} current listings with a page read have a ${column} ` +
+        `${present}/${pageRead} active listings with a page read have a ${column} ` +
           `(${percent(share)}, min ${percent(min)})`,
       );
     }
@@ -379,20 +379,20 @@ export async function runChecks(
 
   // Listings with no host_id at all are `host_id_coverage`'s concern.
   const owned = await db.count(
-    'SELECT count(*) FROM listings WHERE is_current AND host_id IS NOT NULL',
+    'SELECT count(*) FROM listings WHERE is_active AND host_id IS NOT NULL',
   );
   if (owned) {
     const resolved = await db.count(
       'SELECT count(*) FROM listings l ' +
         'JOIN hosts h ON h.host_id = l.host_id AND h.valid_to IS NULL ' +
-        'WHERE l.is_current AND h.profile_seen_date IS NOT NULL',
+        'WHERE l.is_active AND h.profile_seen_date IS NOT NULL',
     );
     const share = resolved / owned;
     check(
       'host_profile_coverage',
       'warn',
       share >= MIN_HOST_PROFILE_SHARE,
-      `${resolved}/${owned} current listings with a host_id resolve to a read host profile ` +
+      `${resolved}/${owned} active listings with a host_id resolve to a read host profile ` +
         `(${percent(share)}, min ${percent(MIN_HOST_PROFILE_SHARE)})`,
     );
   }
@@ -402,14 +402,14 @@ export async function runChecks(
   // number.
   const moved = await db.rows<{ host_id: string; spread: number }>(
     'SELECT host_id, hosting_start_spread_days AS spread FROM hosts ' +
-      'WHERE is_current AND hosting_start_spread_days > ? ORDER BY spread DESC',
+      'WHERE is_active AND hosting_start_spread_days > ? ORDER BY spread DESC',
     [HOST_START_MAX_SPREAD_DAYS],
   );
   check(
     'host_start_date_stable',
     'warn',
     moved.length === 0,
-    `${moved.length} current hosts whose hosting start date moved by more than ` +
+    `${moved.length} active hosts whose hosting start date moved by more than ` +
       `${HOST_START_MAX_SPREAD_DAYS} days between readings` +
       (moved.length
         ? `; e.g. ${moved.slice(0, 5).map((row) => `${row.host_id} (${row.spread}d)`).join(', ')}`
@@ -421,14 +421,14 @@ export async function runChecks(
   // This is undocumented, so a mismatch warns rather than fails.
   const mismatched = await db.count(`
     SELECT count(*) FROM listings
-    WHERE is_current AND location_is_exact IS NOT NULL AND location_lat IS NOT NULL
+    WHERE is_active AND location_is_exact IS NOT NULL AND location_lat IS NOT NULL
       AND location_is_exact != (
           length(split_part(abs(location_lat)::VARCHAR, '.', 2)) <= 4
           AND length(split_part(abs(location_lng)::VARCHAR, '.', 2)) <= 4
       )
   `);
   const located = await db.count(
-    'SELECT count(*) FROM listings WHERE is_current AND location_is_exact IS NOT NULL',
+    'SELECT count(*) FROM listings WHERE is_active AND location_is_exact IS NOT NULL',
   );
   if (located) {
     check(

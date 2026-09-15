@@ -130,7 +130,7 @@ export interface SearchListing {
    * `bigint`: newer listing ids are 19 digits (e.g. `1602507228357075578`),
    * which a JS number would round to a different id.
    */
-  roomId: bigint;
+  listingId: bigint;
   name: string | null;
   title: string | null;
   /** `null`, not `0`, when Airbnb gave no coordinate. See this directory's README. */
@@ -233,8 +233,8 @@ export function standardizeSearchResponse(raw: unknown): SearchResponse {
   const listings: SearchListing[] = [];
   for (const result of asArray(results['searchResults'])) {
     if (dig(result, '__typename') !== 'StaySearchResult') continue;
-    const roomId = decodeListingId(dig(result, 'demandStayListing.id'));
-    if (roomId === null) continue;
+    const listingId = decodeListingId(dig(result, 'demandStayListing.id'));
+    if (listingId === null) continue;
 
     const price = asRecord(dig(result, 'structuredDisplayPrice'));
     const rating = parseAvgRating(dig(result, 'avgRatingLocalized'));
@@ -250,7 +250,7 @@ export function standardizeSearchResponse(raw: unknown): SearchResponse {
     }
 
     listings.push({
-      roomId,
+      listingId,
       name: asString(
         dig(result, 'demandStayListing.description.name.localizedStringWithTranslationPreference'),
       ),

@@ -23,7 +23,7 @@ type SortingState = NonNullable<TableProps['sorting']>;
  * `photo_urls[1]` is the cover photo (DuckDB lists are 1-based).
  *
  * The registration columns come from the Muni registration matching the
- * number the listing page shows; see `listings_current_with_registration`.
+ * number the listing page shows; see `listings_active_with_registration`.
  */
 const BASE_QUERY = `
   SELECT
@@ -44,11 +44,11 @@ const BASE_QUERY = `
     o.price_hint_per_night,
     l.host_name,
     l.host_years_hosting,
-    l.host_listings_live,
+    l.host_listings_active,
     l.host_listings_ever_seen,
     ${registrationStatusSql('r')} AS registration_status,
-    l.str_registration_id,
-    r.registration_location,
+    l.registration_id,
+    r.registration_address,
     r.registration_parcel_id,
     r.registration_parcel_type,
     r.registration_community_council,
@@ -59,8 +59,8 @@ const BASE_QUERY = `
     l.first_seen_date,
     l.last_seen_date,
     l.url
-  FROM listings_current_with_host l
-  JOIN listings_current_with_registration r USING (listing_id)
+  FROM listings_active_with_host l
+  JOIN listings_active_with_registration r USING (listing_id)
   LEFT JOIN listing_photos_current p ON p.listing_id = l.listing_id
   LEFT JOIN (
     SELECT *
@@ -105,7 +105,7 @@ export const ListingsView: FC = () => {
       const pattern = escapeVal(`%${term}%`);
       filters.push(
         `(l.name ILIKE ${pattern} OR l.property_title ILIKE ${pattern} OR l.host_name ILIKE ${pattern}` +
-          ` OR l.str_registration_id ILIKE ${pattern} OR r.registration_location ILIKE ${pattern})`,
+          ` OR l.registration_id ILIKE ${pattern} OR r.registration_address ILIKE ${pattern})`,
       );
     }
     if (status !== ALL_STATUSES) {
@@ -145,7 +145,7 @@ export const ListingsView: FC = () => {
     <div className="flex h-full flex-col gap-2 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <Input
-          placeholder="Filter by listing, host, registration number or address…"
+          placeholder="Filter by listing, host, registration id or address…"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);

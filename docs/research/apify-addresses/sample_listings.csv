@@ -1,4 +1,4 @@
-listing_id,name,location_is_exact,str_registration_id,location_lat,location_lng
+listing_id,name,location_is_exact,registration_id,location_lat,location_lng
 1101681,Alaskan Homestead Featured on the History Channel,false,STR20260572,61.29751,-149.41675
 4694553,"Raven's nest",false,NULL,61.22076878238766,-149.75726387345202
 6248973,Home away from home,false,STR20260074,61.2076,-149.85884

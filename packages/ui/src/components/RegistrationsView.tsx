@@ -7,17 +7,17 @@ import {DataStatusGate} from './DataStatusGate';
 /**
  * `license_*` columns come from the latest CityView license page read, which
  * is re-read about weekly, so they can be NULL for a new registration.
- * `airbnb_listings_current` counts current Airbnb listings showing the number.
+ * `airbnb_listings_active` counts active Airbnb listings showing the id.
  */
 const BASE_QUERY = `
   SELECT
-    registration_number,
+    registration_id,
     business_name,
     location,
     community_council,
     parcel_type,
     parcel_id,
-    airbnb_listings_current,
+    airbnb_listings_active,
     issued_date,
     expires_date,
     status,
@@ -26,30 +26,30 @@ const BASE_QUERY = `
     license_read_date,
     first_seen_date,
     last_seen_date,
-    is_current,
+    is_active,
     status_url
   FROM registrations
   WHERE true
 `;
 
 const SCOPES = {
-  current: 'Current',
-  unlisted: 'Current, no Airbnb listing',
-  lapsed: 'No longer published',
+  active: 'Active',
+  unlisted: 'Active, no Airbnb listing',
+  lapsed: 'Lapsed',
   all: 'All',
 } as const;
 type Scope = keyof typeof SCOPES;
 
 const SCOPE_FILTER: Record<Scope, string | null> = {
-  current: 'is_current',
-  unlisted: 'is_current AND airbnb_listings_current = 0',
-  lapsed: 'NOT is_current',
+  active: 'is_active',
+  unlisted: 'is_active AND airbnb_listings_active = 0',
+  lapsed: 'NOT is_active',
   all: null,
 };
 
 export const RegistrationsView: FC = () => {
   const [search, setSearch] = useState('');
-  const [scope, setScope] = useState<Scope>('current');
+  const [scope, setScope] = useState<Scope>('active');
 
   const query = useMemo(() => {
     const filters: string[] = [];
@@ -59,13 +59,13 @@ export const RegistrationsView: FC = () => {
     if (term) {
       const pattern = escapeVal(`%${term}%`);
       filters.push(
-        `(registration_number ILIKE ${pattern} OR business_name ILIKE ${pattern}` +
+        `(registration_id ILIKE ${pattern} OR business_name ILIKE ${pattern}` +
           ` OR location ILIKE ${pattern} OR community_council ILIKE ${pattern}` +
           ` OR parcel_id ILIKE ${pattern} OR license_description ILIKE ${pattern})`,
       );
     }
     const where = filters.map((f) => `\n  AND ${f}`).join('');
-    return `${BASE_QUERY}${where}\n  ORDER BY issued_date DESC NULLS LAST, registration_number`;
+    return `${BASE_QUERY}${where}\n  ORDER BY issued_date DESC NULLS LAST, registration_id`;
   }, [search, scope]);
 
   return (
@@ -95,20 +95,20 @@ export const RegistrationsView: FC = () => {
         <div className="text-muted-foreground max-w-4xl space-y-1 text-xs">
           <p>
             Each row is a short-term rental registration from the Municipality
-            of Anchorage. Operators register a rental with the city and get a
-            number like STR20261754, which they are expected to show on their
-            listing. The city publishes only active registrations, so one that
+            of Anchorage. A registrant registers a unit with the Muni and gets
+            an id like STR20261754, which they are expected to show on their
+            listing. The Muni publishes only active registrations, so one that
             is no longer published has lapsed or been withdrawn.
           </p>
           <p>
             A <strong>listing</strong> is an Airbnb page. A{' '}
             <strong>host</strong> is the Airbnb account running it, often a
             property manager. The only thing tying a listing to a
-            registration is the number on the listing page. Most registrations
+            registration is the id on the listing page. Most registrations
             are shown by one listing. Some are shown by several, such as
-            separate rooms in one house. Some are shown by none: the rental
-            may be on another site, not operating, or listed without its
-            number.
+            private rooms in one house. Some are shown by none: the unit
+            may be listed on another site, not operating, or listed without
+            its id.
           </p>
         </div>
         <div className="min-h-0 flex-1">

@@ -86,14 +86,14 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
     // whether the price bands missed listings, not the boundary.
     const coverage = await auditCoverage(searchResult.listings, scrapeDate, { fetchPage });
 
-    const roomIds = parsed.map((listing) => String(listing.listingId));
+    const listingIds = parsed.map((listing) => String(listing.listingId));
 
-    const pages = await fetchListingPages(roomIds, { fetchOne: livePageFetcher() });
+    const pages = await fetchListingPages(listingIds, { fetchOne: livePageFetcher() });
     const pageStats = summarizePages(pages);
     log.info(
       `listing pages: ${pageStats.attempted} fetched, ${pageStats.failed} failed, ` +
         `${pageStats.exactLocated} with an exact location, ${pageStats.registered} with an ` +
-        `STR registration number, ${pageStats.withHostId} with a host id, ` +
+        `STR registration id, ${pageStats.withHostId} with a host id, ` +
         `${pageStats.withRoomType} with a room type, ${pageStats.withGuestCapacity} with a ` +
         `guest capacity, ${pageStats.withBeds} with beds, ${pageStats.withBedrooms} with ` +
         `bedrooms, ${pageStats.withBathrooms} with bathrooms, ${pageStats.withPhotos} with photos`,
@@ -108,7 +108,7 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
         `${pageStats.attempted - pageStats.failed} listing pages`,
     );
 
-    const calendarResults = await fetchCalendars(roomIds, {
+    const calendarResults = await fetchCalendars(listingIds, {
       minDate: scrapeDate,
       fetchOne: liveCalendarFetcher(apiKey),
     });
