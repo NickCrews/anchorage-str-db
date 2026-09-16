@@ -1,0 +1,800 @@
+{
+  "id": "62a44966-b929-4a8a-b9b1-28ca0602b131",
+  "prevId": "e8d4e3c2-0ad0-46e2-b76a-dd27bcab2213",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.airbnb_calendar_status": {
+      "name": "airbnb_calendar_status",
+      "schema": "",
+      "columns": {
+        "listing_id": {
+          "name": "listing_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "night_date": {
+          "name": "night_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "available": {
+          "name": "available",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "min_nights": {
+          "name": "min_nights",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status_hash": {
+          "name": "status_hash",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valid_from": {
+          "name": "valid_from",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valid_to": {
+          "name": "valid_to",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_current": {
+          "name": "is_current",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.airbnb_host_observations": {
+      "name": "airbnb_host_observations",
+      "schema": "",
+      "columns": {
+        "host_id": {
+          "name": "host_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scrape_date": {
+          "name": "scrape_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "profile_read_ok": {
+          "name": "profile_read_ok",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "about": {
+          "name": "about",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "time_as_host_years": {
+          "name": "time_as_host_years",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "time_as_host_months": {
+          "name": "time_as_host_months",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "airbnb_host_observations_host_id_scrape_date_pk": {
+          "name": "airbnb_host_observations_host_id_scrape_date_pk",
+          "columns": [
+            "host_id",
+            "scrape_date"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.airbnb_listing_first_reviews": {
+      "name": "airbnb_listing_first_reviews",
+      "schema": "",
+      "columns": {
+        "listing_id": {
+          "name": "listing_id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "first_review_date": {
+          "name": "first_review_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_date": {
+          "name": "resolved_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.airbnb_listing_observations": {
+      "name": "airbnb_listing_observations",
+      "schema": "",
+      "columns": {
+        "listing_id": {
+          "name": "listing_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scrape_date": {
+          "name": "scrape_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "property_title": {
+          "name": "property_title",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_lat": {
+          "name": "location_lat",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_lng": {
+          "name": "location_lng",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "url": {
+          "name": "url",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "badges": {
+          "name": "badges",
+          "type": "VARCHAR[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rating_value": {
+          "name": "rating_value",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "review_count": {
+          "name": "review_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "price_hint_per_night": {
+          "name": "price_hint_per_night",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "price_qualifier": {
+          "name": "price_qualifier",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "page_fetch_ok": {
+          "name": "page_fetch_ok",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location_is_exact": {
+          "name": "location_is_exact",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_exact_address": {
+          "name": "location_exact_address",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_subtitle": {
+          "name": "location_subtitle",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_verified": {
+          "name": "location_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registration_id": {
+          "name": "registration_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "host_id": {
+          "name": "host_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "listing_type": {
+          "name": "listing_type",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "guest_capacity": {
+          "name": "guest_capacity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "beds": {
+          "name": "beds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bedrooms": {
+          "name": "bedrooms",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bathrooms": {
+          "name": "bathrooms",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quote_check_in": {
+          "name": "quote_check_in",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quote_nights": {
+          "name": "quote_nights",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quote_total": {
+          "name": "quote_total",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quote_label": {
+          "name": "quote_label",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quote_breakdown": {
+          "name": "quote_breakdown",
+          "type": "VARCHAR[]",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "airbnb_listing_observations_listing_id_scrape_date_pk": {
+          "name": "airbnb_listing_observations_listing_id_scrape_date_pk",
+          "columns": [
+            "listing_id",
+            "scrape_date"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.airbnb_listing_photos": {
+      "name": "airbnb_listing_photos",
+      "schema": "",
+      "columns": {
+        "listing_id": {
+          "name": "listing_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valid_from": {
+          "name": "valid_from",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "photo_urls": {
+          "name": "photo_urls",
+          "type": "VARCHAR[]",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "airbnb_listing_photos_listing_id_valid_from_pk": {
+          "name": "airbnb_listing_photos_listing_id_valid_from_pk",
+          "columns": [
+            "listing_id",
+            "valid_from"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.airbnb_scrape_runs": {
+      "name": "airbnb_scrape_runs",
+      "schema": "",
+      "columns": {
+        "scrape_date": {
+          "name": "scrape_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_started_at": {
+          "name": "run_started_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_finished_at": {
+          "name": "run_finished_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "listings_seen": {
+          "name": "listings_seen",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "listings_new": {
+          "name": "listings_new",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "listings_changed": {
+          "name": "listings_changed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "listings_retired": {
+          "name": "listings_retired",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "calendar_fetch_attempted": {
+          "name": "calendar_fetch_attempted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "calendar_fetch_failed": {
+          "name": "calendar_fetch_failed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "calendar_nights_changed": {
+          "name": "calendar_nights_changed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "page_fetch_attempted": {
+          "name": "page_fetch_attempted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "page_fetch_failed": {
+          "name": "page_fetch_failed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_summary": {
+          "name": "error_summary",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_review_fetch_attempted": {
+          "name": "first_review_fetch_attempted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_review_fetch_failed": {
+          "name": "first_review_fetch_failed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quote_fetch_attempted": {
+          "name": "quote_fetch_attempted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quote_fetch_failed": {
+          "name": "quote_fetch_failed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "host_profile_attempted": {
+          "name": "host_profile_attempted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "host_profile_failed": {
+          "name": "host_profile_failed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.muni_license_page_reads": {
+      "name": "muni_license_page_reads",
+      "schema": "",
+      "columns": {
+        "cityview_license_id": {
+          "name": "cityview_license_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scrape_date": {
+          "name": "scrape_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "license_id": {
+          "name": "license_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "business_name": {
+          "name": "business_name",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "license_type": {
+          "name": "license_type",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description": {
+          "name": "description",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "locations": {
+          "name": "locations",
+          "type": "STRUCT(label VARCHAR, value VARCHAR, link VARCHAR)[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issuances": {
+          "name": "issuances",
+          "type": "STRUCT(type VARCHAR, issued_date DATE, expires_date DATE, status VARCHAR, number VARCHAR)[]",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "muni_license_page_reads_cityview_license_id_scrape_date_pk": {
+          "name": "muni_license_page_reads_cityview_license_id_scrape_date_pk",
+          "columns": [
+            "cityview_license_id",
+            "scrape_date"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.muni_str_registration_observations": {
+      "name": "muni_str_registration_observations",
+      "schema": "",
+      "columns": {
+        "registration_id": {
+          "name": "registration_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scrape_date": {
+          "name": "scrape_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "license_id": {
+          "name": "license_id",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "submitted_date": {
+          "name": "submitted_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "issued_date": {
+          "name": "issued_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_date": {
+          "name": "expires_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registered_address": {
+          "name": "registered_address",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "business_name": {
+          "name": "business_name",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status_url": {
+          "name": "status_url",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "community_council": {
+          "name": "community_council",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "parcel_type": {
+          "name": "parcel_type",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geocoded_address": {
+          "name": "geocoded_address",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geocoded_lat": {
+          "name": "geocoded_lat",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geocoded_lng": {
+          "name": "geocoded_lng",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "muni_str_registration_observations_registration_id_scrape_date_pk": {
+          "name": "muni_str_registration_observations_registration_id_scrape_date_pk",
+          "columns": [
+            "registration_id",
+            "scrape_date"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.muni_str_registry_runs": {
+      "name": "muni_str_registry_runs",
+      "schema": "",
+      "columns": {
+        "scrape_date": {
+          "name": "scrape_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_started_at": {
+          "name": "run_started_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_finished_at": {
+          "name": "run_finished_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "layer_data_edited_at": {
+          "name": "layer_data_edited_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registrations_seen": {
+          "name": "registrations_seen",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registrations_new": {
+          "name": "registrations_new",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registrations_lapsed": {
+          "name": "registrations_lapsed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "license_page_attempted": {
+          "name": "license_page_attempted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "license_page_failed": {
+          "name": "license_page_failed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_summary": {
+          "name": "error_summary",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

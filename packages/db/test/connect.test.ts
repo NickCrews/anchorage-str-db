@@ -8,7 +8,7 @@ import { connect, LegacySchemaError } from '../src/connect.ts';
 import { Database } from '../src/database.ts';
 
 /** Migrations in `../drizzle`; every `connect` should end with exactly these applied. */
-const MIGRATION_COUNT = 3;
+const MIGRATION_COUNT = 4;
 
 const temporary: string[] = [];
 const open: Database[] = [];
@@ -110,8 +110,9 @@ describe('connect', () => {
     );
     await seed.run(
       "INSERT INTO airbnb_listing_observations " +
-        "(listing_id, scrape_date, name, location_lat, location_lng, page_fetch_ok, str_registration_id) " +
-        "VALUES (1, '2026-09-14', 'Cabin A', 61.1, -149.9, true, 'STR20260309')",
+        "(listing_id, scrape_date, name, location_lat, location_lng, page_fetch_ok, " +
+        "str_registration_id, room_type) " +
+        "VALUES (1, '2026-09-14', 'Cabin A', 61.1, -149.9, true, 'STR20260309', 'Entire home/apt')",
     );
     await seed.run(
       "INSERT INTO muni_str_registry_runs " +
@@ -152,6 +153,10 @@ describe('connect', () => {
         'SELECT cityview_license_id, license_id FROM muni_license_page_reads',
       ),
     ).toEqual([{ cityview_license_id: 13923, license_id: 'LC260500349' }]);
+    // 0003: Airbnb's word for it was room_type.
+    expect(
+      await db.rows('SELECT listing_type FROM listings WHERE is_active'),
+    ).toEqual([{ listing_type: 'Entire home/apt' }]);
   });
 
   it('rejects a database with listings as a table', async () => {

@@ -6,7 +6,7 @@ Queries run in the browser with
 
 - **Overview**: active listings, nights not available tonight, distinct
   listings over the last year, current Muni registrations and how many
-  listings show one, registration status by room type and community council,
+  listings show one, registration status by listing type and community council,
   host concentration, near-term available vs. not, monthly distinct-listing
   trend, active listings by year first available, and bedroom mix.
 - **Map**: every current Airbnb listing plus every active registration no
@@ -15,7 +15,7 @@ Queries run in the browser with
   otherwise at Airbnb's pin; filled dots are known locations and rings are
   Airbnb's approximate pins.
 - **Listings**: a searchable table of active listings with a cover-photo
-  thumbnail, room type, their latest rating, review count and price quote,
+  thumbnail, listing type, their latest rating, review count and price quote,
   host name, years hosting, the host's portfolio size, registration status
   with the registered address and parcel, and estimated first-available date.
   Filters by registration status.

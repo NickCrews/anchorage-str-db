@@ -49,16 +49,14 @@ whole makes the others unavailable. See
 [rental-units](./docs/research/rental-units/README.md) §1 and §3.
 _Avoid_: room, rental, ad, property, STR, unit
 
-**Room type**:
-Airbnb's own label for how much of a unit a listing covers: `Entire
-home/apt`, `Private room`, `Shared room`, `Hotel room`. Stored verbatim. The
-only place this repo says "room".
-_Avoid_: listing type, property type, rental type
-
-**Property title**:
-Airbnb's short description of the building (`Cabin in Palmer`),
-`property_title`. A property type, not a room type.
-_Avoid_: title, name (`name` is the listing's headline)
+**Listing type**:
+How much of a unit a listing covers, `listing_type`. The values are Airbnb's
+display text, stored verbatim: `Entire home/apt`, `Private room`, `Shared
+room`, `Hotel room`. Airbnb's own key is `roomType`, which is why the parser
+reads that word and nothing else does — the concept belongs to the listing,
+and it is Airbnb's alone. A unit-level equivalent would need its own values,
+since housing policy has no use for hotel rooms or single rooms.
+_Avoid_: room type, property type, rental type
 
 **Night**:
 One date on a listing's calendar, `night_date`. The grain of
@@ -104,13 +102,17 @@ unless the sentence has already fixed both: whose it is (**host** or
 portfolio and an owner unit portfolio are different measurements, and this
 database can only compute the first.
 
-Unqualified, a portfolio is everything the party holds, wherever it is. Ours
-is not that: `host_listing_portfolios` counts a host's listings inside the
-Municipality only, so it is an **Anchorage host listing portfolio**, and a
-host with ten listings in Palmer has an Anchorage portfolio of zero. Say
-"Anchorage" whenever the boundary is what makes the number what it is. No
-threshold separating a hobbyist from a commercial operator is stored — that
-line is drawn downstream.
+A portfolio is everything the party holds, wherever it is. A host running
+forty units from Palmer has a portfolio of forty, and that is the number an
+operator question wants. No threshold separating a hobbyist from a commercial
+operator is stored — that line is drawn downstream.
+
+`host_listing_portfolios` does not yet hold that number. It counts only the
+listings we scrape, which are the ones inside the Municipality, because
+nothing Airbnb publishes to us carries a host's total — see
+[#34](https://github.com/NickCrews/anchorage-str-db/issues/34). That is a gap
+to close, not what the word means: until it closes, call what the view holds
+an **Anchorage host listing portfolio** and never a portfolio unqualified.
 _Avoid_: empire, holdings, inventory, tycoon
 
 ### The Municipality
@@ -130,7 +132,7 @@ its id on the listing page, which is the only link between the two sources.
 _Avoid_: permit, certificate, license, registration number, STR number
 
 **What a registration covers** has no fixed grain, so do not treat any tuple
-— (registrant, address), (registrant, address, room type), or another — as
+— (registrant, address), (registrant, address, listing type), or another — as
 its key. The registrant decides what to file, and both directions occur:
 
 - One registration, many units: STR20261701 (189 Hightower Rd, Girdwood)
@@ -153,14 +155,6 @@ One license holds exactly one STR Certificate, so a license and a
 registration are the same thing seen from two systems — see **Three ids, one
 license** below.
 _Avoid_: registration, permit, licence
-
-**License location**:
-One row of a license page's location list, as `locations`. A row with a
-`link` comes from a Muni property record — label `Property` for a parcel id,
-`Address` for that record's address. A row without one is text the registrant
-typed that matched no record. Never plain "address": `registered_address`,
-`geocoded_address` and `location_exact_address` are three other things.
-_Avoid_: address (unqualified), property, site
 
 **Parcel**:
 A Muni property record, identified by `parcel_id`. The join key to
@@ -190,7 +184,11 @@ Retreat, read 2026-09-15:
 | `license_id` | `LC260500349` | the license page's "Licensee Number", and the layer's `ApplicationNumber` | anyone opening the license page |
 | `cityview_license_id` | `13923` | the `licenseId` in that page's URL | nobody — CityView's internal row id |
 
-The three are one-to-one-to-one. On 2026-09-15 the layer held 2,564
+The three are one-to-one-to-one. That is about the three numbering systems
+and nothing else: it says these ids name one record, not that the record
+names one unit, one listing or one registrant. What a registration covers is
+the question above, and the answer there is that it has no fixed grain.
+On 2026-09-15 the layer held 2,564
 registrations, 2,564 distinct `license_id`s and 2,564 distinct
 `cityview_license_id`s, with no value of any one shared across two of
 another, so joining on any of them is equivalent.
@@ -319,18 +317,6 @@ _Avoid_: fetched, scraped, loaded, got
 
 ### Availability
 
-Two words describe "is this thing going", at two grains, and they are not
-interchangeable: a unit is **operating**, a listing is **active**. "How many
-short-term rentals are there" is `listings WHERE is_active`; "how many were
-on the market last New Year's Eve" is `calendar_current`.
-
-A (listing, night) pair gets no third word. It is a row in `calendar_current`
-or it is missing, and the view already says so — every row in it is a night
-we read, so an adjective in front of one would never rule anything out. Name
-a denominator for what it is (listings with calendar data that night), and
-never reach back up for operating or active at this grain: a listing is
-active or not for the whole run, and a night is not a small listing.
-
 **The states of a night**:
 For one (listing, night) row, Airbnb publishes one bit, `available`, so there
 are two observed states and no third:
@@ -348,12 +334,3 @@ never report either as a count: say "not available", and caveat any occupancy
 figure derived from it.
 _Avoid_: for available — open, free, vacant, unbooked; for booked — reserved,
 occupied, sold
-
-**No calendar data**:
-The missing row, which is not a third state and never a zero. A listing has
-no row for a night when it had not been scraped yet, when it had already
-retired, when the night is beyond Airbnb's ~12-month window, or when its
-calendar was never read. Only the second is a fact about the rental, and the
-missing row cannot tell you which applies, so write "no calendar data" and
-say which you mean.
-_Avoid_: not operating, not active, unavailable, closed, zero

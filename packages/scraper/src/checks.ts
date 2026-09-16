@@ -12,7 +12,7 @@ import { inMunicipality } from '@anchorage-str-db/utils/muni_geography';
 import type { PageFetchStats, QuoteStats } from './store.ts';
 
 /**
- * A run fails if the current listing count is outside this range, which
+ * A run fails if the active listing count is outside this range, which
  * suggests a broken bbox, a blocked scrape, or an API change. The floor is
  * well above the 280 a single unsplit query returns.
  */
@@ -33,8 +33,8 @@ const MAX_CALENDAR_FAILURE_RATE = 0.25;
 const MAX_PAGE_FAILURE_RATE = 0.25;
 
 /**
- * The share of current, page-read listings with a value below which the run
- * fails, for each page field every listing has: `host_id`, `room_type`,
+ * The share of active, page-read listings with a value below which the run
+ * fails, for each page field every listing has: `host_id`, `listing_type`,
  * `guest_capacity`, `beds`, `bathrooms`, and photos. Every real page sampled
  * (41 for the host, 44 for the rest) yielded each one, so a shortfall means
  * the extraction broke. `registryChecks.ts` holds license pages to the same
@@ -305,7 +305,7 @@ export async function runChecks(
   if (pageRead) {
     const minimums = [
       ['host_id', minShare],
-      ['room_type', minShare],
+      ['listing_type', minShare],
       ['guest_capacity', minShare],
       ['beds', minShare],
       ['bedrooms', MIN_BEDROOMS_SHARE],

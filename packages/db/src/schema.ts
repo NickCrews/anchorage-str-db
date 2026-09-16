@@ -122,7 +122,7 @@ export const airbnbListingObservations = pgTable(
     // The primary host's Airbnb user id (airbnb.com/users/show/<host_id>).
     hostId: id('host_id'),
     // Airbnb's text, verbatim: 'Entire home/apt', 'Private room', ...
-    roomType: varchar('room_type'),
+    listingType: varchar('listing_type'),
     guestCapacity: integer('guest_capacity'),
     // Airbnb's bedCount; a bunk bed counts as 2.
     beds: integer('beds'),

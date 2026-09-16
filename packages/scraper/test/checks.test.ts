@@ -188,7 +188,7 @@ function pagesRead(count: number, fields: (i: number) => Partial<ListingPage> = 
   return [...Array(count).keys()].map((i) => ({
     ...emptyListingPage(String(i)),
     hostId: String(1000 + i),
-    roomType: 'Entire home/apt',
+    listingType: 'Entire home/apt',
     guestCapacity: 4,
     beds: 2,
     bedrooms: '1 bedroom',
@@ -200,7 +200,7 @@ function pagesRead(count: number, fields: (i: number) => Partial<ListingPage> = 
 
 const PAGE_FIELD_CHECKS = [
   'host_id_coverage',
-  'room_type_coverage',
+  'listing_type_coverage',
   'guest_capacity_coverage',
   'beds_coverage',
   'bedrooms_coverage',
@@ -217,7 +217,7 @@ it('passes the page field checks when every page read has every field', async ()
 
 it.each([
   ['host_id_coverage', { hostId: null }],
-  ['room_type_coverage', { roomType: null }],
+  ['listing_type_coverage', { listingType: null }],
   ['guest_capacity_coverage', { guestCapacity: null }],
   ['beds_coverage', { beds: null }],
   ['bathrooms_coverage', { bathrooms: null }],

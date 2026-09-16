@@ -8,7 +8,7 @@ each listing's page, calendar, price quote and earliest review, in memory.
 | --- | --- |
 | `search` | `searchAnchorage`: every listing in the bounding box, split by price band so no query paginates; `auditCoverage` checks the bands miss nothing |
 | `parse` | `parseListing`: a search result as a `ParsedListing` |
-| `listingPage` | `fetchListingPages`: exact-location flag, registration id, host, room type and counts, photos; `collectHostCards` |
+| `listingPage` | `fetchListingPages`: exact-location flag, registration id, host, listing type and counts, photos; `collectHostCards` |
 | `calendars` | `fetchCalendars`: twelve months of nightly availability |
 | `priceQuotes` | `fetchPriceQuotes`: the price of each listing's earliest bookable stay |
 | `firstReviews` | `fetchFirstReviews`: each listing's oldest review date |

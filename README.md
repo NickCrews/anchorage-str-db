@@ -7,7 +7,7 @@ Anchorage, Alaska, for answering questions like:
 
 - How many listings are there, how many are active?
 - What is the character of these rentals: number of bedrooms, price, run by an on-premise owner vs a host with many listings
-- How has that changed over time? How does it vary between neighborhoods, price bands, size, room type, etc?
+- How has that changed over time? How does it vary between neighborhoods, price bands, size, listing type, etc?
 
 ## What you get
 
@@ -77,9 +77,10 @@ CityView license pages). Views have no prefix.
   `first_review_date` and `first_seen_date`: the listing existed on or before
   it. It is an estimate that can only be late: a listing with no reviews from
   before `first_seen_date` looks as new as the day it was first scraped.
-  - `room_type`: Airbnb's text, as written: `Entire home/apt`,
-    `Private room`, `Shared room`, `Hotel room`. `property_title`
-    (`Cabin in Palmer`) is a property type, not a room type.
+  - `listing_type`: how much of a unit the listing covers, in Airbnb's text
+    as written: `Entire home/apt`, `Private room`, `Shared room`,
+    `Hotel room`. `property_title` (`Cabin in Palmer`) describes the
+    building instead.
   - `guest_capacity` and `beds`: Airbnb's integers. A bunk bed counts as 2.
   - `bedrooms` and `bathrooms`: the listing page's text, as written:
     `2 bedrooms`, `Studio`; `1.5 baths`, `Shared bathroom`, `Half-bath`.
@@ -99,7 +100,8 @@ CityView license pages). Views have no prefix.
 - `host_listing_portfolios` *(view)*: per host per scrape date, `listings_active` and
   `listings_ever_seen`: each host's Anchorage listing portfolio. Counts only
   listings inside the Municipality, so a host with 2 here and 40 elsewhere
-  has 2. No threshold marking
+  reads as 2 — their true portfolio is not in this database
+  ([#34](https://github.com/NickCrews/anchorage-str-db/issues/34)). No threshold marking
   where a casual host ends and a commercial one begins is stored.
 - `listings_active_with_host` *(view)*: `listings_active` plus the host's
   name, years hosting, and portfolio counts as of the latest run

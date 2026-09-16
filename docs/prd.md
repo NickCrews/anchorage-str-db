@@ -50,7 +50,7 @@ So downstream repos can pull this data and join it against other sources
    publishes one when the host opts in. See the follow-up below.
 4. Get as near an exact date as possible for when the listing was first available, using its review history
 5. store the most recent set of photo urls for thumbnails in a web app viewer
-6. History of dates available, price, n beds, n baths, n guests, room type (whole house, private room, etc)
+6. History of dates available, price, n beds, n baths, n guests, listing type (whole house, private room, etc)
   "Not available" does not always mean a guest booking; hosts can block nights
 7. Last updated date for freshness signal
 8. URL to str rental page for someone to verify/explore more

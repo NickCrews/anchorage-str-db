@@ -40,7 +40,7 @@ interface PageOptions {
   contextHostId?: string | null;
   cohostIds?: string[];
   /** The analytics context's `roomType`; null omits it. */
-  roomType?: string | null;
+  listingType?: string | null;
   /** The share card's `personCapacity`; null omits it. */
   personCapacity?: number | null;
   /** The listing node's `bedCount`; null omits it. */
@@ -77,7 +77,7 @@ function makePage(options: PageOptions = {}): string {
     cardHostId = HOST_ID,
     contextHostId = HOST_ID,
     cohostIds = [],
-    roomType = 'Entire home/apt',
+    listingType = 'Entire home/apt',
     personCapacity = 5,
     bedCount = 3,
     overviewItems = ['5 guests', '2 bedrooms', '3 beds', '1.5 baths'],
@@ -143,7 +143,7 @@ function makePage(options: PageOptions = {}): string {
               stayProductDetailPage: {
                 sections: {
                   metadata: {
-                    loggingContext: { eventDataLogging: roomType && { roomType } },
+                    loggingContext: { eventDataLogging: listingType && { roomType: listingType } },
                   },
                   sections: [
                     { section: { items } },
@@ -339,23 +339,23 @@ describe('the host id', () => {
   });
 });
 
-// --- room type and counts ---------------------------------------------------
+// --- listing type and counts ------------------------------------------------
 
-describe('room type and counts', () => {
+describe('listing type and counts', () => {
   it('are read from the state, the text fields verbatim', () => {
     const page = parseListingPage(makePage(), '1');
 
-    expect(page.roomType).toBe('Entire home/apt');
+    expect(page.listingType).toBe('Entire home/apt');
     expect(page.guestCapacity).toBe(5);
     expect(page.beds).toBe(3);
     expect(page.bedrooms).toBe('2 bedrooms');
     expect(page.bathrooms).toBe('1.5 baths');
   });
 
-  it.each(['Private room', 'Shared room', 'Hotel room', 'A room type Airbnb adds later'])(
-    'store any room type as written: %s',
-    (roomType) => {
-      expect(parseListingPage(makePage({ roomType }), '1').roomType).toBe(roomType);
+  it.each(['Private room', 'Shared room', 'Hotel room', 'A listing type Airbnb adds later'])(
+    'store any listing type as written: %s',
+    (listingType) => {
+      expect(parseListingPage(makePage({ listingType }), '1').listingType).toBe(listingType);
     },
   );
 
@@ -389,7 +389,7 @@ describe('room type and counts', () => {
 
     const page = parseListingPage(html, '1');
 
-    expect([page.roomType, page.guestCapacity, page.beds, page.bedrooms, page.bathrooms]).toEqual([
+    expect([page.listingType, page.guestCapacity, page.beds, page.bedrooms, page.bathrooms]).toEqual([
       'Entire home/apt',
       5,
       3,
@@ -400,11 +400,11 @@ describe('room type and counts', () => {
 
   it('are null, not an error, when the page has none', () => {
     const page = parseListingPage(
-      makePage({ roomType: null, personCapacity: null, bedCount: null, overviewItems: null }),
+      makePage({ listingType: null, personCapacity: null, bedCount: null, overviewItems: null }),
       '1',
     );
 
-    expect([page.roomType, page.guestCapacity, page.beds, page.bedrooms, page.bathrooms]).toEqual([
+    expect([page.listingType, page.guestCapacity, page.beds, page.bedrooms, page.bathrooms]).toEqual([
       null,
       null,
       null,

@@ -147,8 +147,9 @@ export const HostConcentrationCard: FC = () => {
           The cutoff is a display choice: the database stores each host's
           listing counts and no commercial-host threshold. These are Anchorage
           listing portfolios: they cover only listings inside the
-          Municipality, and a host is an Airbnb account, so one property
-          manager's account can list for many owners.
+          Municipality, so a host with listings elsewhere is undercounted
+          here. A host is an Airbnb account, so one property manager's
+          account can list for many owners.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

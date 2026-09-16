@@ -448,9 +448,9 @@ describe('listing-page fields', () => {
   });
 });
 
-describe('room type and counts', () => {
+describe('listing type and counts', () => {
   const entireHome = {
-    roomType: 'Entire home/apt',
+    listingType: 'Entire home/apt',
     guestCapacity: 6,
     beds: 3,
     bedrooms: '2 bedrooms',
@@ -463,11 +463,11 @@ describe('room type and counts', () => {
 
     expect(
       await db.rows(
-        'SELECT room_type, guest_capacity, beds, bedrooms, bathrooms FROM listings WHERE is_active',
+        'SELECT listing_type, guest_capacity, beds, bedrooms, bathrooms FROM listings WHERE is_active',
       ),
     ).toEqual([
       {
-        room_type: 'Entire home/apt',
+        listing_type: 'Entire home/apt',
         guest_capacity: 6,
         beds: 3,
         bedrooms: '2 bedrooms',
@@ -487,12 +487,12 @@ describe('room type and counts', () => {
 
     expect(stats.changed).toBe(0);
     expect(
-      await db.rows('SELECT room_type, beds, bathrooms FROM listings WHERE is_active'),
-    ).toEqual([{ room_type: 'Entire home/apt', beds: 3, bathrooms: '1.5 baths' }]);
+      await db.rows('SELECT listing_type, beds, bathrooms FROM listings WHERE is_active'),
+    ).toEqual([{ listing_type: 'Entire home/apt', beds: 3, bathrooms: '1.5 baths' }]);
   });
 
   it.each([
-    ['a whole home converting to a rented room', { roomType: 'Private room' }],
+    ['a whole home converting to a rented room', { listingType: 'Private room' }],
     ['a change of guest capacity', { guestCapacity: 8 }],
     ['a change of bed count', { beds: 4 }],
     ['a change of bedrooms', { bedrooms: '3 bedrooms' }],
@@ -950,7 +950,7 @@ describe('host_listing_portfolios', () => {
     ]);
     expect(
       await db.value("SELECT comment FROM duckdb_views() WHERE view_name = 'host_listing_portfolios'"),
-    ).toMatch(/Anchorage listing portfolio/);
+    ).toMatch(/Anchorage listing portfolio.*reads as 2/s);
   });
 });
 
