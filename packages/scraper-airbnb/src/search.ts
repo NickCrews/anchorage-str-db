@@ -12,7 +12,6 @@ import { epochDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { log } from '@anchorage-str-db/utils/log';
 import { MUNICIPALITY_BOUNDING_BOX } from '@anchorage-str-db/utils/muni_geography';
 
-import { CURRENCY, LANGUAGE } from './api/http.ts';
 import {
   fetchSearchPage,
   standardizeSearchResponse,
@@ -117,8 +116,8 @@ export function liveSearchFetcher(apiKey: string): FetchPage {
           apiKey,
           box,
           zoom: ZOOM_VALUE,
-          currency: CURRENCY,
-          language: LANGUAGE,
+          currency: 'USD',
+          language: 'en',
           priceMinUsd: band?.minUsd,
           priceMaxUsd: band?.maxUsd ?? undefined,
         });

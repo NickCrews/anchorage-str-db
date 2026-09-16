@@ -43,7 +43,7 @@ import { mapWithConcurrency } from '@anchorage-str-db/utils/concurrency';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
 
-import { LANGUAGE, request } from './api/http.ts';
+import { request } from './api/http.ts';
 import { scriptTags } from './html.ts';
 import { RETRY_BACKOFF_MS, withRetries } from './retry.ts';
 
@@ -111,7 +111,7 @@ const BIO_TEXT_KEYS = ['source', 'localizedString', 'localizedStringWithTranslat
 
 const PAGE_HEADERS = {
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': LANGUAGE,
+  'Accept-Language': 'en',
 };
 
 /** The fields the three layers compete to fill. */

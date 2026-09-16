@@ -30,7 +30,6 @@ import type { IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
 
-import { CURRENCY, LANGUAGE } from './api/http.ts';
 import { fetchReviewPage, type ReviewPage } from './api/reviews.ts';
 import { RETRY_BACKOFF_MS, withRetries } from './retry.ts';
 
@@ -78,8 +77,8 @@ export function liveReviewPageFetcher(apiKey: string): FetchReviewPage {
           roomId,
           offset,
           limit,
-          language: LANGUAGE,
-          currency: CURRENCY,
+          language: 'en',
+          currency: 'USD',
         }),
       {
         label: `reviews for room ${roomId} at offset ${offset}`,
