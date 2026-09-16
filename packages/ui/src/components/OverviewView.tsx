@@ -1,9 +1,10 @@
+import type { WasmSelection } from '@anchorage-str-db/db/rows';
 import {
   airbnbListingFirstReviews,
   airbnbListingObservations,
   airbnbScrapeRuns,
 } from '@anchorage-str-db/db/schema';
-import { from, toSql } from '@anchorage-str-db/db/sql';
+import { toSql } from '@anchorage-str-db/db/sql';
 import {
   calendarCurrent,
   latestRegistryDate,
@@ -36,7 +37,8 @@ import {
   CardTitle,
   SpinnerPane,
 } from '@sqlrooms/ui';
-import { sql } from 'drizzle-orm';
+import { asc, eq, gte, sql } from 'drizzle-orm';
+import { QueryBuilder } from 'drizzle-orm/pg-core';
 import type { FC } from 'react';
 import { monthLabel, pct, shortDate } from '../format';
 import { useRoomStore } from '../store';
@@ -44,6 +46,178 @@ import { DataStatusGate } from './DataStatusGate';
 import { HostConcentrationCard } from './HostConcentrationCard';
 import { RegistrationCard } from './RegistrationCard';
 import { StatCard } from './StatCard';
+
+/** Builds queries without a connection; `toSql` renders them for SQLRooms. */
+const qb = new QueryBuilder();
+
+// Each of these is a one-row subquery the KPI row cross-joins. The name a
+// column is read by is given where it is computed, so every reference to it
+// after that is the schema's rather than a string.
+
+/** Tonight's calendar: how many listings are bookable, and how many are not. */
+const tonight = qb
+  .select({
+    operatingTonight: sql<number>`count(*)::INT`.as('operatingTonight'),
+    bookedTonight:
+      sql<number>`count(*) FILTER (WHERE NOT ${calendarCurrent.available})::INT`.as(
+        'bookedTonight',
+      ),
+  })
+  .from(calendarCurrent)
+  .where(eq(calendarCurrent.nightDate, sql`CURRENT_DATE`))
+  .as('tonight');
+
+const active = qb
+  .select({ activeListings: sql<number>`count(*)::INT`.as('activeListings') })
+  .from(listings)
+  .where(eq(listings.isCurrent, true))
+  .as('active');
+
+const lastYear = qb
+  .select({
+    distinctStrsLastYear:
+      sql<number>`count(DISTINCT ${airbnbListingObservations.listingId})::INT`.as(
+        'distinctStrsLastYear',
+      ),
+  })
+  .from(airbnbListingObservations)
+  .where(
+    gte(airbnbListingObservations.scrapeDate, sql`CURRENT_DATE - INTERVAL 365 DAY`),
+  )
+  .as('last_year');
+
+const latestRun = qb
+  .select({
+    latestScrapeDate: sql<number | null>`max(${airbnbScrapeRuns.scrapeDate})`.as(
+      'latestScrapeDate',
+    ),
+  })
+  .from(airbnbScrapeRuns)
+  .as('latest_run');
+
+const registry = qb
+  .select({ registrationsCurrent: sql<number>`count(*)::INT`.as('registrationsCurrent') })
+  .from(registrationsCurrent)
+  .as('registry');
+
+const registryDate = qb
+  .select({
+    latestRegistryDate: sql<number | null>`${latestRegistryDate.scrapeDate}`.as(
+      'latestRegistryDate',
+    ),
+  })
+  .from(latestRegistryDate)
+  .as('registry_date');
+
+const registered = qb
+  .select({ listingsRegistered: sql<number>`count(*)::INT`.as('listingsRegistered') })
+  .from(listingsCurrentWithRegistration)
+  .where(eq(listingsCurrentWithRegistration.registrationIsCurrent, true))
+  .as('registered');
+
+const KPI_FIELDS = {
+  activeListings: active.activeListings,
+  operatingTonight: tonight.operatingTonight,
+  bookedTonight: tonight.bookedTonight,
+  distinctStrsLastYear: lastYear.distinctStrsLastYear,
+  latestScrapeDate: latestRun.latestScrapeDate,
+  registrationsCurrent: registry.registrationsCurrent,
+  listingsRegistered: registered.listingsRegistered,
+  latestRegistryDate: registryDate.latestRegistryDate,
+};
+
+/** The header's stat cards: one row, each column a count from its own subquery. */
+const KPI_QUERY = qb
+  .select(KPI_FIELDS)
+  .from(active)
+  .crossJoin(tonight)
+  .crossJoin(lastYear)
+  .crossJoin(latestRun)
+  .crossJoin(registry)
+  .crossJoin(registryDate)
+  .crossJoin(registered);
+
+const OCCUPANCY_FIELDS = {
+  nightDate: sql<number>`${calendarCurrent.nightDate}`.as('nightDate'),
+  booked: sql<number>`count(*) FILTER (WHERE NOT ${calendarCurrent.available})::INT`.as(
+    'booked',
+  ),
+  vacant: sql<number>`count(*) FILTER (WHERE ${calendarCurrent.available})::INT`.as(
+    'vacant',
+  ),
+};
+
+const OCCUPANCY_QUERY = qb
+  .select(OCCUPANCY_FIELDS)
+  .from(calendarCurrent)
+  .where(
+    sql`${calendarCurrent.nightDate} BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL 90 DAY`,
+  )
+  .groupBy(sql`ALL`)
+  .orderBy(asc(calendarCurrent.nightDate));
+
+const STR_TREND_FIELDS = {
+  month: sql<number>`date_trunc('month', ${airbnbListingObservations.scrapeDate})::DATE`.as(
+    'month',
+  ),
+  distinctStrs: sql<number>`count(DISTINCT ${airbnbListingObservations.listingId})::INT`.as(
+    'distinctStrs',
+  ),
+};
+
+const STR_TREND_QUERY = qb
+  .select(STR_TREND_FIELDS)
+  .from(airbnbListingObservations)
+  .groupBy(sql`ALL`)
+  .orderBy(sql`"month"`);
+
+/**
+ * A listing's `first_available_date_est` comes from its first review when
+ * that predates the first scrape, and is otherwise `first_seen_date`, which
+ * makes a listing look newer than it may be.
+ */
+const datedByReview = sql`coalesce(${listingsCurrent.firstReviewDate} <= ${listingsCurrent.firstSeenDate}, false)`;
+
+const LISTING_AGE_FIELDS = {
+  year: sql<string>`year(${listingsCurrent.firstAvailableDateEst})::VARCHAR`.as('year'),
+  fromReview: sql<number>`count(*) FILTER (WHERE ${datedByReview})::INT`.as('fromReview'),
+  fromFirstSeen: sql<number>`count(*) FILTER (WHERE NOT ${datedByReview})::INT`.as(
+    'fromFirstSeen',
+  ),
+  reviewsUnread:
+    sql<number>`count(*) FILTER (WHERE ${airbnbListingFirstReviews.listingId} IS NULL)::INT`.as(
+      'reviewsUnread',
+    ),
+};
+
+const LISTING_AGE_QUERY = qb
+  .select(LISTING_AGE_FIELDS)
+  .from(listingsCurrent)
+  .leftJoin(
+    airbnbListingFirstReviews,
+    eq(airbnbListingFirstReviews.listingId, listingsCurrent.listingId),
+  )
+  .groupBy(sql`ALL`)
+  .orderBy(sql`"year"`);
+
+/** `bedrooms` is Airbnb's text ("2 bedrooms", "Studio"); rooms usually have none. */
+const BEDROOM_MIX_FIELDS = {
+  bedroomsLabel: sql<string>`coalesce(${listings.bedrooms}, 'Not listed')`.as(
+    'bedroomsLabel',
+  ),
+  nListings: sql<number>`count(*)::INT`.as('nListings'),
+};
+
+const BEDROOM_MIX_QUERY = qb
+  .select(BEDROOM_MIX_FIELDS)
+  .from(listings)
+  .where(eq(listings.isCurrent, true))
+  .groupBy(listings.bedrooms)
+  .orderBy(
+    sql`${listings.bedrooms} IS NULL`,
+    sql`try_cast(regexp_extract(${listings.bedrooms}, '^\\d+') AS INTEGER) NULLS FIRST`,
+    asc(listings.bedrooms),
+  );
 
 const occupancyConfig = {
   booked: { label: 'Booked', color: 'hsl(var(--chart-1))' },
@@ -67,139 +241,25 @@ export const OverviewView: FC = () => {
   const status = useRoomStore((s) => s.dataInit.status);
   const enabled = status === 'ready';
 
-  const { data: kpiData, isLoading: kpiLoading } = useSql<{
-    activeListings: number;
-    operatingTonight: number | null;
-    bookedTonight: number | null;
-    distinctStrsLastYear: number;
-    latestScrapeDate: number | null;
-    registrationsCurrent: number;
-    listingsRegistered: number;
-    latestRegistryDate: number | null;
-  }>({
-    enabled,
-    query: toSql(sql`
-      WITH tonight AS (
-        SELECT
-          count(*)::INT AS operating_tonight,
-          count(*) FILTER (WHERE NOT ${calendarCurrent.available})::INT AS booked_tonight
-        FROM ${from(calendarCurrent)}
-        WHERE ${calendarCurrent.nightDate} = CURRENT_DATE
-      ),
-      active AS (
-        SELECT count(*)::INT AS n FROM ${from(listings)} WHERE ${listings.isCurrent}
-      ),
-      last_year AS (
-        SELECT count(DISTINCT ${airbnbListingObservations.listingId})::INT AS n
-        FROM ${from(airbnbListingObservations)}
-        WHERE ${airbnbListingObservations.scrapeDate} >= CURRENT_DATE - INTERVAL 365 DAY
-      ),
-      latest_run AS (
-        SELECT max(${airbnbScrapeRuns.scrapeDate}) AS d FROM ${from(airbnbScrapeRuns)}
-      ),
-      registry AS (
-        SELECT
-          (SELECT count(*) FROM ${from(registrationsCurrent)})::INT AS n,
-          (SELECT ${latestRegistryDate.scrapeDate} FROM ${from(latestRegistryDate)}) AS d
-      ),
-      registered AS (
-        SELECT count(*)::INT AS n
-        FROM ${from(listingsCurrentWithRegistration)}
-        WHERE ${listingsCurrentWithRegistration.registrationIsCurrent}
-      )
-      SELECT
-        active.n AS "activeListings",
-        tonight.operating_tonight AS "operatingTonight",
-        tonight.booked_tonight AS "bookedTonight",
-        last_year.n AS "distinctStrsLastYear",
-        latest_run.d AS "latestScrapeDate",
-        registry.n AS "registrationsCurrent",
-        registered.n AS "listingsRegistered",
-        registry.d AS "latestRegistryDate"
-      FROM active, tonight, last_year, latest_run, registry, registered
-    `),
-  });
+  const { data: kpiData, isLoading: kpiLoading } = useSql<
+    WasmSelection<typeof KPI_FIELDS>
+  >({ enabled, query: toSql(KPI_QUERY) });
 
-  const { data: occupancyData, isLoading: occupancyLoading } = useSql<{
-    nightDate: number;
-    booked: number;
-    vacant: number;
-  }>({
-    enabled,
-    query: toSql(sql`
-      SELECT
-        ${calendarCurrent.nightDate} AS "nightDate",
-        count(*) FILTER (WHERE NOT ${calendarCurrent.available})::INT AS booked,
-        count(*) FILTER (WHERE ${calendarCurrent.available})::INT AS vacant
-      FROM ${from(calendarCurrent)}
-      WHERE ${calendarCurrent.nightDate} BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL 90 DAY
-      GROUP BY ALL
-      ORDER BY ${calendarCurrent.nightDate}
-    `),
-  });
+  const { data: occupancyData, isLoading: occupancyLoading } = useSql<
+    WasmSelection<typeof OCCUPANCY_FIELDS>
+  >({ enabled, query: toSql(OCCUPANCY_QUERY) });
 
-  const { data: strTrendData, isLoading: strTrendLoading } = useSql<{
-    month: number;
-    distinctStrs: number;
-  }>({
-    enabled,
-    query: toSql(sql`
-      SELECT
-        date_trunc('month', ${airbnbListingObservations.scrapeDate})::DATE AS "month",
-        count(DISTINCT ${airbnbListingObservations.listingId})::INT AS "distinctStrs"
-      FROM ${from(airbnbListingObservations)}
-      GROUP BY ALL
-      ORDER BY "month"
-    `),
-  });
+  const { data: strTrendData, isLoading: strTrendLoading } = useSql<
+    WasmSelection<typeof STR_TREND_FIELDS>
+  >({ enabled, query: toSql(STR_TREND_QUERY) });
 
-  // A listing's `first_available_date_est` comes from its first review when
-  // that predates the first scrape, and is otherwise `first_seen_date`, which
-  // makes a listing look newer than it may be.
-  const { data: listingAgeData, isLoading: listingAgeLoading } = useSql<{
-    year: string;
-    fromReview: number;
-    fromFirstSeen: number;
-    reviewsUnread: number;
-  }>({
-    enabled,
-    query: toSql(sql`
-      SELECT
-        year(${listingsCurrent.firstAvailableDateEst})::VARCHAR AS "year",
-        count(*) FILTER (
-          WHERE coalesce(${listingsCurrent.firstReviewDate} <= ${listingsCurrent.firstSeenDate}, false)
-        )::INT AS "fromReview",
-        count(*) FILTER (
-          WHERE NOT coalesce(${listingsCurrent.firstReviewDate} <= ${listingsCurrent.firstSeenDate}, false)
-        )::INT AS "fromFirstSeen",
-        count(*) FILTER (WHERE ${airbnbListingFirstReviews.listingId} IS NULL)::INT
-          AS "reviewsUnread"
-      FROM ${from(listingsCurrent)}
-      LEFT JOIN ${from(airbnbListingFirstReviews)} USING (listing_id)
-      GROUP BY ALL
-      ORDER BY "year"
-    `),
-  });
+  const { data: listingAgeData, isLoading: listingAgeLoading } = useSql<
+    WasmSelection<typeof LISTING_AGE_FIELDS>
+  >({ enabled, query: toSql(LISTING_AGE_QUERY) });
 
-  // `bedrooms` is Airbnb's text ("2 bedrooms", "Studio"); rooms usually have none.
-  const { data: bedroomMixData, isLoading: bedroomMixLoading } = useSql<{
-    bedroomsLabel: string;
-    nListings: number;
-  }>({
-    enabled,
-    query: toSql(sql`
-      SELECT
-        coalesce(${listings.bedrooms}, 'Not listed') AS "bedroomsLabel",
-        count(*)::INT AS "nListings"
-      FROM ${from(listings)}
-      WHERE ${listings.isCurrent}
-      GROUP BY ${listings.bedrooms}
-      ORDER BY
-        ${listings.bedrooms} IS NULL,
-        try_cast(regexp_extract(${listings.bedrooms}, '^\\d+') AS INTEGER) NULLS FIRST,
-        ${listings.bedrooms}
-    `),
-  });
+  const { data: bedroomMixData, isLoading: bedroomMixLoading } = useSql<
+    WasmSelection<typeof BEDROOM_MIX_FIELDS>
+  >({ enabled, query: toSql(BEDROOM_MIX_QUERY) });
 
   const kpi = kpiData?.toArray()[0];
   const listingAge = listingAgeData?.toArray() ?? [];

@@ -64,9 +64,10 @@ Queries are written against the Drizzle schema in `@anchorage-str-db/db`
 rather than as SQL strings: `schema.ts` for the tables, `viewSchema.ts` for
 the views, and `toSql` to render one query to the string SQLRooms runs.
 
-A query that joins relations is built with Drizzle's query builder, which
-builds SQL without a connection, so each `select`, `join` and `where` is
-checked against the relation it names and the row type follows the selection:
+Every query here is built with Drizzle's query builder, which builds SQL
+without a connection. So each `select`, `join`, `where` and `group by` is
+checked against the relation it names, and the row type follows the
+selection:
 
 ```ts
 import type {WasmSelection} from '@anchorage-str-db/db/rows';
@@ -95,24 +96,46 @@ toSql(query);
 type Row = WasmSelection<typeof fields>; // { host_name: string | null; listings: number }
 ```
 
-A query over a single relation, or one that needs DuckDB syntax the Postgres
-dialect has no notion of (`FILTER`, `GROUP BY ALL`, `EXCLUDE`, `QUALIFY`),
-stays a `sql` template with the schema's columns interpolated and `from()` for
-the relations:
+### DuckDB syntax inside a built query
+
+Drizzle speaks the Postgres dialect and has no notion of `FILTER`,
+`GROUP BY ALL`, `EXCLUDE`, `QUALIFY`, `ST_Point` or DuckDB's list and struct
+syntax. That is a reason to drop to a `sql` fragment for the part that needs
+it, not to write the query as a string: a fragment can go anywhere the
+builder takes an expression, and everything around it stays checked.
 
 ```ts
-import {from, toSql} from '@anchorage-str-db/db/sql';
-import {listingsCurrent} from '@anchorage-str-db/db/viewSchema';
-import {sql} from 'drizzle-orm';
-
-toSql(sql`SELECT count(*) FROM ${from(listingsCurrent)} WHERE ${listingsCurrent.isCurrent}`);
+qb.select({
+    // A whole expression, under the name it is read by.
+    booked: sql<number>`count(*) FILTER (WHERE NOT ${calendarCurrent.available})::INT`.as('booked'),
+  })
+  .from(calendarCurrent)
+  .where(sql`${calendarCurrent.nightDate} BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL 90 DAY`)
+  .groupBy(sql`ALL`);
 ```
+
+The same goes for a relation the builder cannot express. A subquery built
+with `.as(name)` carries its columns — `latest.listingsLive` below is
+checked, and so is anything that reads it later — and `qb.$with(name, columns)`
+does the same for a CTE whose body has to be raw DuckDB SQL:
+
+```ts
+const latest = qb.select().from(hostPortfolios).where(...).as('latest');
+const recent = qb
+  .$with('recent', {listingId: bigint('listing_id'), scrapeDate: day('scrape_date')})
+  .as(sql`SELECT listing_id, scrape_date FROM ${from(airbnbListingObservations)}
+          QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY scrape_date DESC) = 1`);
+```
+
+One thing has no seam: Drizzle's `unionAll` takes the selects of a connected
+database, not a `QueryBuilder`'s, so the map's two halves are joined in a
+`sql` template around two built selects. Each half is still a built query.
 
 Either way a renamed column breaks the build here instead of returning nothing
 at runtime, and values interpolated into a query (a search box's text) are
 escaped by Drizzle rather than by hand. Columns a query invents — a `status` a
-`CASE` derives, a count it names — stay plain SQL text; only the database's
-own relations come from the schema. `WasmRow<typeof someView>` is a row of
-that relation as DuckDB-WASM delivers it, which is not how the scraper's
-driver delivers the same columns; see
+`CASE` derives, a count it names — are named once, where they are computed,
+and read from the subquery that computed them after that.
+`WasmRow<typeof someView>` is a row of a relation as DuckDB-WASM delivers it,
+which is not how the scraper's driver delivers the same columns; see
 [CONTRIBUTING.md](../../CONTRIBUTING.md#reading-the-database-from-the-browser).

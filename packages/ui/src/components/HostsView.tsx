@@ -5,7 +5,7 @@ import {
 } from '@anchorage-str-db/db/viewSchema';
 import {QueryDataTable, QueryDataTableActionsMenu} from '@sqlrooms/data-table';
 import {Input, ToggleGroup, ToggleGroupItem} from '@sqlrooms/ui';
-import {and, eq, sql, type SQL} from 'drizzle-orm';
+import {and, asc, desc, eq, gt, gte, ilike, sql, type SQL} from 'drizzle-orm';
 import {QueryBuilder} from 'drizzle-orm/pg-core';
 import {useMemo, useState, type FC} from 'react';
 import {
@@ -70,11 +70,27 @@ const HOST_FIELDS = {
     string_agg(DISTINCT ${withHost.strRegistrationId}, ' '))`.as('search_text'),
 };
 
-const HOSTS_QUERY = qb
+/**
+ * One row per host, read back as a subquery so the filters and the ordering
+ * below are checked against the columns it counts up rather than naming them
+ * as text.
+ */
+const hosts = qb
   .select(HOST_FIELDS)
   .from(withHost)
   .innerJoin(matches, eq(matches.listingId, withHost.listingId))
-  .groupBy(withHost.hostId, withHost.hostName);
+  .groupBy(withHost.hostId, withHost.hostName)
+  .as('hosts');
+
+/** The table, before the search box's and the scope toggle's filters. */
+const hostsQuery = (where: SQL | undefined) =>
+  qb
+    // `search_text` is for filtering only; DuckDB's `EXCLUDE` drops it without
+    // naming every other column again.
+    .select({all: sql`* EXCLUDE (search_text)`})
+    .from(hosts)
+    .where(where)
+    .orderBy(desc(hosts.listings_current), asc(hosts.host_name));
 
 const SCOPES = {
   all: 'All',
@@ -83,11 +99,10 @@ const SCOPES = {
 } as const;
 type Scope = keyof typeof SCOPES;
 
-// The columns `HOSTS_QUERY` counts up, so these are its names, not a view's.
 const SCOPE_FILTER: Record<Scope, SQL | undefined> = {
   all: undefined,
-  multi: sql`listings_current >= 2`,
-  noNumber: sql`listings_no_number_shown > 0`,
+  multi: gte(hosts.listings_current, 2),
+  noNumber: gt(hosts.listings_no_number_shown, 0),
 };
 
 export const HostsView: FC = () => {
@@ -96,16 +111,14 @@ export const HostsView: FC = () => {
 
   const query = useMemo(() => {
     const term = search.trim();
-    // `search_text` and the counts are the subquery's own columns, so the
-    // filters below are SQL text rather than schema columns.
-    const where = and(
-      SCOPE_FILTER[scope],
-      term ? sql`search_text ILIKE ${`%${term}%`}` : undefined,
+    return toSql(
+      hostsQuery(
+        and(
+          SCOPE_FILTER[scope],
+          term ? ilike(hosts.search_text, `%${term}%`) : undefined,
+        ),
+      ),
     );
-    return toSql(sql`SELECT * EXCLUDE (search_text)
-FROM ${HOSTS_QUERY}
-${where ? sql`WHERE ${where}` : sql.empty()}
-ORDER BY listings_current DESC, host_name`);
   }, [search, scope]);
 
   return (

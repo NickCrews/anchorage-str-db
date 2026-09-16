@@ -1,4 +1,5 @@
-import { from, toSql } from '@anchorage-str-db/db/sql';
+import type { WasmSelection } from '@anchorage-str-db/db/rows';
+import { toSql } from '@anchorage-str-db/db/sql';
 import {
   latestRegistryDate,
   listingsCurrentWithRegistration,
@@ -26,10 +27,14 @@ import {
   CardTitle,
   SpinnerPane,
 } from '@sqlrooms/ui';
-import { sql } from 'drizzle-orm';
+import { asc, desc, eq, sql } from 'drizzle-orm';
+import { QueryBuilder } from 'drizzle-orm/pg-core';
 import type { FC } from 'react';
 import { pct, shortDate } from '../format';
-import { registrationStatusSql } from '../registrationStatus';
+import {
+  registrationStatusSql,
+  type RegistrationStatus,
+} from '../registrationStatus';
 import { useRoomStore } from '../store';
 
 const COUNCILS_SHOWN = 15;
@@ -46,83 +51,102 @@ const councilConfig = {
   listings: { label: 'Airbnb listings citing them', color: 'hsl(var(--chart-2))' },
 } satisfies ChartConfig;
 
-const STATUS_COUNTS = sql`
-  count(*) FILTER (WHERE status = 'Registered')::INT AS "registered",
-  count(*) FILTER (WHERE status = 'Registration not current')::INT AS "notCurrent",
-  count(*) FILTER (WHERE status = 'Number not in registry')::INT AS "notInRegistry",
-  count(*) FILTER (WHERE status = 'No number shown')::INT AS "noNumber"
-`;
+/** Builds queries without a connection; `toSql` renders them for SQLRooms. */
+const qb = new QueryBuilder();
 
-// `status` is this query's own column, so the counts above read it by name.
-const LISTINGS_WITH_STATUS = sql`
-  SELECT
-    ${listingsCurrentWithRegistration.roomType},
-    ${registrationStatusSql(listingsCurrentWithRegistration)} AS status
-  FROM ${from(listingsCurrentWithRegistration)}
-`;
+/** Every current listing with how its registration number matched. */
+const listingsWithStatus = qb
+  .select({
+    roomType: listingsCurrentWithRegistration.roomType,
+    status: registrationStatusSql(listingsCurrentWithRegistration).as('status'),
+  })
+  .from(listingsCurrentWithRegistration)
+  .as('listings');
+
+/** `status` is the subquery's own column, so both queries below count it. */
+const listingsWith = (status: RegistrationStatus) =>
+  sql<number>`count(*) FILTER (WHERE ${listingsWithStatus.status} = ${status})::INT`;
+
+const STATUS_COUNTS = {
+  registered: listingsWith('Registered').as('registered'),
+  notCurrent: listingsWith('Registration not current').as('notCurrent'),
+  notInRegistry: listingsWith('Number not in registry').as('notInRegistry'),
+  noNumber: listingsWith('No number shown').as('noNumber'),
+};
+
+const registrations = qb
+  .select({ registrations: sql<number>`count(*)::INT`.as('registrations') })
+  .from(registrationsCurrent);
+
+const registrationsWithoutListing = qb
+  .select({
+    registrationsWithoutListing: sql<number>`count(*)::INT`.as(
+      'registrationsWithoutListing',
+    ),
+  })
+  .from(registrationsCurrent)
+  .where(eq(registrationsCurrent.airbnbListingsCurrent, 0));
+
+const registryDate = qb
+  .select({ registryDate: sql<number | null>`${latestRegistryDate.scrapeDate}`.as('registryDate') })
+  .from(latestRegistryDate);
+
+const SUMMARY_FIELDS = {
+  listings: sql<number>`count(*)::INT`.as('listings'),
+  ...STATUS_COUNTS,
+  registrations: sql<number>`${registrations}`.as('registrations'),
+  registrationsWithoutListing: sql<number>`${registrationsWithoutListing}`.as(
+    'registrationsWithoutListing',
+  ),
+  registryDate: sql<number | null>`${registryDate}`.as('registryDate'),
+};
+
+const SUMMARY_QUERY = qb.select(SUMMARY_FIELDS).from(listingsWithStatus);
+
+const BY_ROOM_TYPE_FIELDS = {
+  roomType: sql<string>`coalesce(${listingsWithStatus.roomType}, 'Not listed')`.as(
+    'roomType',
+  ),
+  ...STATUS_COUNTS,
+};
+
+const BY_ROOM_TYPE_QUERY = qb
+  .select(BY_ROOM_TYPE_FIELDS)
+  .from(listingsWithStatus)
+  .groupBy(listingsWithStatus.roomType)
+  .orderBy(sql`count(*) DESC`);
+
+const COUNCIL_FIELDS = {
+  council: sql<string>`coalesce(${registrationsCurrent.communityCouncil}, 'Address not geocoded')`.as(
+    'council',
+  ),
+  registrations: sql<number>`count(*)::INT`.as('registrations'),
+  listings: sql<number>`sum(${registrationsCurrent.airbnbListingsCurrent})::INT`.as(
+    'listings',
+  ),
+};
+
+const COUNCIL_QUERY = qb
+  .select(COUNCIL_FIELDS)
+  .from(registrationsCurrent)
+  .groupBy(registrationsCurrent.communityCouncil)
+  .orderBy(desc(sql`count(*)`), asc(registrationsCurrent.communityCouncil))
+  .limit(COUNCILS_SHOWN);
 
 export const RegistrationCard: FC = () => {
   const enabled = useRoomStore((s) => s.dataInit.status) === 'ready';
 
-  const { data: summaryData, isLoading: summaryLoading } = useSql<{
-    listings: number;
-    registered: number;
-    notCurrent: number;
-    notInRegistry: number;
-    noNumber: number;
-    registrations: number;
-    registrationsWithoutListing: number;
-    registryDate: number | null;
-  }>({
-    enabled,
-    query: toSql(sql`
-      SELECT
-        count(*)::INT AS "listings",
-        ${STATUS_COUNTS},
-        (SELECT count(*) FROM ${from(registrationsCurrent)})::INT AS "registrations",
-        (
-          SELECT count(*) FROM ${from(registrationsCurrent)}
-          WHERE ${registrationsCurrent.airbnbListingsCurrent} = 0
-        )::INT AS "registrationsWithoutListing",
-        (SELECT ${latestRegistryDate.scrapeDate} FROM ${from(latestRegistryDate)})
-          AS "registryDate"
-      FROM (${LISTINGS_WITH_STATUS})
-    `),
-  });
+  const { data: summaryData, isLoading: summaryLoading } = useSql<
+    WasmSelection<typeof SUMMARY_FIELDS>
+  >({ enabled, query: toSql(SUMMARY_QUERY) });
 
-  const { data: byRoomTypeData, isLoading: byRoomTypeLoading } = useSql<{
-    roomType: string;
-    registered: number;
-    notCurrent: number;
-    notInRegistry: number;
-    noNumber: number;
-  }>({
-    enabled,
-    query: toSql(sql`
-      SELECT coalesce(room_type, 'Not listed') AS "roomType", ${STATUS_COUNTS}
-      FROM (${LISTINGS_WITH_STATUS})
-      GROUP BY room_type
-      ORDER BY count(*) DESC
-    `),
-  });
+  const { data: byRoomTypeData, isLoading: byRoomTypeLoading } = useSql<
+    WasmSelection<typeof BY_ROOM_TYPE_FIELDS>
+  >({ enabled, query: toSql(BY_ROOM_TYPE_QUERY) });
 
-  const { data: councilData, isLoading: councilLoading } = useSql<{
-    council: string;
-    registrations: number;
-    listings: number;
-  }>({
-    enabled,
-    query: toSql(sql`
-      SELECT
-        coalesce(${registrationsCurrent.communityCouncil}, 'Address not geocoded') AS "council",
-        count(*)::INT AS "registrations",
-        sum(${registrationsCurrent.airbnbListingsCurrent})::INT AS "listings"
-      FROM ${from(registrationsCurrent)}
-      GROUP BY ${registrationsCurrent.communityCouncil}
-      ORDER BY count(*) DESC, ${registrationsCurrent.communityCouncil}
-      LIMIT ${COUNCILS_SHOWN}
-    `),
-  });
+  const { data: councilData, isLoading: councilLoading } = useSql<
+    WasmSelection<typeof COUNCIL_FIELDS>
+  >({ enabled, query: toSql(COUNCIL_QUERY) });
 
   const s = summaryData?.toArray()[0];
   const byCouncil = councilData?.toArray() ?? [];

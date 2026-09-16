@@ -3,7 +3,7 @@ import {sql, type Column, type SQL} from 'drizzle-orm';
 /**
  * The columns of `listings_current_with_registration` that say how a listing's
  * number matched. Typed by name rather than as the view, so a query can pass
- * the view itself or an `alias()` of it, whose columns carry the alias.
+ * the view itself or a subquery that carries the same columns.
  */
 type Matched = Record<
   'strRegistrationId' | 'registrationFound' | 'registrationIsCurrent',
