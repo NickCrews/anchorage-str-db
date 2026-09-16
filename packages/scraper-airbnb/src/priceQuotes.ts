@@ -13,7 +13,6 @@ import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
 
-import { CURRENCY, LANGUAGE } from './api/http.ts';
 import { fetchPriceQuote, standardizePriceQuote } from './api/priceQuote.ts';
 import type { CalendarResult } from './calendars.ts';
 import { RETRY_BACKOFF_MS, withRetries } from './retry.ts';
@@ -75,8 +74,8 @@ export function liveQuoteFetcher(apiKey: string): FetchOneQuote {
               roomId: window.roomId,
               checkIn: window.checkIn,
               checkOut: addDays(window.checkIn, window.nights),
-              currency: CURRENCY,
-              language: LANGUAGE,
+              currency: 'USD',
+              language: 'en',
               timeoutMs: QUOTE_TIMEOUT_MS,
             }),
           ),

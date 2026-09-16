@@ -6,7 +6,6 @@ import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
 
 import { fetchCalendar, type CalendarDay } from './api/calendar.ts';
-import { CURRENCY, LANGUAGE } from './api/http.ts';
 import { RETRY_BACKOFF_MS, withRetries } from './retry.ts';
 
 /**
@@ -61,8 +60,8 @@ export function liveCalendarFetcher(apiKey: string): FetchOneCalendar {
           fetchCalendar({
             apiKey,
             roomId,
-            currency: CURRENCY,
-            language: LANGUAGE,
+            currency: 'USD',
+            language: 'en',
           }),
         {
           label: `calendar for room ${roomId}`,
