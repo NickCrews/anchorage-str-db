@@ -6,7 +6,7 @@
 
 import type { Database } from '@anchorage-str-db/db/database';
 import { muniLicensePageReads, muniStrRegistrationObservations, muniStrRegistryRuns } from '@anchorage-str-db/db/schema';
-import { licenseIdSql } from '@anchorage-str-db/db/views';
+import { licenseIdSql } from '@anchorage-str-db/db/viewSchema';
 import type { LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
 import {
   licenseIdFromStatusUrl,

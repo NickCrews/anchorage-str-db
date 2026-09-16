@@ -73,13 +73,17 @@ To change a table:
 
 The next run applies the migration to the published database.
 
-Views are SQL in `packages/db/src/views.ts`. They need no migration, but
-their columns are declared a second time, as Drizzle views, in
-`packages/db/src/viewSchema.ts`: that is what a reader writes queries from,
-and the viewer's every query is built out of it. `connect` compares the two
-and refuses the database if they differ, so a view that gains, loses or
-retypes a column has to be re-declared there in the same order. The error
-names the view and the column.
+Views live in `packages/db/src/viewSchema.ts`, where each one is declared
+with its columns and defined with its query, built from the schema like any
+other. They need no migration: `views.ts` renders the declarations to the
+`CREATE OR REPLACE VIEW` script `connect` runs on every open, in the order
+`VIEWS` lists them, so a view reads only the tables and the views above it.
+
+The column list is what a reader writes queries from — the viewer's every
+query is built out of it — and is the one thing a query cannot tell Drizzle,
+so `connect` compares it against the view DuckDB built and refuses the
+database if they differ. A view that gains, loses or retypes a column has to
+be re-declared in the same order; the error names the view and the column.
 
 ### Writing and reading from the scraper
 
@@ -109,9 +113,10 @@ The viewer runs the same schema through DuckDB-WASM, so part of
 `catalog.ts`, `columns.ts`, `sql.ts` and `rows.ts` reach nothing but
 `drizzle-orm` and `@duckdbfan/drizzle-duckdb/helpers`, that package's
 driverless entry point. The scraper's side is `database.ts` and `connect.ts`,
-which load `@duckdb/node-api`, a native addon, and `views.ts`, which reads a
-constant from the Muni scraper. `packages/db/test/browserSafe.test.ts` walks
-the imports and fails if the two sides meet.
+which load `@duckdb/node-api`, a native addon, and `views.ts`, which renders
+the script `connect` runs and is imported by nothing else.
+`packages/db/test/browserSafe.test.ts` walks the imports and fails if the two
+sides meet.
 
 What crosses the line is the schema, not a connection:
 
@@ -346,8 +351,8 @@ Every run fails with `LegacySchemaError` until someone:
     derives first/last/page-seen dates.
 - **Add listing columns to `airbnb_listing_observations`, not `listings`.** If a
   change to the column should open a new version, also add it to
-  `VERSION_KEY_SQL` in `packages/db/src/views.ts`. Leave out values that move most days
-  (price, review count).
+  `VERSION_KEY` in `packages/db/src/viewSchema.ts`. Leave out values that move
+  most days (price, review count).
 - **Hosts are stored the same way.** `airbnb_host_observations` is append-only with
   a `profile_read_ok` flag, and `hosts` rebuilds versions with the same
   gaps-and-islands and carry-forward as `listings`. Name and bio are the

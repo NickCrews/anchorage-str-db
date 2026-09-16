@@ -21,6 +21,9 @@ const ALLOWED_PACKAGES = new Set([
   'drizzle-orm',
   'drizzle-orm/pg-core',
   '@duckdbfan/drizzle-duckdb/helpers',
+  // A module of two constants and no imports, so the `registrations` view can
+  // name the value the Muni's layer publishes for an unmatched address.
+  '@anchorage-str-db/scraper-muni-str/noMatch',
 ]);
 
 const IMPORT = /\bfrom\s*['"]([^'"]+)['"]/g;

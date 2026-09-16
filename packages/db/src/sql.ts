@@ -12,8 +12,23 @@
  * strings the way DuckDB reads them. Nothing here reaches a driver.
  */
 
-import { sql, type SQL, type SQLWrapper, type Table, type View } from 'drizzle-orm';
-import { PgDialect, QueryBuilder, type BuildAliasTable, type PgTable } from 'drizzle-orm/pg-core';
+import {
+  getTableColumns,
+  getViewSelectedFields,
+  sql,
+  type SQL,
+  type SQLWrapper,
+  type Table,
+  type View,
+} from 'drizzle-orm';
+import {
+  PgDialect,
+  pgTable,
+  QueryBuilder,
+  type BuildAliasTable,
+  type PgColumnBuilderBase,
+  type PgTable,
+} from 'drizzle-orm/pg-core';
 
 const dialect = new PgDialect();
 
@@ -45,4 +60,26 @@ export function from<TRelation extends PgTable | View, TAlias extends string>(
   aliased?: BuildAliasTable<TRelation, TAlias>,
 ): SQL {
   return aliased === undefined ? sql`${relation}` : sql`${relation} ${aliased as Table | View}`;
+}
+
+/**
+ * A view's columns, to select or to build another view's columns from:
+ * `qb.select({...columnsOf(listingsCurrent), extra})` is `SELECT l.*, extra`
+ * with every column named.
+ */
+export function columnsOf<TView extends View>(view: TView): TView['_']['selectedFields'] {
+  return getViewSelectedFields(view) as TView['_']['selectedFields'];
+}
+
+/**
+ * The columns a subquery or CTE derives, for declaring what it returns when
+ * that is not a relation's own column: `$with('activity', derived('activity',
+ * {firstSeenDate: day('first_seen_date')}))`. A reference to one renders
+ * qualified, as `"activity"."first_seen_date"`.
+ */
+export function derived<TColumns extends Record<string, PgColumnBuilderBase>>(
+  name: string,
+  columns: TColumns,
+) {
+  return getTableColumns(pgTable(name, columns));
 }

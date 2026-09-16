@@ -11,25 +11,24 @@
  * themselves (`'airbnb_listings' | ...`) rather than `string`.
  */
 
-import { getTableName, getViewName, is, isView, type Table, type View } from 'drizzle-orm';
+import { getTableName, getViewName, is, type Table } from 'drizzle-orm';
 import { PgTable } from 'drizzle-orm/pg-core';
 
 import * as schema from './schema.ts';
-import * as viewSchema from './viewSchema.ts';
+import { VIEWS } from './viewSchema.ts';
 
 /** A table `schema.ts` exports, as declared. */
 type SchemaTable = Extract<(typeof schema)[keyof typeof schema], Table>;
 
-/** A view `viewSchema.ts` exports, as declared. */
-type SchemaView = Extract<(typeof viewSchema)[keyof typeof viewSchema], View>;
+/** A view `viewSchema.ts` declares, as declared. */
+type SchemaView = (typeof VIEWS)[number];
 
 export const tables: readonly SchemaTable[] = Object.values<unknown>(schema).filter(
   (value): value is SchemaTable => is(value, PgTable),
 );
 
-export const views: readonly SchemaView[] = Object.values<unknown>(viewSchema).filter(
-  (value): value is SchemaView => isView(value),
-);
+/** In the order `viewSchema.ts` lists them, which is the order they are created in. */
+export const views: readonly SchemaView[] = VIEWS;
 
 export const tableNames: readonly SchemaTable['_']['name'][] = tables.map(getTableName);
 

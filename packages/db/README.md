@@ -3,14 +3,16 @@
 The DuckDB database, and the only package that uses DuckDB directly.
 
 - `schema.ts`: the tables, as Drizzle `pgTable` definitions
-- `viewSchema.ts`: the views, as Drizzle `pgView(...).existing()` definitions:
-  their columns and types, for whoever queries them
-- `views.ts`: the views' SQL, which is what creates them, and
-  `RETIREMENT_GRACE_DAYS`
+- `viewSchema.ts`: the views, as Drizzle `pgView` definitions — the columns
+  each one returns, for whoever queries them, and the query that builds it —
+  and `RETIREMENT_GRACE_DAYS`
+- `views.ts`: the `CREATE OR REPLACE VIEW` script those declarations render
+  to, which `connect` runs
 - `columns.ts`: the column builders both schemas are written with, and the
   DuckDB types they stand for
 - `catalog.ts`: every table and view in one list, each keeping its own type
-- `sql.ts`: `toSql`, which renders a Drizzle query to one DuckDB SQL string
+- `sql.ts`: `qb`, the connectionless query builder everything is written
+  with, and `toSql`, which renders one query to a DuckDB SQL string
 - `rows.ts`: `NodeRow` and `WasmRow`, a table's or view's row type as each
   driver delivers it, and `WasmSelection`, the same for a query's own selection
 - `connect.ts`: `connect(path)`, which applies the migrations, checks the
@@ -21,8 +23,8 @@ The DuckDB database, and the only package that uses DuckDB directly.
 
 The browser viewer imports this package too, so `schema.ts`, `viewSchema.ts`,
 `columns.ts`, `catalog.ts`, `sql.ts` and `rows.ts` are kept free of anything a
-browser cannot load: only `connect.ts`, `database.ts` and `views.ts` reach a
-driver or another workspace package.
+browser cannot load: only `connect.ts` and `database.ts` reach a driver, and
+`views.ts` is `connect`'s alone.
 `test/browserSafe.test.ts` enforces it. See
 [CONTRIBUTING.md](../../CONTRIBUTING.md#reading-the-database-from-the-browser).
 

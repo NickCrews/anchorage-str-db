@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { connect } from '@anchorage-str-db/db/connect';
 import type { Database } from '@anchorage-str-db/db/database';
-import { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views';
+import { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/viewSchema';
 import type { CalendarNight, CalendarResult } from '@anchorage-str-db/scraper-airbnb/calendars';
 import {
   collectHostCards,

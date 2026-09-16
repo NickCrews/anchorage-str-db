@@ -37,8 +37,7 @@ export const REGISTRATIONS_LAYER_URL = `${SERVICE_URL}/0`;
  * property record (`311 MELODY PL`). They all sit on one placeholder point,
  * `NO_MATCH_POINT`, and have no `CommunityCouncil` or `ParcelType`.
  */
-export const NO_MATCH_GEOCODED_ADDRESS = 'Incomplete address provided. No Match.';
-export const NO_MATCH_POINT = { lng: -150.20935, lat: 61.153442 } as const;
+export { NO_MATCH_GEOCODED_ADDRESS, NO_MATCH_POINT } from './noMatch.ts';
 
 export interface Registration {
   /** `STR` + 8 digits, e.g. `STR20260309`. Airbnb's `str_registration_id`. */
