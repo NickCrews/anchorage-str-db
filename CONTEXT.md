@@ -319,25 +319,21 @@ _Avoid_: fetched, scraped, loaded, got
 
 ### Availability
 
-Three words describe "is this thing going", at three grains, and they are not
-interchangeable. A unit is **operating**; a listing is **active**; a
-(listing, night) pair is **charted**. "How many short-term rentals are there"
-is `listings WHERE is_active`; "how many were on the market last New Year's
-Eve" is `calendar_current`. An inactive listing is not active, but was
-charted on every night before it went, and an active listing whose calendar
-never fetched is charted on none.
+Two words describe "is this thing going", at two grains, and they are not
+interchangeable: a unit is **operating**, a listing is **active**. "How many
+short-term rentals are there" is `listings WHERE is_active`; "how many were
+on the market last New Year's Eve" is `calendar_current`.
 
-**Charted**:
-Of a (listing, night) pair: that night was on the listing's calendar when we
-read it, available or not. The denominator for every occupancy question. A
-deliberately odd word, because it is a fact about our data and not about the
-rental — a listing whose host blocked all twelve months is charted on all of
-them.
-_Avoid_: operating, active, running, open, in business
+A (listing, night) pair gets no third word. It is a row in `calendar_current`
+or it is missing, and the view already says so — every row in it is a night
+we read, so an adjective in front of one would never rule anything out. Name
+a denominator for what it is (listings with calendar data that night), and
+never reach back up for operating or active at this grain: a listing is
+active or not for the whole run, and a night is not a small listing.
 
 **The states of a night**:
-For a charted (listing, night) pair, Airbnb publishes one bit, `available`,
-so there are two observed states and no third:
+For one (listing, night) row, Airbnb publishes one bit, `available`, so there
+are two observed states and no third:
 
 | State | Meaning | Observable |
 | --- | --- | --- |
@@ -354,9 +350,10 @@ _Avoid_: for available — open, free, vacant, unbooked; for booked — reserved
 occupied, sold
 
 **No calendar data**:
-The absence of a row, which is not a fourth state. A listing has no row for a
-night when it had not been scraped yet, when it had already retired, when the
-night is beyond Airbnb's ~12-month window, or when its calendar was never
-read. Only the second is a fact about the rental, and the missing row cannot
-tell you which applies, so write "no calendar data" and say which you mean.
-_Avoid_: not operating, unavailable, closed
+The missing row, which is not a third state and never a zero. A listing has
+no row for a night when it had not been scraped yet, when it had already
+retired, when the night is beyond Airbnb's ~12-month window, or when its
+calendar was never read. Only the second is a fact about the rental, and the
+missing row cannot tell you which applies, so write "no calendar data" and
+say which you mean.
+_Avoid_: not operating, not active, unavailable, closed, zero
