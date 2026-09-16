@@ -33,9 +33,10 @@ _Avoid_: property, rental, dwelling, room, STR, home
 
 **STR**:
 Short-term rental: a unit rented out for stays shorter than 30 days, which is
-what the Muni requires a registration for. An adjective, not a countable
-thing: an "STR registration", never "2,600 STRs". Count listings or
-registrations, which are the things this database actually holds.
+what the Muni requires a registration for. As with units above, this database
+cannot give an accurate picture of these; estimate from listings and
+registrations, which are what it holds. An adjective, not a countable thing:
+an "STR registration", never "2,600 STRs".
 _Avoid_: using it to mean a listing or a unit
 
 **Listing**:
@@ -64,9 +65,9 @@ One date on a listing's calendar, `night_date`. The grain of
 _Avoid_: day, date
 
 **Stay**:
-Consecutive nights booked together. Airbnb prices a stay, never a night, so
-the price data is a **quote**: `quote_total` for `quote_nights` nights from
-`quote_check_in`.
+Consecutive nights booked together. Airbnb prices a stay (e.g. "$450 for 3
+nights"), not per night, so the price data is a **quote**: `quote_total` for
+`quote_nights` nights from `quote_check_in`.
 _Avoid_: booking, reservation, trip
 
 ### Who is involved
