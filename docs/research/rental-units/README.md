@@ -183,10 +183,11 @@ or a fifth room.
 
 ## 5. Links that are wrong
 
-A matching id does not guarantee the listing is the registered unit. 30
-linked listings have a pin more than 1 km from the license's geocoded point.
+A matching registration id does not guarantee the listing is the registered
+unit. 30 linked listings have a pin more than 1 km from the license's
+geocoded point.
 [registration-location-mismatch](../registration-location-mismatch/README.md)
-sorts them into three problems: 15 likely show the wrong id, 10 share a
+sorts them into three problems: 15 likely show the wrong id, 10 share an
 id with a listing at the registered address, and 5 are not near the
 registered address at all. On 2026-09-14 its report was emailed to the
 Municipal Clerk's Office, asking them to look into these cases and have the
@@ -219,14 +220,14 @@ A unit needs an id that stays the same while its records change. With one
 day of data none of these is measured yet, but each follows from how the
 sources work:
 
-- **A listing adds or drops its id.** An "Airbnb only" unit and a
+- **A listing adds or drops its registration id.** An "Airbnb only" unit and a
   "registry only" unit become one unit. An id taken from either record, such
   as `airbnb:<listing_id>` or `str:<registration_id>`, changes or
   collides.
 - **A host deletes and recreates a listing.** The new `listing_id` belongs to
   the same unit.
 - **A registration lapses and the unit registers again.** Whether a renewal
-  keeps its id is unknown until the data spans an expiry.
+  keeps its registration id is unknown until the data spans an expiry.
 - **A combo listing appears or is removed** while its component listings stay.
 - **Matching rules or thresholds change**, or a new record arrives near an
   existing match, and the grouping changes.
@@ -267,8 +268,8 @@ grouping is well defined, but its rows are often not units:
 | Sundi St, [STR20260765] | 1 | 2 properties |
 
 On 2026-09-14, B would produce about 3,120 rows: 2,549 registrations plus 572
-listings with no matching id. The id changes when a listing adds its
-id.
+listings with no matching id. A unit's id changes when a listing adds its
+registration id.
 
 **C: entity resolution.** Cases like these can be resolved, but that requires:
 
