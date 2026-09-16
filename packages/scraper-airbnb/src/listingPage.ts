@@ -44,9 +44,18 @@ import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
 
 import { request } from './api/http.ts';
-import * as config from './config.ts';
 import { scriptTags } from './html.ts';
-import { withRetries } from './retry.ts';
+import { RETRY_BACKOFF_MS, withRetries } from './retry.ts';
+
+/** Concurrency and attempts for listing-page fetches. */
+const PAGE_CONCURRENCY = 6;
+const PAGE_MAX_RETRIES = 3;
+
+/**
+ * A request this slow is usually the rate limiter stalling connections, so a
+ * short timeout lets `Pacer.noteTimeout` lower the rate sooner.
+ */
+const PAGE_TIMEOUT_MS = 15_000;
 
 // Matched against key names anywhere in the embedded JSON, so variants like
 // hasExactLocation also match.
@@ -102,7 +111,7 @@ const BIO_TEXT_KEYS = ['source', 'localizedString', 'localizedStringWithTranslat
 
 const PAGE_HEADERS = {
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': config.LANGUAGE,
+  'Accept-Language': 'en',
 };
 
 /** The fields the three layers compete to fill. */
@@ -701,14 +710,14 @@ export function livePageFetcher(): FetchOnePage {
         async () => {
           const html = await request(`https://www.airbnb.com/rooms/${roomId}`, {
             headers: PAGE_HEADERS,
-            timeoutMs: config.PAGE_TIMEOUT_MS,
+            timeoutMs: PAGE_TIMEOUT_MS,
           });
           return parseListingPage(html, roomId);
         },
         {
           label: `listing page for room ${roomId}`,
-          attempts: config.PAGE_MAX_RETRIES,
-          backoffMs: config.RETRY_BACKOFF_MS,
+          attempts: PAGE_MAX_RETRIES,
+          backoffMs: RETRY_BACKOFF_MS,
         },
       );
     } catch (err) {
@@ -734,7 +743,7 @@ export async function fetchListingPages(
 ): Promise<ListingPage[]> {
   const results = await mapWithConcurrency(
     roomIds,
-    options.concurrency ?? config.PAGE_CONCURRENCY,
+    options.concurrency ?? PAGE_CONCURRENCY,
     (roomId) => options.fetchOne(roomId),
   );
   for (const result of results) {

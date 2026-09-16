@@ -10,6 +10,7 @@
 
 import { epochDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { log } from '@anchorage-str-db/utils/log';
+import { MUNICIPALITY_BOUNDING_BOX } from '@anchorage-str-db/utils/muni_geography';
 
 import {
   fetchSearchPage,
@@ -17,8 +18,34 @@ import {
   type BoundingBox,
   type SearchListing,
 } from './api/search.ts';
-import * as config from './config.ts';
 import { withRetries } from './retry.ts';
+
+/**
+ * Sent to Airbnb's map search but has no effect on results: zoom 11 through
+ * 15 return identical sets for the same box.
+ */
+const ZOOM_VALUE = 11;
+
+/**
+ * Listings per search page.
+ *
+ * A paginated search is unreliable: it silently stops at 280 items, and it
+ * re-ranks between page fetches, duplicating some listings and skipping
+ * others (0 listings churned at 1 page, 69 at 7 pages). A single-page query
+ * returns the same set every time, so `searchAnchorage` splits by price until
+ * each query fits on one page.
+ *
+ * Measurements and rejected alternatives are in
+ * docs/research/airbnb-search-pagination.md.
+ */
+const SEARCH_PAGE_SIZE = 40;
+
+/**
+ * Bands this narrow are not split further. One that still needs more than a
+ * page (over 40 listings at one price) fails the `search_single_page` check.
+ * The densest $1-2 bands (around $150 and $200) return 36 listings.
+ */
+export const PRICE_BAND_MIN_WIDTH_USD = 1;
 
 /**
  * A `price_min`/`price_max` window, in whole USD. `maxUsd === null` is the
@@ -50,7 +77,7 @@ export class PriceBand {
         new PriceBand(this.minUsd * 2, null),
       ];
     }
-    if (this.width <= config.PRICE_BAND_MIN_WIDTH_USD) return null;
+    if (this.width <= PRICE_BAND_MIN_WIDTH_USD) return null;
     const mid = Math.floor((this.minUsd + this.maxUsd) / 2);
     return [new PriceBand(this.minUsd, mid), new PriceBand(mid, this.maxUsd)];
   }
@@ -59,6 +86,14 @@ export class PriceBand {
     return `$${this.minUsd}-${this.maxUsd ?? 'inf'}`;
   }
 }
+
+/**
+ * Attempts per search page. Higher than the per-listing passes because a
+ * failed search page fails the run, while Airbnb's occasional 500 usually
+ * succeeds on retry. Their backoff is longer, too, being more numerous.
+ */
+const SEARCH_MAX_RETRIES = 4;
+const SEARCH_RETRY_BACKOFF_MS = 1500;
 
 /** The first page of a search, and how many pages Airbnb says it has. */
 export interface SearchPage {
@@ -80,9 +115,9 @@ export function liveSearchFetcher(apiKey: string): FetchPage {
         const raw = await fetchSearchPage({
           apiKey,
           box,
-          zoom: config.ZOOM_VALUE,
-          currency: config.CURRENCY,
-          language: config.LANGUAGE,
+          zoom: ZOOM_VALUE,
+          currency: 'USD',
+          language: 'en',
           priceMinUsd: band?.minUsd,
           priceMaxUsd: band?.maxUsd ?? undefined,
         });
@@ -91,8 +126,8 @@ export function liveSearchFetcher(apiKey: string): FetchPage {
       },
       {
         label: 'search page',
-        attempts: config.SEARCH_MAX_RETRIES,
-        backoffMs: config.SEARCH_RETRY_BACKOFF_MS,
+        attempts: SEARCH_MAX_RETRIES,
+        backoffMs: SEARCH_RETRY_BACKOFF_MS,
         onRetry: (err, attempt) => {
           log.warn(`search page failed (attempt ${attempt}), retrying: ${String(err)}`);
         },
@@ -110,6 +145,30 @@ export interface SearchResult {
   unresolved: PriceBand[];
 }
 
+/**
+ * Initial price bands. Adjacent bands share a boundary without overlap:
+ * `price_max=X` and `price_min=X` are complementary (splitting a 26-listing
+ * box at $100/$125/$150/$200 gave below+above == 26 each time). Test
+ * boundaries only on single-page queries, where pagination churn can't look
+ * like a gap.
+ *
+ * `null` is the open-ended top band.
+ */
+export const PRICE_BAND_SEEDS_USD: ReadonlyArray<readonly [number, number | null]> = [
+  [0, 50],
+  [50, 75],
+  [75, 100],
+  [100, 125],
+  [125, 150],
+  [150, 175],
+  [175, 200],
+  [200, 250],
+  [250, 300],
+  [300, 500],
+  [500, 1000],
+  [1000, null],
+];
+
 export interface SearchOptions {
   fetchPage: FetchPage;
   box?: BoundingBox;
@@ -118,12 +177,15 @@ export interface SearchOptions {
 
 /**
  * Search the whole box, splitting by price until no query needs a second
- * page. Every query uses the same `box`, so the scrape's scope is exactly the
- * box tested against parcel extents in `config.test.ts`.
+ * page. Every query uses the same `box`, by default the bounding box of the
+ * Municipality's boundary, which is already padded by 1 km. Listings outside
+ * the box are never searched. The box also takes in Hope, Palmer and
+ * Wasilla, so the daily run keeps only the listings inside the boundary
+ * itself.
  */
 export async function searchAnchorage(options: SearchOptions): Promise<SearchResult> {
-  const box = options.box ?? config.BBOX;
-  const seeds = options.seeds ?? config.PRICE_BAND_SEEDS_USD;
+  const box = options.box ?? MUNICIPALITY_BOUNDING_BOX;
+  const seeds = options.seeds ?? PRICE_BAND_SEEDS_USD;
   const result: SearchResult = { listings: [], queries: 0, unresolved: [] };
 
   const visit = async (band: PriceBand): Promise<void> => {
@@ -142,7 +204,7 @@ export async function searchAnchorage(options: SearchOptions): Promise<SearchRes
     if (pageCount > 1) {
       log.warn(
         `search: ${band} still needs ${pageCount} pages and is too narrow to split — ` +
-          `more than ${config.SEARCH_PAGE_SIZE} listings at one price, which price ` +
+          `more than ${SEARCH_PAGE_SIZE} listings at one price, which price ` +
           'cannot separate',
       );
       result.unresolved.push(band);
@@ -161,6 +223,11 @@ export async function searchAnchorage(options: SearchOptions): Promise<SearchRes
 
 // --------------------------------------------------------------------------
 // coverage audit
+
+/** Number and size of the unfiltered boxes `auditCoverage` searches. */
+export const COVERAGE_AUDIT_SAMPLE = 6;
+const COVERAGE_AUDIT_BOX_LAT = 0.01; // ~1.1 km
+const COVERAGE_AUDIT_BOX_LNG = 0.021; // ~1.1 km at 61N
 
 /**
  * Result of `auditCoverage`. `missedIds` are listings an unfiltered box search
@@ -235,16 +302,16 @@ export async function auditCoverage(
   if (located.length === 0) return audit;
 
   const random = seededRandom(epochDays(scrapeDate));
-  const centers = sample(located, options.sampleSize ?? config.COVERAGE_AUDIT_SAMPLE, random);
+  const centers = sample(located, options.sampleSize ?? COVERAGE_AUDIT_SAMPLE, random);
 
   for (const center of centers) {
     const lat = center.latitude!;
     const lng = center.longitude!;
     const box: BoundingBox = {
-      swLat: lat - config.COVERAGE_AUDIT_BOX_LAT / 2,
-      neLat: lat + config.COVERAGE_AUDIT_BOX_LAT / 2,
-      swLng: lng - config.COVERAGE_AUDIT_BOX_LNG / 2,
-      neLng: lng + config.COVERAGE_AUDIT_BOX_LNG / 2,
+      swLat: lat - COVERAGE_AUDIT_BOX_LAT / 2,
+      neLat: lat + COVERAGE_AUDIT_BOX_LAT / 2,
+      swLng: lng - COVERAGE_AUDIT_BOX_LNG / 2,
+      neLng: lng + COVERAGE_AUDIT_BOX_LNG / 2,
     };
     const { listings: rows, pageCount } = await options.fetchPage(null, box);
     if (pageCount > 1) {

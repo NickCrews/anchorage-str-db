@@ -29,8 +29,6 @@ import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { Pacer } from '@anchorage-str-db/utils/pace';
 import { withRetries } from '@anchorage-str-db/utils/retry';
 
-import * as config from './config.ts';
-
 /**
  * One item of the page's Locations section.
  *
@@ -241,20 +239,32 @@ export interface LicensePageResult {
   error: string | null;
 }
 
+/**
+ * Request tuning. A license page takes ~0.5s to serve; 2/s keeps the load on
+ * the CityView portal to about one request at a time.
+ */
+const REQUESTS_PER_SECOND = 2;
+const CONCURRENCY = 2;
+const MAX_RETRIES = 3;
+const TIMEOUT_MS = 30_000;
+
+/** Backoff between retries of a failed read: `RETRY_BACKOFF_MS * attempt`. */
+const RETRY_BACKOFF_MS = 500;
+
 export type FetchOneLicensePage = (licenseId: number) => Promise<LicensePage>;
 
 /** Real requests, paced by one `Pacer` for all pages and retried. */
 export function liveLicensePageFetcher(
-  pacer = new Pacer({ rate: config.REQUESTS_PER_SECOND, service: 'the CityView portal' }),
+  pacer = new Pacer({ rate: REQUESTS_PER_SECOND, service: 'the CityView portal' }),
 ): FetchOneLicensePage {
   return (licenseId) =>
     // Parsing inside the retry means a truncated page is fetched again.
     withRetries(
-      async () => parseLicensePage(await fetchText(licensePageUrl(licenseId), config.TIMEOUT_MS), licenseId),
+      async () => parseLicensePage(await fetchText(licensePageUrl(licenseId), TIMEOUT_MS), licenseId),
       {
         label: `license page ${licenseId}`,
-        attempts: config.MAX_RETRIES,
-        backoffMs: config.RETRY_BACKOFF_MS,
+        attempts: MAX_RETRIES,
+        backoffMs: RETRY_BACKOFF_MS,
         pacer,
       },
     );
@@ -273,7 +283,7 @@ export async function fetchLicensePages(
   const fetchOne = options.fetchOne ?? liveLicensePageFetcher();
   const results = await mapWithConcurrency(
     licenseIds,
-    options.concurrency ?? config.CONCURRENCY,
+    options.concurrency ?? CONCURRENCY,
     async (licenseId): Promise<LicensePageResult> => {
       try {
         return { licenseId, page: await fetchOne(licenseId), error: null };

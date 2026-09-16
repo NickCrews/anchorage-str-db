@@ -31,8 +31,9 @@ export type DataInitSliceState = {
 };
 
 /**
- * Attaches `public/anchorage_str.duckdb` read-only and creates a main-schema
- * view for each name in `LAKE_TABLES`.
+ * Fetches `anchorage_str.duckdb`, which `vite.config.ts` serves from the
+ * repo's `data/`, attaches it read-only, and creates a main-schema view for
+ * each name in `LAKE_TABLES`.
  */
 export function createDataInitSlice(): StateCreator<
   RoomShellSliceState & DataInitSliceState,
@@ -58,7 +59,8 @@ export function createDataInitSlice(): StateCreator<
           if (!response.ok) {
             throw new Error(
               `Could not fetch ${DB_FILE_URL} (${response.status}). ` +
-              `Copy data/anchorage_str.duckdb into packages/ui/public/ first.`,
+              `The viewer serves data/anchorage_str.duckdb; run a scrape or ` +
+              `download the latest-data release there first.`,
             );
           }
           const bytes = new Uint8Array(await response.arrayBuffer());

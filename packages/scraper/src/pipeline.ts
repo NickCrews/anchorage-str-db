@@ -1,7 +1,8 @@
 /**
- * The daily pipeline: search Anchorage, fetch every listing's page and
- * calendar and unresolved listings' earliest reviews, write the day to
- * DuckDB, and run the quality checks.
+ * The daily pipeline: search Anchorage, keep the listings inside the
+ * Municipality, fetch every listing's page and calendar and unresolved
+ * listings' earliest reviews, write the day to DuckDB, and run the quality
+ * checks.
  */
 
 import { connect } from '@anchorage-str-db/db/connect';
@@ -15,6 +16,7 @@ import { fetchPriceQuotes, liveQuoteFetcher } from '@anchorage-str-db/scraper-ai
 import { auditCoverage, liveSearchFetcher, searchAnchorage } from '@anchorage-str-db/scraper-airbnb/search';
 import { addDays, toSqlTimestamp, todayUtc, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log } from '@anchorage-str-db/utils/log';
+import { inMunicipality } from '@anchorage-str-db/utils/muni_geography';
 
 import { report, runChecks } from './checks.ts';
 import {
@@ -69,12 +71,19 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
       const listing = parseListing(raw);
       parsedById.set(listing.listingId, listing);
     }
-    const parsed = [...parsedById.values()];
+    // The search box also covers Hope, Palmer and Wasilla. A listing with no
+    // coordinates is kept, and `coords_within_municipality` reports it.
+    const parsed = [...parsedById.values()].filter(
+      ({ lat, lng }) => lat === null || lng === null || inMunicipality(lat, lng),
+    );
     log.info(
-      `parsed ${parsed.length} distinct listings (from ${searchResult.listings.length} raw ` +
-        `results across ${searchResult.queries} search queries)`,
+      `parsed ${parsedById.size} distinct listings (from ${searchResult.listings.length} raw ` +
+        `results across ${searchResult.queries} search queries), dropped ` +
+        `${parsedById.size - parsed.length} outside the Municipality`,
     );
 
+    // Audits every search result, inside the Municipality or not: it measures
+    // whether the price bands missed listings, not the boundary.
     const coverage = await auditCoverage(searchResult.listings, scrapeDate, { fetchPage });
 
     const roomIds = parsed.map((listing) => String(listing.listingId));

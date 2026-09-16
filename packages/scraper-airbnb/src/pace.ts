@@ -25,7 +25,12 @@
 
 import { Pacer, type PacerOptions } from '@anchorage-str-db/utils/pace';
 
-import { REQUESTS_PER_SECOND } from './config.ts';
+/**
+ * The rate every pass runs at, below the ~2.2/s ceiling above. A full run
+ * takes about 50 minutes; fetching fewer listing pages would shorten it more
+ * than raising this.
+ */
+const REQUESTS_PER_SECOND = 1.8;
 
 function airbnbPacer(options: Partial<PacerOptions>): Pacer {
   return new Pacer({
@@ -33,14 +38,14 @@ function airbnbPacer(options: Partial<PacerOptions>): Pacer {
     service: 'Airbnb',
     rateLimitAdvice:
       'The block is IP-wide and lasts about an hour, so the run stops; lower ' +
-      'REQUESTS_PER_SECOND in config.ts.',
+      'REQUESTS_PER_SECOND.',
     ...options,
   });
 }
 
 let pacer: Pacer | undefined;
 
-/** The process-wide Airbnb pacer, created on first use from `config`. */
+/** The process-wide Airbnb pacer, created on first use. */
 export function pace(): Pacer {
   pacer ??= airbnbPacer({});
   return pacer;

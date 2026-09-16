@@ -7,11 +7,11 @@ import { afterEach, expect, it } from 'vitest';
 import { connect } from '@anchorage-str-db/db/connect';
 import type { Database } from '@anchorage-str-db/db/database';
 import { collectHostCards, emptyListingPage, type ListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
+import type { ParsedListing } from '@anchorage-str-db/scraper-airbnb/parse';
 import { emptyAudit, PriceBand, type CoverageAudit, type SearchResult } from '@anchorage-str-db/scraper-airbnb/search';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
-import { report, runChecks, type CheckResult } from '../src/checks.ts';
-import * as config from '../src/config.ts';
+import { PLAUSIBLE_LISTING_COUNT, report, runChecks, type CheckResult } from '../src/checks.ts';
 import {
   emptyPageStats,
   type QuoteStats,
@@ -33,18 +33,22 @@ afterEach(async () => {
   for (const dir of temporary.splice(0)) await rm(dir, { recursive: true, force: true });
 });
 
-/** Enough rows for listing_count_plausible and observations_written_today to pass. */
+/**
+ * Enough rows for listing_count_plausible and observations_written_today to
+ * pass, plus any `extra` listings.
+ */
 async function seedMinimal(
   pages: readonly ListingPage[] = [],
   firstReviews: { attempted: number; failed: number } = { attempted: 0, failed: 0 },
+  extra: readonly ParsedListing[] = [],
 ): Promise<Database> {
   const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
   temporary.push(dir);
   const db = await connect(join(dir, 't.duckdb'));
   open.push(db);
 
-  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
-  const listings = [...Array(floor).keys()].map((i) => makeListing(i, `Cabin ${i}`));
+  const [floor] = PLAUSIBLE_LISTING_COUNT;
+  const listings = [...[...Array(floor).keys()].map((i) => makeListing(i, `Cabin ${i}`)), ...extra];
   await recordObservations(db, DAY, listings, pages);
   const hostStats = await recordHostObservations(db, DAY, collectHostCards(pages));
   await logRun(db, {
@@ -161,6 +165,24 @@ it('fails search_single_page when a band needed more than one page', async () =>
   expect(report(all)).toBe(false);
 });
 
+it('passes coords_within_municipality when every current listing is inside', async () => {
+  const db = await seedMinimal();
+  const { byName } = await check(db);
+  expect(byName['coords_within_municipality']!.passed).toBe(true);
+});
+
+it('warns coords_within_municipality for a current listing outside the Municipality', async () => {
+  // Palmer, in the Matanuska-Susitna Borough.
+  const palmer = makeListing(99_999, 'Palmer cabin', { lat: 61.6 });
+  const db = await seedMinimal([], undefined, [palmer]);
+
+  const { byName, all } = await check(db);
+  expect(byName['coords_within_municipality']!.passed).toBe(false);
+  expect(byName['coords_within_municipality']!.severity).toBe('warn');
+  expect(byName['coords_within_municipality']!.detail).toContain('99999');
+  expect(report(all)).toBe(true);
+});
+
 /** A complete page read for each of the first `count` seeded listings. */
 function pagesRead(count: number, fields: (i: number) => Partial<ListingPage> = () => ({})): ListingPage[] {
   return [...Array(count).keys()].map((i) => ({
@@ -186,7 +208,7 @@ const PAGE_FIELD_CHECKS = [
 ];
 
 it('passes the page field checks when every page read has every field', async () => {
-  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  const [floor] = PLAUSIBLE_LISTING_COUNT;
   const db = await seedMinimal(pagesRead(floor));
 
   const { byName } = await check(db);
@@ -200,7 +222,7 @@ it.each([
   ['beds_coverage', { beds: null }],
   ['bathrooms_coverage', { bathrooms: null }],
 ] as const)('fails %s when half the pages lack the field', async (name, missing) => {
-  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  const [floor] = PLAUSIBLE_LISTING_COUNT;
   const db = await seedMinimal(pagesRead(floor, (i) => (i % 2 ? missing : {})));
 
   const { byName, all } = await check(db);
@@ -210,7 +232,7 @@ it.each([
 });
 
 it('passes bedrooms_coverage when rooms omit the bedroom line', async () => {
-  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  const [floor] = PLAUSIBLE_LISTING_COUNT;
   const db = await seedMinimal(pagesRead(floor, (i) => (i % 4 === 0 ? { bedrooms: null } : {})));
 
   const { byName } = await check(db);
@@ -218,7 +240,7 @@ it('passes bedrooms_coverage when rooms omit the bedroom line', async () => {
 });
 
 it('fails bedrooms_coverage when bedroom lines go missing', async () => {
-  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  const [floor] = PLAUSIBLE_LISTING_COUNT;
   const db = await seedMinimal(pagesRead(floor, (i) => (i % 4 === 0 ? {} : { bedrooms: null })));
 
   const { byName } = await check(db);
@@ -306,7 +328,7 @@ it('skips first_review_failure_rate on a run with nothing to resolve', async () 
 
 /** Every seeded listing's page read, each under its own host, `withCard` of them with a card. */
 function pagesWithCards(withCard: number): ListingPage[] {
-  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  const [floor] = PLAUSIBLE_LISTING_COUNT;
   return pagesRead(floor).map((page, i) => ({
     ...page,
     hostCard:
@@ -317,7 +339,7 @@ function pagesWithCards(withCard: number): ListingPage[] {
 }
 
 it('passes the host profile checks when every host card was read', async () => {
-  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  const [floor] = PLAUSIBLE_LISTING_COUNT;
   const db = await seedMinimal(pagesWithCards(floor));
 
   const { byName } = await check(db);
@@ -338,7 +360,7 @@ it('warns, without failing the run, when host cards stop being read', async () =
 });
 
 it('warns when a host’s start date moves', async () => {
-  const [floor] = config.PLAUSIBLE_LISTING_COUNT;
+  const [floor] = PLAUSIBLE_LISTING_COUNT;
   const db = await seedMinimal(pagesWithCards(floor));
   // An earlier reading a year off from today's.
   await db.run(

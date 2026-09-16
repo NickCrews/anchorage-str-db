@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { connect } from '@anchorage-str-db/db/connect';
 import type { Database } from '@anchorage-str-db/db/database';
+import { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views';
 import type { CalendarNight, CalendarResult } from '@anchorage-str-db/scraper-airbnb/calendars';
 import {
   collectHostCards,
@@ -16,7 +17,6 @@ import {
 import type { PriceQuote } from '@anchorage-str-db/scraper-airbnb/priceQuotes';
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 
-import * as config from '../src/config.ts';
 import {
   logRun,
   mergeCalendar,
@@ -870,20 +870,20 @@ describe('host_portfolios', () => {
     ];
     await recordDay(db, start, both);
     // Listing 2 disappears; it is retired after the grace period.
-    for (let i = 1; i <= config.RETIREMENT_GRACE_DAYS + 1; i++) {
+    for (let i = 1; i <= RETIREMENT_GRACE_DAYS + 1; i++) {
       await recordDay(db, addDays(start, i), both.slice(0, 1));
     }
 
     const rows = await db.rows<{ scrape_date: string; listings_live: number; listings_ever_seen: number }>(
       "SELECT scrape_date, listings_live, listings_ever_seen FROM host_portfolios WHERE host_id = 100 ORDER BY scrape_date",
     );
-    expect(rows[config.RETIREMENT_GRACE_DAYS]).toEqual({
-      scrape_date: addDays(start, config.RETIREMENT_GRACE_DAYS),
+    expect(rows[RETIREMENT_GRACE_DAYS]).toEqual({
+      scrape_date: addDays(start, RETIREMENT_GRACE_DAYS),
       listings_live: 2,
       listings_ever_seen: 2,
     });
     expect(rows.at(-1)).toEqual({
-      scrape_date: addDays(start, config.RETIREMENT_GRACE_DAYS + 1),
+      scrape_date: addDays(start, RETIREMENT_GRACE_DAYS + 1),
       listings_live: 1,
       listings_ever_seen: 2,
     });

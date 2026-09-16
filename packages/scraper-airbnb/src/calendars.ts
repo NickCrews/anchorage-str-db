@@ -6,8 +6,14 @@ import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
 
 import { fetchCalendar, type CalendarDay } from './api/calendar.ts';
-import * as config from './config.ts';
-import { withRetries } from './retry.ts';
+import { RETRY_BACKOFF_MS, withRetries } from './retry.ts';
+
+/**
+ * Maximum concurrent calendar requests. `pace.ts` sets the request rate; this
+ * only needs to be high enough to reach it at ~0.9s per request.
+ */
+const CALENDAR_CONCURRENCY = 6;
+const CALENDAR_MAX_RETRIES = 3;
 
 export interface CalendarNight {
   nightDate: IsoDate;
@@ -54,13 +60,13 @@ export function liveCalendarFetcher(apiKey: string): FetchOneCalendar {
           fetchCalendar({
             apiKey,
             roomId,
-            currency: config.CURRENCY,
-            language: config.LANGUAGE,
+            currency: 'USD',
+            language: 'en',
           }),
         {
           label: `calendar for room ${roomId}`,
-          attempts: config.CALENDAR_MAX_RETRIES,
-          backoffMs: config.RETRY_BACKOFF_MS,
+          attempts: CALENDAR_MAX_RETRIES,
+          backoffMs: RETRY_BACKOFF_MS,
         },
       );
       return { roomId, nights: toNights(days, minDate), error: null };
@@ -88,7 +94,7 @@ export async function fetchCalendars(
 ): Promise<CalendarResult[]> {
   const results = await mapWithConcurrency(
     roomIds,
-    options.concurrency ?? config.CALENDAR_CONCURRENCY,
+    options.concurrency ?? CALENDAR_CONCURRENCY,
     (roomId) => options.fetchOne(roomId, options.minDate),
   );
   for (const result of results) {
