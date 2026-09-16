@@ -104,9 +104,9 @@ CityView license pages). Views have no prefix.
 - `listings_active_with_host` *(view)*: `listings_active` plus the host's
   name, years hosting, and portfolio counts as of the latest run
 - `calendar_current` *(view)*: the current version of each night. Use this
-  instead of `airbnb_calendar_status` for "how many were charted, and how
-  many of those were available"; it drops the frozen future nights of
-  inactive listings
+  instead of `airbnb_calendar_status` for "how many listings had calendar
+  data that night, and how many of those were available"; it drops the frozen
+  future nights of inactive listings
 
 From the Municipal Clerk's
 [Short Term Rental Registration Viewer](https://experience.arcgis.com/experience/22b40a78a9fc459e9950a16249b37ed2)

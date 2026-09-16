@@ -57,7 +57,7 @@ export const OverviewView: FC = () => {
 
   const { data: kpiData, isLoading: kpiLoading } = useSql<{
     activeListings: number;
-    chartedTonight: number | null;
+    withCalendarTonight: number | null;
     notAvailableTonight: number | null;
     distinctListingsLastYear: number;
     latestScrapeDate: number | null;
@@ -69,7 +69,7 @@ export const OverviewView: FC = () => {
     query: `
       WITH tonight AS (
         SELECT
-          count(*)::INT AS charted_tonight,
+          count(*)::INT AS with_calendar_tonight,
           count(*) FILTER (WHERE NOT available)::INT AS not_available_tonight
         FROM calendar_current
         WHERE night_date = CURRENT_DATE
@@ -93,7 +93,7 @@ export const OverviewView: FC = () => {
       )
       SELECT
         active.n AS "activeListings",
-        tonight.charted_tonight AS "chartedTonight",
+        tonight.with_calendar_tonight AS "withCalendarTonight",
         tonight.not_available_tonight AS "notAvailableTonight",
         last_year.n AS "distinctListingsLastYear",
         latest_run.d AS "latestScrapeDate",
@@ -188,8 +188,8 @@ export const OverviewView: FC = () => {
   // Not "booked": a night that is not available was taken by a guest or
   // closed off by the host, and the calendar cannot tell the two apart.
   const pctNotAvailable =
-    kpi?.chartedTonight && kpi.notAvailableTonight != null
-      ? Math.round((100 * kpi.notAvailableTonight) / kpi.chartedTonight)
+    kpi?.withCalendarTonight && kpi.notAvailableTonight != null
+      ? Math.round((100 * kpi.notAvailableTonight) / kpi.withCalendarTonight)
       : null;
 
   return (
@@ -206,7 +206,7 @@ export const OverviewView: FC = () => {
           value={kpiLoading ? '…' : (kpi?.notAvailableTonight ?? '—')}
           detail={
             pctNotAvailable != null
-              ? `${pctNotAvailable}% of ${kpi?.chartedTonight} on the calendar tonight — booked or host-blocked`
+              ? `${pctNotAvailable}% of ${kpi?.withCalendarTonight} on the calendar tonight — booked or host-blocked`
               : 'No calendar data for tonight'
           }
         />

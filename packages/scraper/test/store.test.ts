@@ -1020,14 +1020,14 @@ describe('calendar_current', () => {
       await mergeCalendar(db, day, [calendar('1', nights)]);
     }
 
-    const charted = (view: string): Promise<number> =>
+    const withCalendar = (view: string): Promise<number> =>
       db.count(
         `SELECT count(DISTINCT listing_id) FROM ${view} ` +
           "WHERE is_current AND night_date = '2027-01-01'",
       );
 
-    expect(await charted('airbnb_calendar_status')).toBe(2); // the raw table still holds both
-    expect(await charted('calendar_current')).toBe(1); // only listing 1 is still active
+    expect(await withCalendar('airbnb_calendar_status')).toBe(2); // the raw table still holds both
+    expect(await withCalendar('calendar_current')).toBe(1); // only listing 1 is still active
   });
 
   it('keeps an inactive listing’s nights up to its last sighting', async () => {

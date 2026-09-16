@@ -3,17 +3,17 @@
 -- or attach the published database read-only:
 --   ATTACH 'anchorage_str.duckdb' AS str (READ_ONLY);
 -- ============================================================
--- Q: How many listings were on the calendar on a given night?
--- "Charted" = the night was on the listing's calendar when it was read,
--- available or not. It says the listing was on Airbnb that night, not that
--- anyone stayed. A listing with no row for a night is not the opposite of
--- charted: it had not been scraped yet, had retired, is past Airbnb's
--- ~12-month window, or its calendar never read. Say "no calendar data".
+-- Q: How many listings had calendar data for a given night?
+-- Every row here is a night that was on the listing's calendar when it was
+-- read, available or not. It says the listing was on Airbnb that night, not
+-- that anyone stayed. A listing with no row for a night is not a zero: it
+-- had not been scraped yet, had retired, is past Airbnb's ~12-month window,
+-- or its calendar was never read. Say "no calendar data".
 -- Uses `calendar_current`, which excludes inactive listings' future nights.
 -- ============================================================
 SELECT
     night_date,
-    count(DISTINCT listing_id) AS listings_charted
+    count(DISTINCT listing_id) AS listings_with_calendar
 FROM
     calendar_current
 WHERE
@@ -42,7 +42,7 @@ SELECT
         WHERE
             available
     ) AS available,
-    count(*) AS total_charted,
+    count(*) AS listings_with_calendar,
     round(
         100.0 * count(*) FILTER (
             WHERE
