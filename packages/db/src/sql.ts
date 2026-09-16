@@ -13,9 +13,16 @@
  */
 
 import { sql, type SQL, type SQLWrapper, type Table, type View } from 'drizzle-orm';
-import { PgDialect, type BuildAliasTable, type PgTable } from 'drizzle-orm/pg-core';
+import { PgDialect, QueryBuilder, type BuildAliasTable, type PgTable } from 'drizzle-orm/pg-core';
 
 const dialect = new PgDialect();
+
+/**
+ * Drizzle's query builder, which builds SQL without a connection: what every
+ * query here is written with, whether a driver will run it (`Database.orm`)
+ * or `toSql` will render it for one that takes strings.
+ */
+export const qb = new QueryBuilder();
 
 /**
  * One SQL string, with every value inlined as a literal rather than left as a

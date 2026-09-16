@@ -15,6 +15,7 @@
  */
 
 import { duckDbList } from '@duckdbfan/drizzle-duckdb/helpers';
+import type { Column } from 'drizzle-orm';
 import { bigint as pgBigint, customType, date, timestamp } from 'drizzle-orm/pg-core';
 
 /**
@@ -51,3 +52,25 @@ export function structList<TData>(sqlType: string) {
  */
 export const hugeint = <T extends string>(name: T) =>
   customType<{ data: unknown }>({ dataType: () => 'HUGEINT' })(name);
+
+/** How DuckDB spells each of the pg types the columns above are declared with. */
+const DUCKDB_TYPES: Readonly<Record<string, string>> = {
+  varchar: 'VARCHAR',
+  bigint: 'BIGINT',
+  integer: 'INTEGER',
+  'double precision': 'DOUBLE',
+  boolean: 'BOOLEAN',
+  date: 'DATE',
+  timestamp: 'TIMESTAMP',
+};
+
+/**
+ * The DuckDB type a declared column stands for, as `duckdb_columns()` names
+ * it: what `connect` checks a database against, and what a staging table is
+ * created with.
+ */
+export function duckDbType(column: Column): string {
+  // A `customType` names its DuckDB type outright, so it passes through.
+  const declared = column.getSQLType();
+  return DUCKDB_TYPES[declared] ?? declared;
+}

@@ -79,6 +79,9 @@ importers:
       '@anchorage-str-db/utils':
         specifier: workspace:*
         version: link:../utils
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.1)
     devDependencies:
       '@types/node':
         specifier: ^24.0.0

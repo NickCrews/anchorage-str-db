@@ -79,20 +79,16 @@ export class Database {
    * `YYYY-MM-DD HH:MM:SS` strings for `TIMESTAMP`, arrays for lists and
    * objects for structs.
    *
-   * `into` names a temporary table to stage into instead. `columns` writes
-   * only those columns, still in declared order, for a staging table that
-   * holds just them.
+   * A staging table is a declared table like any other, so it is appended to
+   * the same way.
    */
-  async appendRows<T extends PgTable, K extends keyof T['$inferInsert'] = keyof T['$inferInsert']>(
+  async appendRows<T extends PgTable>(
     table: T,
-    rows: readonly Pick<T['$inferInsert'], K>[],
-    options: { into?: string; columns?: readonly K[] } = {},
+    rows: readonly T['$inferInsert'][],
   ): Promise<void> {
     if (rows.length === 0) return;
-    const into = options.into ?? getTableName(table);
-    const keys = Object.keys(getTableColumns(table)).filter(
-      (key) => options.columns === undefined || options.columns.includes(key as K),
-    );
+    const into = getTableName(table);
+    const keys = Object.keys(getTableColumns(table));
     const appender = await this.appender(into);
     if (appender.columnCount !== keys.length) {
       appender.closeSync();

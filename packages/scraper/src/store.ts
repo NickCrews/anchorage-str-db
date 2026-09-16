@@ -4,8 +4,8 @@
  * `@anchorage-str-db/db/views`.
  */
 
+import { bigint, day, duckDbType, varcharList } from '@anchorage-str-db/db/columns';
 import type { Database } from '@anchorage-str-db/db/database';
-import type { NodeRow } from '@anchorage-str-db/db/rows';
 import {
   airbnbCalendarStatus,
   airbnbHostObservations,
@@ -14,6 +14,8 @@ import {
   airbnbListingPhotos,
   airbnbScrapeRuns,
 } from '@anchorage-str-db/db/schema';
+import { qb, toSql } from '@anchorage-str-db/db/sql';
+import { hostVersions, listingVersions, listings } from '@anchorage-str-db/db/viewSchema';
 import { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views';
 import type { CalendarResult } from '@anchorage-str-db/scraper-airbnb/calendars';
 import type { FirstReviewCandidate, FirstReviewResult } from '@anchorage-str-db/scraper-airbnb/firstReviews';
@@ -22,6 +24,44 @@ import { LAYERS } from '@anchorage-str-db/scraper-airbnb/listingPage';
 import type { ParsedListing } from '@anchorage-str-db/scraper-airbnb/parse';
 import type { PriceQuote } from '@anchorage-str-db/scraper-airbnb/priceQuotes';
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
+import { and, eq, getTableColumns, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
+import { alias, boolean, integer, pgTable, varchar, type PgTable } from 'drizzle-orm/pg-core';
+
+// --------------------------------------------------------------------------
+// staging
+
+/**
+ * The temp tables a merge stages into, declared like any other table so the
+ * statements that read them are checked the same way. `createStaging` builds
+ * each one from its declaration, so what is appended and what is read cannot
+ * drift from it.
+ */
+const stgPhotos = pgTable('stg_photos', {
+  listingId: bigint('listing_id'),
+  validFrom: day('valid_from'),
+  photoUrls: varcharList('photo_urls'),
+});
+
+/** `status_hash` is filled in by `mergeCalendar` after the rows are appended. */
+const stgCalendar = pgTable('stg_calendar', {
+  listingId: bigint('listing_id'),
+  nightDate: day('night_date'),
+  available: boolean('available'),
+  minNights: integer('min_nights'),
+  statusHash: varchar('status_hash'),
+});
+
+async function createStaging(db: Database, table: PgTable): Promise<void> {
+  const columns = Object.values(getTableColumns(table)).map(
+    (column) => sql`${sql.identifier(column.name)} ${sql.raw(duckDbType(column))}`,
+  );
+  await db.run(
+    toSql(sql`CREATE OR REPLACE TEMP TABLE ${table} (${sql.join(columns, sql`, `)})`),
+  );
+}
+
+const dropStaging = (db: Database, table: PgTable): Promise<void> =>
+  db.run(toSql(sql`DROP TABLE ${table}`));
 
 // --------------------------------------------------------------------------
 // observations
@@ -61,16 +101,16 @@ export async function recordObservations(
     if (!quote.error) quoteByRoom.set(BigInt(quote.roomId), quote);
   }
 
-  await db.run('DELETE FROM airbnb_listing_observations WHERE scrape_date = CAST(? AS DATE)', [scrapeDate]);
-  // After the delete, so a re-run doesn't count its own earlier rows as
-  // history. `BIGINT` reads back as a decimal string, which `BigInt` parses
-  // exactly.
+  await db.orm
+    .delete(airbnbListingObservations)
+    .where(eq(airbnbListingObservations.scrapeDate, scrapeDate));
+  // After the delete, so a re-run doesn't count its own earlier rows as history.
   const previouslySeen = new Set(
     (
-      await db.rows<Pick<NodeRow<typeof airbnbListingObservations>, 'listing_id'>>(
-        'SELECT DISTINCT listing_id FROM airbnb_listing_observations',
-      )
-    ).map((row) => BigInt(row.listing_id)),
+      await db.orm
+        .selectDistinct({ listingId: airbnbListingObservations.listingId })
+        .from(airbnbListingObservations)
+    ).map((row) => row.listingId),
   );
 
   await db.appendRows(
@@ -124,13 +164,32 @@ export async function recordObservations(
   return {
     seen: parsed.length,
     new: parsed.filter((listing) => !previouslySeen.has(listing.listingId)).length,
-    changed: await db.count(
-      'SELECT count(*) FROM listing_versions WHERE valid_from = CAST(? AS DATE)',
-      [scrapeDate],
-    ),
+    changed: await db.orm.$count(listingVersions, eq(listingVersions.validFrom, scrapeDate)),
     retired: await countNewlyRetired(db, scrapeDate, RETIREMENT_GRACE_DAYS),
   };
 }
+
+/**
+ * Each listing's photo set as of the day before `scrapeDate`: the CTE
+ * `recordPhotos` compares against. Its body is DuckDB's `QUALIFY`, so it is
+ * written as SQL over the schema's columns, with the columns it returns
+ * declared as the ones it selects.
+ */
+const previousPhotos = (scrapeDate: IsoDate) =>
+  qb
+    .$with('prev', {
+      listingId: airbnbListingPhotos.listingId,
+      photoUrls: airbnbListingPhotos.photoUrls,
+    })
+    .as(
+      sql`SELECT ${airbnbListingPhotos.listingId}, ${airbnbListingPhotos.photoUrls}
+          FROM ${airbnbListingPhotos}
+          WHERE ${lt(airbnbListingPhotos.validFrom, scrapeDate)}
+          QUALIFY row_number() OVER (
+            PARTITION BY ${airbnbListingPhotos.listingId}
+            ORDER BY ${airbnbListingPhotos.validFrom} DESC
+          ) = 1`,
+    );
 
 /**
  * Write each listing's photo set if it differs from the listing's previous
@@ -144,31 +203,29 @@ async function recordPhotos(
   scrapeDate: IsoDate,
   sets: ReadonlyArray<{ listingId: bigint; urls: readonly string[] }>,
 ): Promise<void> {
-  await db.run('DELETE FROM airbnb_listing_photos WHERE valid_from = CAST(? AS DATE)', [scrapeDate]);
+  await db.orm.delete(airbnbListingPhotos).where(eq(airbnbListingPhotos.validFrom, scrapeDate));
   if (sets.length === 0) return;
 
-  await db.run('CREATE OR REPLACE TEMP TABLE stg_photos AS FROM airbnb_listing_photos LIMIT 0');
+  await createStaging(db, stgPhotos);
   await db.appendRows(
-    airbnbListingPhotos,
+    stgPhotos,
     sets.map((set) => ({ listingId: set.listingId, validFrom: scrapeDate, photoUrls: [...set.urls] })),
-    { into: 'stg_photos' },
   );
 
-  await db.run(
-    `
-    INSERT INTO airbnb_listing_photos
-    SELECT s.*
-    FROM stg_photos s
-    LEFT JOIN (
-        SELECT listing_id, photo_urls FROM airbnb_listing_photos
-        WHERE valid_from < CAST(? AS DATE)
-        QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY valid_from DESC) = 1
-    ) prev USING (listing_id)
-    WHERE prev.photo_urls IS DISTINCT FROM s.photo_urls
-    `,
-    [scrapeDate],
+  const prev = previousPhotos(scrapeDate);
+  await db.orm.insert(airbnbListingPhotos).select(
+    qb
+      .with(prev)
+      .select({
+        listingId: stgPhotos.listingId,
+        validFrom: stgPhotos.validFrom,
+        photoUrls: stgPhotos.photoUrls,
+      })
+      .from(stgPhotos)
+      .leftJoin(prev, eq(prev.listingId, stgPhotos.listingId))
+      .where(sql`${prev.photoUrls} IS DISTINCT FROM ${stgPhotos.photoUrls}`),
   );
-  await db.run('DROP TABLE stg_photos');
+  await dropStaging(db, stgPhotos);
 }
 
 /**
@@ -183,10 +240,14 @@ export async function countNewlyRetired(
   scrapeDate: IsoDate,
   graceDays: number,
 ): Promise<number> {
-  return db.count(
-    'SELECT count(*) FROM (SELECT listing_id FROM airbnb_listing_observations ' +
-      'GROUP BY listing_id HAVING max(scrape_date) = CAST(? AS DATE))',
-    [addDays(scrapeDate, -(graceDays + 1))],
+  const lastSeen = addDays(scrapeDate, -(graceDays + 1));
+  return db.orm.$count(
+    qb
+      .select({ listingId: airbnbListingObservations.listingId })
+      .from(airbnbListingObservations)
+      .groupBy(airbnbListingObservations.listingId)
+      .having(eq(sql`max(${airbnbListingObservations.scrapeDate})`, lastSeen))
+      .as('retired'),
   );
 }
 
@@ -309,21 +370,28 @@ export async function recordHostObservations(
   scrapeDate: IsoDate,
   cards: ReadonlyMap<string, HostCard>,
 ): Promise<HostProfileStats> {
-  await db.run('DELETE FROM airbnb_host_observations WHERE scrape_date = CAST(? AS DATE)', [scrapeDate]);
+  await db.orm
+    .delete(airbnbHostObservations)
+    .where(eq(airbnbHostObservations.scrapeDate, scrapeDate));
   const previouslySeen = new Set(
     (
-      await db.rows<Pick<NodeRow<typeof airbnbHostObservations>, 'host_id'>>(
-        'SELECT DISTINCT host_id FROM airbnb_host_observations',
-      )
-    ).map((row) => row.host_id),
+      await db.orm
+        .selectDistinct({ hostId: airbnbHostObservations.hostId })
+        .from(airbnbHostObservations)
+    ).map((row) => String(row.hostId)),
   );
   const owners = (
-    await db.rows<{ host_id: string }>(
-      'SELECT DISTINCT host_id FROM listings ' +
-        'WHERE valid_to IS NULL AND last_seen_date = CAST(? AS DATE) AND host_id IS NOT NULL',
-      [scrapeDate],
-    )
-  ).map((row) => row.host_id);
+    await db.orm
+      .selectDistinct({ hostId: listings.hostId })
+      .from(listings)
+      .where(
+        and(
+          isNull(listings.validTo),
+          eq(listings.lastSeenDate, scrapeDate),
+          isNotNull(listings.hostId),
+        ),
+      )
+  ).map((row) => String(row.hostId));
   const hostIds = [...new Set([...owners, ...cards.keys()])];
 
   await db.appendRows(
@@ -346,10 +414,7 @@ export async function recordHostObservations(
     attempted: hostIds.length,
     failed: hostIds.filter((hostId) => !cards.has(hostId)).length,
     new: hostIds.filter((hostId) => !previouslySeen.has(hostId)).length,
-    changed: await db.count(
-      'SELECT count(*) FROM host_versions WHERE valid_from = CAST(? AS DATE)',
-      [scrapeDate],
-    ),
+    changed: await db.orm.$count(hostVersions, eq(hostVersions.validFrom, scrapeDate)),
   };
 }
 
@@ -376,63 +441,81 @@ export async function mergeCalendar(
   const usable = results.filter((result) => !result.error);
   if (!usable.some((result) => result.nights.length > 0)) return stats;
 
-  await db.run(
-    'CREATE OR REPLACE TEMP TABLE stg_calendar AS ' +
-      'SELECT listing_id, night_date, available, min_nights FROM airbnb_calendar_status LIMIT 0',
-  );
+  await createStaging(db, stgCalendar);
   await db.appendRows(
-    airbnbCalendarStatus,
+    stgCalendar,
     usable.flatMap((result) =>
       result.nights.map((night) => ({
         listingId: BigInt(result.roomId),
         nightDate: night.nightDate,
         available: night.available,
         minNights: night.minNights,
+        statusHash: null,
       })),
     ),
-    { into: 'stg_calendar', columns: ['listingId', 'nightDate', 'available', 'minNights'] },
   );
 
-  await db.run('ALTER TABLE stg_calendar ADD COLUMN status_hash VARCHAR');
   // The trailing '|' is part of the hash format of every stored row. Changing
   // the format would re-version every current night on the next run.
-  await db.run(
-    "UPDATE stg_calendar SET status_hash = md5(available::VARCHAR || '|' || " +
-      "coalesce(min_nights::VARCHAR,'') || '|')",
+  await db.orm.update(stgCalendar).set({
+    statusHash: sql`md5(${stgCalendar.available}::VARCHAR || '|' || coalesce(${stgCalendar.minNights}::VARCHAR,'') || '|')`,
+  });
+
+  /** The current stored row for a staged night, where there is one. */
+  const current = alias(airbnbCalendarStatus, 'c');
+  const sameNight = and(
+    eq(current.listingId, stgCalendar.listingId),
+    eq(current.nightDate, stgCalendar.nightDate),
+    eq(current.isCurrent, true),
   );
 
-  stats.nightsChanged = await db.count(
-    'SELECT count(*) FROM stg_calendar s ' +
-      'LEFT JOIN airbnb_calendar_status c ' +
-      '  ON c.listing_id = s.listing_id AND c.night_date = s.night_date AND c.is_current ' +
-      'WHERE c.listing_id IS NULL OR c.status_hash != s.status_hash',
+  stats.nightsChanged = await db.orm.$count(
+    qb
+      .select({ listingId: stgCalendar.listingId })
+      .from(stgCalendar)
+      .leftJoin(current, sameNight)
+      .where(
+        or(isNull(current.listingId), ne(current.statusHash, stgCalendar.statusHash)),
+      )
+      .as('changed'),
   );
   if (stats.nightsChanged === 0) return stats;
 
-  await db.run(
-    `
-    UPDATE airbnb_calendar_status SET valid_to = CAST(? AS DATE), is_current = false
-    WHERE is_current AND (listing_id, night_date) IN (
-        SELECT s.listing_id, s.night_date FROM stg_calendar s
-        JOIN airbnb_calendar_status c
-          ON c.listing_id = s.listing_id AND c.night_date = s.night_date AND c.is_current
-        WHERE c.status_hash != s.status_hash
-    )
-    `,
-    [scrapeDate],
-  );
+  const changedNights = qb
+    .select({ listingId: stgCalendar.listingId, nightDate: stgCalendar.nightDate })
+    .from(stgCalendar)
+    .innerJoin(current, sameNight)
+    .where(ne(current.statusHash, stgCalendar.statusHash));
+
+  await db.orm
+    .update(airbnbCalendarStatus)
+    .set({ validTo: scrapeDate, isCurrent: false })
+    .where(
+      and(
+        eq(airbnbCalendarStatus.isCurrent, true),
+        sql`(${airbnbCalendarStatus.listingId}, ${airbnbCalendarStatus.nightDate}) IN (${changedNights})`,
+      ),
+    );
+
   // Changed nights no longer have a current row, so this inserts exactly
   // the new and changed ones.
-  await db.run(
-    'INSERT INTO airbnb_calendar_status ' +
-      'SELECT s.listing_id, s.night_date, s.available, s.min_nights, s.status_hash, ' +
-      '  CAST(? AS DATE), NULL, true ' +
-      'FROM stg_calendar s ' +
-      'LEFT JOIN airbnb_calendar_status c ' +
-      '  ON c.listing_id = s.listing_id AND c.night_date = s.night_date AND c.is_current ' +
-      'WHERE c.listing_id IS NULL',
-    [scrapeDate],
+  await db.orm.insert(airbnbCalendarStatus).select(
+    qb
+      .select({
+        listingId: stgCalendar.listingId,
+        nightDate: stgCalendar.nightDate,
+        available: stgCalendar.available,
+        minNights: stgCalendar.minNights,
+        statusHash: stgCalendar.statusHash,
+        validFrom: sql`${scrapeDate}`.as('valid_from'),
+        validTo: sql`NULL`.as('valid_to'),
+        isCurrent: sql`true`.as('is_current'),
+      })
+      .from(stgCalendar)
+      .leftJoin(current, sameNight)
+      .where(isNull(current.listingId)),
   );
+  await dropStaging(db, stgCalendar);
   return stats;
 }
 
@@ -450,10 +533,10 @@ export async function pendingFirstReviews(
 ): Promise<FirstReviewCandidate[]> {
   const resolved = new Set(
     (
-      await db.rows<Pick<NodeRow<typeof airbnbListingFirstReviews>, 'listing_id'>>(
-        'SELECT listing_id FROM airbnb_listing_first_reviews',
-      )
-    ).map((row) => BigInt(row.listing_id)),
+      await db.orm
+        .select({ listingId: airbnbListingFirstReviews.listingId })
+        .from(airbnbListingFirstReviews)
+    ).map((row) => row.listingId),
   );
   return listings
     .filter((listing) => !resolved.has(listing.listingId))

@@ -10,7 +10,7 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 
 | package | does | runtime dependencies |
 | --- | --- | --- |
-| `packages/scraper` | runs the providers below, decides what is stored, writes, checks and the CLI | the five packages below |
+| `packages/scraper` | runs the providers below, decides what is stored, writes, checks and the CLI | the five packages below, `drizzle-orm` |
 | `packages/db` | the DuckDB schema (Drizzle), its migrations, the views, and the connection | `utils`, `scraper-muni-str`, `@duckdb/node-api`, `drizzle-orm`, `@duckdbfan/drizzle-duckdb` |
 | `packages/scraper-airbnb` | searches Airbnb and fetches listing pages, calendars, price quotes and reviews | `utils`, `impit` |
 | `packages/scraper-muni-str` | fetches the Municipal Clerk's STR registration layers from ArcGIS | `utils` |
@@ -80,6 +80,27 @@ and the viewer's every query is built out of it. `connect` compares the two
 and refuses the database if they differ, so a view that gains, loses or
 retypes a column has to be re-declared there in the same order. The error
 names the view and the column.
+
+### Writing and reading from the scraper
+
+The scraper's statements are built from `schema.ts` and `viewSchema.ts` too,
+and run through `Database.orm`, the Drizzle instance on the same connection:
+`db.orm.delete(table).where(...)`, `db.orm.$count(view, ...)`,
+`db.orm.select({...}).from(...)`, `db.orm.insert(table).select(...)`. So a
+renamed or retyped column is a type error in the writes and the checks, not a
+statement that fails mid-run, and a read's row type is the selection's rather
+than one written out beside it.
+
+DuckDB syntax the Postgres dialect cannot express goes in a `sql` fragment
+inside the built statement, as in the viewer: the `QUALIFY` that finds a
+listing's previous photo set is a `qb.$with('prev', {columns})` CTE whose body
+is SQL over the schema's columns, and the hash a calendar merge stages is a
+`sql` value in an `update().set()`.
+
+A merge stages into a temp table, which is declared with `pgTable` in
+`store.ts` beside the statements that read it; `createStaging` builds it from
+that declaration, so the two cannot drift, and `appendRows` writes to it like
+any other table.
 
 ### Reading the database from the browser
 

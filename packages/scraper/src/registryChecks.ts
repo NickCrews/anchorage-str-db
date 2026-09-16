@@ -4,8 +4,15 @@
  */
 
 import type { Database } from '@anchorage-str-db/db/database';
+import { muniStrRegistrationObservations, muniStrRegistryRuns } from '@anchorage-str-db/db/schema';
+import {
+  listingsCurrent,
+  listingsCurrentWithRegistration,
+  registrations,
+} from '@anchorage-str-db/db/viewSchema';
 import type { LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
+import { and, countDistinct, desc, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 
 import { MIN_PAGE_FIELD_SHARE, type CheckResult, type Severity } from './checks.ts';
 
@@ -52,24 +59,24 @@ export async function runRegistryChecks(
   };
 
   const run = (
-    await db.rows<{
-      registrations_seen: number | null;
-      registrations_departed: number | null;
-      license_page_attempted: number | null;
-      license_page_failed: number | null;
-    }>(
-      'SELECT registrations_seen, registrations_departed, license_page_attempted, ' +
-        'license_page_failed FROM muni_str_registry_runs WHERE scrape_date = CAST(? AS DATE) ' +
-        'ORDER BY run_started_at DESC LIMIT 1',
-      [scrapeDate],
-    )
+    await db.orm
+      .select({
+        registrationsSeen: muniStrRegistryRuns.registrationsSeen,
+        registrationsDeparted: muniStrRegistryRuns.registrationsDeparted,
+        licensePageAttempted: muniStrRegistryRuns.licensePageAttempted,
+        licensePageFailed: muniStrRegistryRuns.licensePageFailed,
+      })
+      .from(muniStrRegistryRuns)
+      .where(eq(muniStrRegistryRuns.scrapeDate, scrapeDate))
+      .orderBy(desc(muniStrRegistryRuns.runStartedAt))
+      .limit(1)
   )[0];
   if (!run) {
     check('registry_run_logged', 'error', false, `no muni_str_registry_runs row for ${scrapeDate}`);
     return results;
   }
 
-  const seen = run.registrations_seen ?? 0;
+  const seen = run.registrationsSeen ?? 0;
   const [lo, hi] = PLAUSIBLE_REGISTRATION_COUNT;
   check(
     'registration_count_plausible',
@@ -80,10 +87,12 @@ export async function runRegistryChecks(
 
   // Airbnb's registration numbers have this shape, so another one would not
   // join to listings.
-  const malformed = await db.count(
-    'SELECT count(*) FROM muni_str_registration_observations ' +
-      "WHERE scrape_date = CAST(? AS DATE) AND NOT regexp_full_match(registration_number, 'STR\\d{8}')",
-    [scrapeDate],
+  const malformed = await db.orm.$count(
+    muniStrRegistrationObservations,
+    and(
+      eq(muniStrRegistrationObservations.scrapeDate, scrapeDate),
+      sql`NOT regexp_full_match(${muniStrRegistrationObservations.registrationNumber}, 'STR\\d{8}')`,
+    ),
   );
   check(
     'registration_number_format',
@@ -92,8 +101,9 @@ export async function runRegistryChecks(
     `${malformed} registration numbers today are not STR followed by 8 digits`,
   );
 
-  const withoutLicense = await db.count(
-    'SELECT count(*) FROM registrations WHERE is_current AND license_id IS NULL',
+  const withoutLicense = await db.orm.$count(
+    registrations,
+    and(eq(registrations.isCurrent, true), isNull(registrations.licenseId)),
   );
   check(
     'registration_license_id_present',
@@ -106,13 +116,21 @@ export async function runRegistryChecks(
   // The layer is a full republish, so a large drop is more likely a partial
   // publish than that many registrations lapsing at once. Recorded as
   // published either way.
-  const previousSeen = await db.count(
-    'SELECT registrations_seen FROM muni_str_registry_runs ' +
-      'WHERE scrape_date < CAST(? AS DATE) AND registrations_seen IS NOT NULL ' +
-      'ORDER BY scrape_date DESC, run_started_at DESC LIMIT 1',
-    [scrapeDate],
-  );
-  const departed = run.registrations_departed ?? 0;
+  const previousSeen =
+    (
+      await db.orm
+        .select({ registrationsSeen: muniStrRegistryRuns.registrationsSeen })
+        .from(muniStrRegistryRuns)
+        .where(
+          and(
+            lt(muniStrRegistryRuns.scrapeDate, scrapeDate),
+            isNotNull(muniStrRegistryRuns.registrationsSeen),
+          ),
+        )
+        .orderBy(desc(muniStrRegistryRuns.scrapeDate), desc(muniStrRegistryRuns.runStartedAt))
+        .limit(1)
+    )[0]?.registrationsSeen ?? 0;
+  const departed = run.registrationsDeparted ?? 0;
   if (previousSeen) {
     const share = departed / previousSeen;
     check(
@@ -124,9 +142,9 @@ export async function runRegistryChecks(
     );
   }
 
-  const attempted = run.license_page_attempted ?? 0;
+  const attempted = run.licensePageAttempted ?? 0;
   if (attempted) {
-    const failed = run.license_page_failed ?? 0;
+    const failed = run.licensePageFailed ?? 0;
     const rate = failed / attempted;
     check(
       'license_page_failure_rate',
@@ -153,15 +171,19 @@ export async function runRegistryChecks(
     );
   }
 
-  const cited = await db.count(
-    'SELECT count(DISTINCT str_registration_id) FROM listings_current ' +
-      'WHERE str_registration_id IS NOT NULL',
-  );
+  const cited = (
+    await db.orm
+      .select({ n: countDistinct(listingsCurrent.strRegistrationId) })
+      .from(listingsCurrent)
+      .where(isNotNull(listingsCurrent.strRegistrationId))
+  )[0]!.n;
   if (cited) {
-    const matched = await db.count(
-      'SELECT count(DISTINCT str_registration_id) FROM listings_current_with_registration ' +
-        'WHERE registration_found',
-    );
+    const matched = (
+      await db.orm
+        .select({ n: countDistinct(listingsCurrentWithRegistration.strRegistrationId) })
+        .from(listingsCurrentWithRegistration)
+        .where(eq(listingsCurrentWithRegistration.registrationFound, true))
+    )[0]!.n;
     const share = matched / cited;
     check(
       'airbnb_registration_match',

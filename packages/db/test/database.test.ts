@@ -4,9 +4,24 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { pgTable } from 'drizzle-orm/pg-core';
+
+import { bigint, day, varcharList } from '../src/columns.ts';
 import { connect } from '../src/connect.ts';
 import type { Database } from '../src/database.ts';
-import { muniLicensePageReads, airbnbListingPhotos, muniStrRegistryRuns } from '../src/schema.ts';
+import { muniLicensePageReads, muniStrRegistryRuns } from '../src/schema.ts';
+
+/** A staging table, declared the way `packages/scraper` declares its own. */
+const stg = pgTable('stg', {
+  listingId: bigint('listing_id'),
+  validFrom: day('valid_from'),
+  photoUrls: varcharList('photo_urls'),
+});
+
+const stgSubset = pgTable('stg_subset', {
+  listingId: bigint('listing_id'),
+  photoUrls: varcharList('photo_urls'),
+});
 
 const temporary: string[] = [];
 const open: Database[] = [];
@@ -81,14 +96,12 @@ describe('appendRows', () => {
     ).toEqual([{ started: '2026-09-14 02:47:01', layer_data_edited_at: null }]);
   });
 
-  it('stages into a temporary table with the same columns', async () => {
+  it('stages into a temporary table declared like any other', async () => {
     const db = await freshDb();
-    await db.run('CREATE TEMP TABLE stg AS FROM airbnb_listing_photos LIMIT 0');
-    await db.appendRows(
-      airbnbListingPhotos,
-      [{ listingId: 1n, validFrom: '2026-09-14', photoUrls: ['a.jpg', 'b.jpg'] }],
-      { into: 'stg' },
-    );
+    await db.run('CREATE TEMP TABLE stg (listing_id BIGINT, valid_from DATE, photo_urls VARCHAR[])');
+    await db.appendRows(stg, [
+      { listingId: 1n, validFrom: '2026-09-14', photoUrls: ['a.jpg', 'b.jpg'] },
+    ]);
 
     expect(await db.rows('SELECT * FROM stg')).toEqual([
       { listing_id: '1', valid_from: '2026-09-14', photo_urls: ['a.jpg', 'b.jpg'] },
@@ -96,15 +109,14 @@ describe('appendRows', () => {
     expect(await db.count('SELECT count(*) FROM airbnb_listing_photos')).toBe(0);
   });
 
-  it('appends a subset of columns', async () => {
+  it('appends the columns the staging table declares', async () => {
     const db = await freshDb();
-    await db.run('CREATE TEMP TABLE stg AS SELECT listing_id, photo_urls FROM airbnb_listing_photos LIMIT 0');
-    await db.appendRows(airbnbListingPhotos, [{ listingId: 1n, photoUrls: ['a.jpg'] }], {
-      into: 'stg',
-      columns: ['listingId', 'photoUrls'],
-    });
+    await db.run('CREATE TEMP TABLE stg_subset (listing_id BIGINT, photo_urls VARCHAR[])');
+    await db.appendRows(stgSubset, [{ listingId: 1n, photoUrls: ['a.jpg'] }]);
 
-    expect(await db.rows('SELECT * FROM stg')).toEqual([{ listing_id: '1', photo_urls: ['a.jpg'] }]);
+    expect(await db.rows('SELECT * FROM stg_subset')).toEqual([
+      { listing_id: '1', photo_urls: ['a.jpg'] },
+    ]);
   });
 
   it('rejects a target with a different number of columns', async () => {
@@ -112,9 +124,7 @@ describe('appendRows', () => {
     await db.run('CREATE TEMP TABLE stg (listing_id BIGINT, photo_urls VARCHAR[])');
 
     await expect(
-      db.appendRows(airbnbListingPhotos, [{ listingId: 1n, validFrom: '2026-09-14', photoUrls: [] }], {
-        into: 'stg',
-      }),
+      db.appendRows(stg, [{ listingId: 1n, validFrom: '2026-09-14', photoUrls: [] }]),
     ).rejects.toThrow('`stg` has 2 columns; 3 are being appended');
   });
 });

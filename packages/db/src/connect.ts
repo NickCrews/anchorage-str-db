@@ -15,6 +15,7 @@ import {
 } from 'drizzle-orm';
 
 import { tables, views } from './catalog.ts';
+import { duckDbType } from './columns.ts';
 import { Database } from './database.ts';
 import { viewsSql } from './views.ts';
 
@@ -122,24 +123,6 @@ async function rejectMismatchedTables(db: Database): Promise<void> {
       }
     }
   }
-}
-
-/** How DuckDB spells each of the pg types the columns are declared with. */
-const DUCKDB_TYPES: Readonly<Record<string, string>> = {
-  varchar: 'VARCHAR',
-  bigint: 'BIGINT',
-  integer: 'INTEGER',
-  'double precision': 'DOUBLE',
-  boolean: 'BOOLEAN',
-  date: 'DATE',
-  timestamp: 'TIMESTAMP',
-};
-
-/** The DuckDB type a declared column stands for, as `duckdb_columns()` names it. */
-function duckDbType(column: SchemaColumn): string {
-  // A `customType` names its DuckDB type outright, so it passes through.
-  const declared = column.getSQLType();
-  return DUCKDB_TYPES[declared] ?? declared;
 }
 
 /**

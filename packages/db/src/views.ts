@@ -23,7 +23,12 @@
  * that adds, drops or retypes a column has to be carried over there.
  */
 
+import { sql, type Column } from 'drizzle-orm';
+
 import { NO_MATCH_GEOCODED_ADDRESS } from '@anchorage-str-db/scraper-muni-str/registrationLayers';
+
+import { muniStrRegistrationObservations } from './schema.ts';
+import { toSql } from './sql.ts';
 
 /**
  * Days a listing may be absent from search before `listings.is_current` goes
@@ -455,7 +460,10 @@ COMMENT ON VIEW listings_current_with_host IS 'listings_current plus the host''s
 `;
 
 /** A registration's CityView licenseId, read from its `status_url`. */
-export const LICENSE_ID_SQL = "nullif(regexp_extract(status_url, '[?&]licenseId=(\\d+)', 1), '')::INTEGER";
+export const licenseIdSql = (statusUrl: Column) =>
+  sql<number | null>`nullif(regexp_extract(${statusUrl}, '[?&]licenseId=(\\d+)', 1), '')::INTEGER`;
+
+const LICENSE_ID_SQL = toSql(licenseIdSql(muniStrRegistrationObservations.statusUrl));
 
 const REGISTRY_VIEWS_SQL = `
 -- The latest registry run that completed its writes.

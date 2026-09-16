@@ -15,7 +15,8 @@
     "@anchorage-str-db/muni-licenses": "workspace:*",
     "@anchorage-str-db/scraper-airbnb": "workspace:*",
     "@anchorage-str-db/scraper-muni-str": "workspace:*",
-    "@anchorage-str-db/utils": "workspace:*"
+    "@anchorage-str-db/utils": "workspace:*",
+    "drizzle-orm": "0.45.2"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
