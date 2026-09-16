@@ -2,18 +2,18 @@
  * Read a listing's own page for fields search results lack or report
  * unreliably: whether its coordinate is exact, its municipal STR registration
  * number, its host's Airbnb user id and public profile card (`HostCard`), its
- * room type, guest, bed, bedroom and bathroom counts, and its photo gallery.
+ * listing type, guest, bed, bedroom and bathroom counts, and its photo gallery.
  *
  * Airbnb jitters the map pin unless the host shows the exact location. Search
  * returns a coordinate either way; the listing page's `isExactLocation` says
  * which. See `docs/research/airbnb-pdp-location-payload.md`. The registration
  * number is required in listings from 2026-07-31 under AO 2025-115(S-2). The
  * host id is the account id in `airbnb.com/users/show/<id>`, stable for the
- * life of the account; see `docs/research/airbnb-pdp-host-id.md`. Room type,
+ * life of the account; see `docs/research/airbnb-pdp-host-id.md`. Listing type,
  * the counts and photos are described in
  * `docs/research/airbnb-pdp-listing-attributes.md`.
  *
- * Airbnb publishes guest capacity and bed count as integers. Room type,
+ * Airbnb publishes guest capacity and bed count as integers. Listing type,
  * bedrooms and bathrooms exist only as display text ("Entire home/apt",
  * "Studio", "Shared bathroom"), so they are stored verbatim rather than
  * parsed into categories or numbers.
@@ -80,8 +80,9 @@ const HOST_USER_RE = /^DemandUser:(\d+)$/;
 // The decimal host id in the page's analytics context, e.g. `"hostId":"3682901"`.
 const RAW_HOST_ID_RE_G = /"host_?id"\s*:\s*"?(\d+)/gi;
 
+// Airbnb's key is `roomType`; we store it as `listingType`.
 // e.g. `"roomType":"Entire home/apt"` in the page's analytics context.
-const RAW_ROOM_TYPE_RE_G = /"roomType"\s*:\s*"([^"]+)"/g;
+const RAW_LISTING_TYPE_RE_G = /"roomType"\s*:\s*"([^"]+)"/g;
 const RAW_PERSON_CAPACITY_RE_G = /"personCapacity"\s*:\s*(\d+)/g;
 const RAW_BED_COUNT_RE_G = /"bedCount"\s*:\s*(\d+)/g;
 // The overview's `"items":["5 guests","2 bedrooms","3 beds","1 bath"]`.
@@ -130,8 +131,8 @@ export interface PageFields {
    * digits, which a JS number would round.
    */
   hostId: string | null;
-  /** Airbnb's room type, verbatim: `"Entire home/apt"`, `"Private room"`, … */
-  roomType: string | null;
+  /** Airbnb's `roomType`, verbatim: `"Entire home/apt"`, `"Private room"`, … */
+  listingType: string | null;
   /** Airbnb's `personCapacity`: the most guests the listing allows. */
   guestCapacity: number | null;
   /** Airbnb's `bedCount`. A bunk bed counts as 2. */
@@ -193,7 +194,7 @@ export function emptyListingPage(listingId: string, error: string | null = null)
     locationVerified: null,
     registrationId: null,
     hostId: null,
-    roomType: null,
+    listingType: null,
     guestCapacity: null,
     beds: null,
     bedrooms: null,
@@ -496,7 +497,7 @@ function fromEmbeddedState(html: string): Partial<PageFields> {
     Object.assign(
       found,
       dropNulls({
-        roomType: found.roomType ?? soleValue(doc, 'roomType', 'string'),
+        listingType: found.listingType ?? soleValue(doc, 'roomType', 'string'),
         guestCapacity: found.guestCapacity ?? soleValue(doc, 'personCapacity', 'number'),
         beds: found.beds ?? soleValue(doc, 'bedCount', 'number'),
         bedrooms: found.bedrooms ?? findOverviewLine(doc, BEDROOM_LINE_RE),
@@ -529,8 +530,8 @@ function fromRawHtml(html: string): Partial<PageFields> {
   if (number !== null) found.registrationId = `STR${number}`;
   const hostId = soleMatch(RAW_HOST_ID_RE_G, html);
   if (hostId !== null) found.hostId = hostId;
-  const roomType = soleMatch(RAW_ROOM_TYPE_RE_G, html);
-  if (roomType !== null) found.roomType = roomType;
+  const listingType = soleMatch(RAW_LISTING_TYPE_RE_G, html);
+  if (listingType !== null) found.listingType = listingType;
   const capacity = soleMatch(RAW_PERSON_CAPACITY_RE_G, html);
   if (capacity !== null) found.guestCapacity = Number(capacity);
   const beds = soleMatch(RAW_BED_COUNT_RE_G, html);
@@ -569,7 +570,7 @@ const PAGE_FIELD_NAMES = [
   'locationVerified',
   'registrationId',
   'hostId',
-  'roomType',
+  'listingType',
   'guestCapacity',
   'beds',
   'bedrooms',
@@ -620,7 +621,7 @@ const COMPARED_FIELDS = [
   'locationIsExact',
   'registrationId',
   'hostId',
-  'roomType',
+  'listingType',
   'guestCapacity',
   'beds',
   'bedrooms',

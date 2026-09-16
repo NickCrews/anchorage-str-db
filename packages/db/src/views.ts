@@ -66,7 +66,7 @@ const PAGE_ATTRS_SQL = `{
     'location_verified': location_verified,
     'registration_id': registration_id,
     'host_id': host_id,
-    'room_type': room_type,
+    'listing_type': listing_type,
     'guest_capacity': guest_capacity,
     'beds': beds,
     'bedrooms': bedrooms,
@@ -111,7 +111,7 @@ WITH observed AS (
         * EXCLUDE (
             location_is_exact, location_exact_address, location_subtitle,
             location_verified, registration_id, host_id,
-            room_type, guest_capacity, beds, bedrooms, bathrooms
+            listing_type, guest_capacity, beds, bedrooms, bathrooms
         ),
         -- NULL when the page fetch failed, so the carry-forward skips it.
         -- Carrying the whole struct keeps "read the page, no registration
@@ -169,7 +169,7 @@ SELECT
     page_attrs.location_verified AS location_verified,
     page_attrs.registration_id AS registration_id,
     page_attrs.host_id AS host_id,
-    page_attrs.room_type AS room_type,
+    page_attrs.listing_type AS listing_type,
     page_attrs.guest_capacity AS guest_capacity,
     page_attrs.beds AS beds,
     page_attrs.bedrooms AS bedrooms,
@@ -183,7 +183,7 @@ SELECT
     v.listing_id,
     v.name,
     v.property_title,
-    v.room_type,
+    v.listing_type,
     v.guest_capacity,
     v.beds,
     v.bedrooms,
@@ -237,6 +237,11 @@ QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY valid_from DESC) = 1
 -- An inactive listing's calendar is no longer fetched, so its future nights
 -- stay is_current for up to twelve months. Nights up to its last_seen_date
 -- are real observations and are kept.
+--
+-- A (listing, night) with no row here is not a zero: the listing had not been
+-- scraped yet, had retired, the night is past Airbnb's ~12-month window, or
+-- its calendar was never read. Only the second is a fact about the rental,
+-- and the missing row cannot say which applies.
 CREATE OR REPLACE VIEW calendar_current AS
 SELECT c.*
 FROM airbnb_calendar_status c
@@ -365,7 +370,10 @@ JOIN host_activity a USING (host_id);
 -- known host and is counted under nobody.
 --
 -- An Anchorage host listing portfolio: only the host's listings inside the
--- Municipality are counted, not the ones they hold elsewhere.
+-- Municipality are counted, not the ones they hold elsewhere. That is a
+-- limit of the data and not the question anyone is asking — a host running
+-- forty units from Palmer is a large operator with two listings here — but
+-- nothing Airbnb publishes to us carries a host's total. See issue #34.
 CREATE OR REPLACE VIEW host_listing_portfolios AS
 WITH held AS (
     SELECT
@@ -447,7 +455,7 @@ LEFT JOIN host_listing_portfolios p
  AND p.scrape_date = (SELECT scrape_date FROM latest_scrape_date);
 
 -- Stored in the file, so readers of the published .duckdb see the scope.
-COMMENT ON VIEW host_listing_portfolios IS 'Listings per Airbnb host account per scrape date: the host''s Anchorage listing portfolio. Counts only listings inside the Municipality, not a host''s listings elsewhere. No threshold marking a commercial host is stored.';
+COMMENT ON VIEW host_listing_portfolios IS 'Listings per Airbnb host account per scrape date: the host''s Anchorage listing portfolio. Counts only listings inside the Municipality, so a host with 2 here and 40 elsewhere reads as 2 — their true portfolio is not recoverable from this database. No threshold marking a commercial host is stored.';
 COMMENT ON COLUMN host_listing_portfolios.listings_active IS 'Listings held by this host that were live on scrape_date (seen within the retirement grace window ending that day).';
 COMMENT ON COLUMN host_listing_portfolios.listings_ever_seen IS 'Distinct listings observed under this host on or before scrape_date, active or inactive.';
 COMMENT ON VIEW listings_active_with_host IS 'listings_active plus the host''s name, tenure, and host_listing_portfolios counts as of the latest run. NULL when the host is unknown. Portfolio counts cover only listings inside the Municipality.';

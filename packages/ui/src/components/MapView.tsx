@@ -40,7 +40,7 @@ const RENTALS_QUERY = `
   SELECT
     l.name,
     l.bedrooms,
-    l.room_type,
+    l.listing_type,
     o.rating_value,
     o.review_count,
     o.price_hint_per_night,
@@ -152,7 +152,7 @@ const createLayers = (colorMode: ColorMode) => [
 type RentalRow = {
   name: string | null;
   bedrooms: string | null;
-  room_type: string | null;
+  listing_type: string | null;
   rating_value: number | null;
   review_count: number | null;
   price_hint_per_night: number | null;
@@ -165,7 +165,7 @@ type RentalRow = {
 const rentalTooltip = (row: RentalRow): string[] => {
   const lines: string[] = [];
   if (row.name) lines.push(row.name);
-  const size = [row.room_type, row.bedrooms].filter(Boolean).join(', ');
+  const size = [row.listing_type, row.bedrooms].filter(Boolean).join(', ');
   if (size) lines.push(size);
   if (row.price_hint_per_night != null) {
     lines.push(`~$${Math.round(row.price_hint_per_night)}/night`);

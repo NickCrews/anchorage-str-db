@@ -370,15 +370,15 @@ ORDER BY
 -- Q: What share of listings are whole homes, and how has it changed?
 -- A whole home rented as an STR is off the long-term market; a private or
 -- shared room usually is not. Counts each day's observed listings at the
--- room type of the version covering that day. `room_type` is Airbnb's text
+-- listing type of the version covering that day. `listing_type` is Airbnb's text
 -- ('Entire home/apt', 'Private room', 'Shared room', 'Hotel room'), NULL for
 -- listings whose page was never read.
 -- ============================================================
 SELECT
     o.scrape_date,
-    count(l.room_type) AS listings_with_room_type,
-    count(*) FILTER (WHERE l.room_type = 'Entire home/apt') AS entire_homes,
-    round(entire_homes / listings_with_room_type, 3) AS entire_home_share
+    count(l.listing_type) AS listings_with_listing_type,
+    count(*) FILTER (WHERE l.listing_type = 'Entire home/apt') AS entire_homes,
+    round(entire_homes / listings_with_listing_type, 3) AS entire_home_share
 FROM
     airbnb_listing_observations o
     JOIN listings l ON l.listing_id = o.listing_id
@@ -390,24 +390,24 @@ ORDER BY
     o.scrape_date;
 
 -- ============================================================
--- Q: Which listings changed room type, e.g. a whole cabin now rented as
+-- Q: Which listings changed listing type, e.g. a whole cabin now rented as
 -- private rooms?
 -- ============================================================
 SELECT
     listing_id,
     url,
-    prev_room_type,
-    room_type,
+    prev_listing_type,
+    listing_type,
     valid_from AS changed_on
 FROM (
     SELECT
         *,
-        lag(room_type) OVER (PARTITION BY listing_id ORDER BY valid_from) AS prev_room_type
+        lag(listing_type) OVER (PARTITION BY listing_id ORDER BY valid_from) AS prev_listing_type
     FROM listings
 )
 WHERE
-    prev_room_type IS DISTINCT FROM room_type
-    AND prev_room_type IS NOT NULL
+    prev_listing_type IS DISTINCT FROM listing_type
+    AND prev_listing_type IS NOT NULL
 ORDER BY
     changed_on DESC;
 
@@ -438,7 +438,7 @@ FROM
     LEFT JOIN latest_quote q USING (listing_id)
 WHERE
     l.is_active
-    AND l.room_type = 'Entire home/apt'
+    AND l.listing_type = 'Entire home/apt'
 GROUP BY
     l.bedrooms
 ORDER BY

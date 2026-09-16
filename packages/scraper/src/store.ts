@@ -97,7 +97,7 @@ export async function recordObservations(
         locationVerified: page?.locationVerified ?? null,
         registrationId: page?.registrationId ?? null,
         hostId: page?.hostId == null ? null : BigInt(page.hostId),
-        roomType: page?.roomType ?? null,
+        listingType: page?.listingType ?? null,
         guestCapacity: page?.guestCapacity ?? null,
         beds: page?.beds ?? null,
         bedrooms: page?.bedrooms ?? null,
@@ -203,7 +203,7 @@ export interface PageFetchStats {
   exactLocated: number;
   registered: number;
   withHostId: number;
-  withRoomType: number;
+  withListingType: number;
   withGuestCapacity: number;
   withBeds: number;
   withBedrooms: number;
@@ -225,7 +225,7 @@ export function emptyPageStats(): PageFetchStats {
     exactLocated: 0,
     registered: 0,
     withHostId: 0,
-    withRoomType: 0,
+    withListingType: 0,
     withGuestCapacity: 0,
     withBeds: 0,
     withBedrooms: 0,
@@ -250,7 +250,7 @@ export function summarizePages(pages: readonly ListingPage[]): PageFetchStats {
     exactLocated: ok.filter((page) => page.locationIsExact === true).length,
     registered: ok.filter((page) => page.registrationId !== null).length,
     withHostId: ok.filter((page) => page.hostId !== null).length,
-    withRoomType: ok.filter((page) => page.roomType !== null).length,
+    withListingType: ok.filter((page) => page.listingType !== null).length,
     withGuestCapacity: ok.filter((page) => page.guestCapacity !== null).length,
     withBeds: ok.filter((page) => page.beds !== null).length,
     withBedrooms: ok.filter((page) => page.bedrooms !== null).length,

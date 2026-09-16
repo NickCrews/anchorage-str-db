@@ -132,7 +132,7 @@ aggregate.
 Every run fetches each listing's own page for fields the search response
 lacks or reports unreliably: Airbnb's `isExactLocation` flag (whether
 `location_lat`/`location_lng` is the real position or jittered), the
-municipal STR registration id, the primary host's user id, room type,
+municipal STR registration id, the primary host's user id, listing type,
 guest, bed, bedroom and bathroom counts, and photos. All but photos are
 stored on the same `airbnb_listing_observations` row as the search fields. When a
 page fetch fails, the `listings` view carries the previous values forward.
@@ -316,7 +316,8 @@ Every run fails with `LegacySchemaError` until someone:
   time series. Where an owner ends and an operator begins is left to
   downstream users, so no threshold is stored; the viewer's cutoff is a
   labelled display choice. It counts only listings inside the Municipality,
-  so it is an Anchorage listing portfolio.
+  so it is an Anchorage listing portfolio and undercounts a host who also
+  lists elsewhere (issue #34).
 - **Listings are never UPDATEd.** `first_seen_date`, `last_seen_date` and
   `page_seen_date` are derived from observations, so they stay correct for a
   listing that retires and later relists, and a bug in version logic is
@@ -369,11 +370,11 @@ Every run fails with `LegacySchemaError` until someone:
   `raw-html`, and photos from `state` alone (JSON-LD lists at most 8). The
   `*_coverage` and `photo_coverage` checks fail the run when a field stops
   being produced.
-- **Bed, bedroom and bathroom counts, and room type, come from the listing
+- **Bed, bedroom and bathroom counts, and listing type, come from the listing
   page, not search.** Search cards show them only as free text, carry no
   guest line, and drop the bath line on some days, which would open a
   spurious version each time.
-- **Text is stored as Airbnb writes it.** Room type, bedrooms and bathrooms
+- **Text is stored as Airbnb writes it.** Listing type, bedrooms and bathrooms
   exist only as display text (`Entire home/apt`, `Studio`, `Shared
   bathroom`), so they are stored verbatim rather than mapped to categories or
   numbers: a new wording can't be misread, and analysis can re-derive

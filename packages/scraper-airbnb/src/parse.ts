@@ -1,7 +1,7 @@
 /**
  * Turn a standardized search result into the flat fields that are stored.
  *
- * Bed, bedroom and bathroom counts, and room type, come from the listing page instead (see
+ * Bed, bedroom and bathroom counts, and listing type, come from the listing page instead (see
  * `listingPage.ts`). Search cards show them only as free text, never carry a
  * guest line, and omit the bath line on some days and not others.
  */

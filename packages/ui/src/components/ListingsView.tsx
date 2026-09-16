@@ -31,7 +31,7 @@ const BASE_QUERY = `
     l.listing_id,
     l.name,
     l.property_title,
-    l.room_type,
+    l.listing_type,
     l.bedrooms,
     l.beds,
     l.bathrooms,

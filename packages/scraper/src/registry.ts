@@ -25,7 +25,7 @@ import {
 } from './registryStore.ts';
 
 /**
- * License pages read per run (see `pendingLicensePages`). The ~2500 current
+ * License pages read per run (see `pendingLicensePages`). The ~2500 active
  * registrations need ~360 reads a day at `LICENSE_PAGE_REFRESH_DAYS`, so a
  * backfill from empty takes about 5 runs. Reading 1000 in a run took 9
  * minutes once and 24 minutes the next, when the portal began timing out and
@@ -35,7 +35,7 @@ import {
 const LICENSE_PAGE_MAX_PER_RUN = 500;
 
 /**
- * A current registration's license page is re-read once its latest read is
+ * An active registration's license page is re-read once its latest read is
  * this old. The ArcGIS layer is republished about weekly, and a page's
  * description and parcel rarely change.
  */

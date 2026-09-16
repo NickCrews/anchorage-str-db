@@ -94,7 +94,7 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
       `listing pages: ${pageStats.attempted} fetched, ${pageStats.failed} failed, ` +
         `${pageStats.exactLocated} with an exact location, ${pageStats.registered} with an ` +
         `STR registration id, ${pageStats.withHostId} with a host id, ` +
-        `${pageStats.withRoomType} with a room type, ${pageStats.withGuestCapacity} with a ` +
+        `${pageStats.withListingType} with a listing type, ${pageStats.withGuestCapacity} with a ` +
         `guest capacity, ${pageStats.withBeds} with beds, ${pageStats.withBedrooms} with ` +
         `bedrooms, ${pageStats.withBathrooms} with bathrooms, ${pageStats.withPhotos} with photos`,
     );

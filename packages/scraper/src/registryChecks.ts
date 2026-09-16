@@ -26,7 +26,7 @@ const MAX_REGISTRATION_DEPARTURE_SHARE = 0.1;
 const MAX_LICENSE_PAGE_FAILURE_RATE = 0.25;
 
 /**
- * Warn when fewer than this share of the registration numbers on current
+ * Warn when fewer than this share of the registration ids on active
  * Airbnb listings appear in the registry. 1860 of 1879 matched on
  * 2026-09-13; the rest were issued after the layer's last publish.
  */

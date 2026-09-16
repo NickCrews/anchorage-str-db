@@ -47,7 +47,7 @@ const STATUS_COUNTS = `
 `;
 
 const LISTINGS_WITH_STATUS = `
-  SELECT r.room_type, ${registrationStatusSql('r')} AS status
+  SELECT r.listing_type, ${registrationStatusSql('r')} AS status
   FROM listings_active_with_registration r
 `;
 
@@ -78,8 +78,8 @@ export const RegistrationCard: FC = () => {
     `,
   });
 
-  const { data: byRoomTypeData, isLoading: byRoomTypeLoading } = useSql<{
-    roomType: string;
+  const { data: byListingTypeData, isLoading: byListingTypeLoading } = useSql<{
+    listingType: string;
     registered: number;
     lapsed: number;
     notInRegistry: number;
@@ -87,9 +87,9 @@ export const RegistrationCard: FC = () => {
   }>({
     enabled,
     query: `
-      SELECT coalesce(room_type, 'Not listed') AS "roomType", ${STATUS_COUNTS}
+      SELECT coalesce(listing_type, 'Not listed') AS "listingType", ${STATUS_COUNTS}
       FROM (${LISTINGS_WITH_STATUS})
-      GROUP BY room_type
+      GROUP BY listing_type
       ORDER BY count(*) DESC
     `,
   });
@@ -154,15 +154,15 @@ export const RegistrationCard: FC = () => {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div>
             <div className="text-muted-foreground mb-1 text-xs">
-              Active listings by room type and registration status
+              Active listings by listing type and registration status
             </div>
-            {byRoomTypeLoading ? (
+            {byListingTypeLoading ? (
               <SpinnerPane className="h-72" />
             ) : (
               <ChartContainer config={statusConfig} className="h-72 w-full">
-                <BarChart data={byRoomTypeData?.toArray() ?? []}>
+                <BarChart data={byListingTypeData?.toArray() ?? []}>
                   <CartesianGrid vertical={false} />
-                  <XAxis dataKey="roomType" tickLine={false} axisLine={false} />
+                  <XAxis dataKey="listingType" tickLine={false} axisLine={false} />
                   <YAxis tickLine={false} axisLine={false} width={40} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <ChartLegend content={<ChartLegendContent />} />
