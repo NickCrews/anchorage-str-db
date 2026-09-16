@@ -25,13 +25,13 @@ const ANCHORAGE_VIEW_STATE = {
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
 
 /**
- * One point per short-term rental we know of, as WKB geometry for
+ * One coordinate per short-term rental we know of, as WKB geometry for
  * `@sqlrooms/deck` (needs the spatial extension loaded in `store.ts`): every
  * active Airbnb listing, plus every active Muni registration that no active
  * Airbnb listing cites (units listed elsewhere, such as VRBO, or not listed).
  * Registrations the Muni's geocoder could not place are left out.
  *
- * A listing's point is the Muni's geocoding of the registration it cites when
+ * A listing's coordinate is the Muni's geocoding of the registration it cites when
  * there is one, otherwise Airbnb's pin. `is_precise` is true for a geocoded
  * license address or an exact Airbnb pin, and false for an Airbnb pin shifted
  * by up to a few hundred meters.
@@ -122,7 +122,7 @@ const FILL_COLOR = {
 } as const;
 
 // Every color-scale accessor gets its own legend, so the rings are not a
-// second colored layer: approximate points are drawn as full dots and a
+// second colored layer: jittered coordinates are drawn as full dots and a
 // basemap-colored disc is drawn over their centers.
 const createLayers = (colorMode: ColorMode) => [
   {
@@ -310,7 +310,7 @@ export const MapView: FC = () => {
               <p className="text-muted-foreground mt-0.5 text-[11px] leading-tight">
                 Every active Airbnb listing, plus every active Muni
                 registration no Airbnb listing cites. Filled dots are at a
-                known point: the registered address, or an exact Airbnb pin.
+                known coordinate: the registered address, or an exact Airbnb pin.
                 Rings are Airbnb pins jittered by up to a few hundred
                 meters, so read them as a neighborhood, not an address.
               </p>

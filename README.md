@@ -96,15 +96,17 @@ CityView license pages). Views have no prefix.
   carries the last one forward. `hosting_started_on` is derived from
   `timeAsHost`, which Airbnb reports in whole months, so it can be up to a
   month late.
-- `host_portfolios` *(view)*: per host per scrape date, `listings_active` and
-  `listings_ever_seen`. Counts only listings in the Anchorage search area: a
-  host with 2 listings here and 40 elsewhere has 2. No threshold marking
+- `host_listing_portfolios` *(view)*: per host per scrape date, `listings_active` and
+  `listings_ever_seen`: each host's Anchorage listing portfolio. Counts only
+  listings inside the Municipality, so a host with 2 here and 40 elsewhere
+  has 2. No threshold marking
   where a casual host ends and a commercial one begins is stored.
 - `listings_active_with_host` *(view)*: `listings_active` plus the host's
   name, years hosting, and portfolio counts as of the latest run
 - `calendar_current` *(view)*: the current version of each night. Use this
-  instead of `airbnb_calendar_status` for "how many are operating/booked";
-  it drops the frozen future nights of retired listings
+  instead of `airbnb_calendar_status` for "how many were charted, and how
+  many of those were available"; it drops the frozen future nights of
+  inactive listings
 
 From the Municipal Clerk's
 [Short Term Rental Registration Viewer](https://experience.arcgis.com/experience/22b40a78a9fc459e9950a16249b37ed2)
@@ -115,7 +117,7 @@ and the Muni's license portal, stored as published:
   from a run has lapsed or been withdrawn. `registered_address` is the address
   on the license: a Muni property record's address, or the registrant's typed
   text.
-  `geocoded_address`, the point, `community_council` and `parcel_type` are
+  `geocoded_address`, the coordinate, `community_council` and `parcel_type` are
   the Muni's derivations from it.
 - `muni_license_page_reads`: the CityView license page
   ([example](https://www.muni.org/CityViewPortal/License/Status?licenseId=13923&category=B))
@@ -139,10 +141,10 @@ and the Muni's license portal, stored as published:
 
 ## Known gaps
 
-- **Prices are quotes for open stays, not a nightly series.** Airbnb prices a
-  stay only while it can be booked, so booked nights, which revenue is made
-  of, have no price. Each day's quote is the listing's earliest bookable
-  stay. See
+- **Prices are quotes for available stays, not a nightly series.** Airbnb
+  prices a stay only while it can be booked, so nights that are not
+  available — the ones revenue is made of — have no price. Each day's quote
+  is the listing's earliest bookable stay. See
   [`docs/research/airbnb-calendar-price.md`](docs/research/airbnb-calendar-price.md).
 
 - **Unregistered listings have no street address.** A listing showing a

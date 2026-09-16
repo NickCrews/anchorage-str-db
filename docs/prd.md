@@ -30,8 +30,9 @@ So downstream repos can pull this data and join it against other sources
   host account. On `listings`; a listing changing hands opens a new version.
   Co-hosts are not recorded.
 - `listing_id` — stable for the life of a listing, per Listings #2.
-- point — `lat`/`lon`, with a flag for jittered vs exact (see Listings #3).
-  `location_exact_address` is null for most listings, so join on the point.
+- coordinate — `lat`/`lon`, with a flag for jittered vs exact (see Listings
+  #3). `location_exact_address` is null for most listings, so join on the
+  coordinate.
 
 ### Hosts
 
@@ -60,7 +61,7 @@ So downstream repos can pull this data and join it against other sources
   Those may be handled separately.
 - Airbnb only (no Vrbo/Expedia yet)
 - History starts when you start collecting; no retroactive backfill
-- Some map points are intentionally blurred by Airbnb for privacy
+- Some map coordinates are intentionally jittered by Airbnb for privacy
 - No price for booked nights (Listings #6). Airbnb prices a stay only while it
   is bookable, so each day records a quote for one open stay per listing.
   See [`research/airbnb-calendar-price.md`](research/airbnb-calendar-price.md).

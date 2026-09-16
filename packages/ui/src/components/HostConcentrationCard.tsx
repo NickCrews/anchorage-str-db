@@ -44,8 +44,8 @@ const trendConfig = {
 // Each host with active listings at the latest run.
 const NOW = `
   SELECT host_id, listings_active
-  FROM host_portfolios
-  WHERE scrape_date = (SELECT max(scrape_date) FROM host_portfolios)
+  FROM host_listing_portfolios
+  WHERE scrape_date = (SELECT max(scrape_date) FROM host_listing_portfolios)
     AND listings_active > 0
 `;
 
@@ -112,7 +112,7 @@ export const HostConcentrationCard: FC = () => {
             / nullif(sum(listings_active), 0),
           1
         )::DOUBLE AS "pctHeld"
-      FROM host_portfolios
+      FROM host_listing_portfolios
       GROUP BY scrape_date
       ORDER BY scrape_date
     `,
@@ -145,9 +145,10 @@ export const HostConcentrationCard: FC = () => {
         </div>
         <CardDescription className="text-xs">
           The cutoff is a display choice: the database stores each host's
-          listing counts and no commercial-host threshold. Counts cover only
-          listings in the Anchorage search area, and a host is an Airbnb
-          account, so one property manager's account can list for many owners.
+          listing counts and no commercial-host threshold. These are Anchorage
+          listing portfolios: they cover only listings inside the
+          Municipality, and a host is an Airbnb account, so one property
+          manager's account can list for many owners.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

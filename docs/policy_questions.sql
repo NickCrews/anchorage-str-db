@@ -3,17 +3,17 @@
 -- or attach the published database read-only:
 --   ATTACH 'anchorage_str.duckdb' AS str (READ_ONLY);
 -- ============================================================
--- Q: How many listings are operating on a given night?
--- "Operating" = the night was on the listing's calendar when it was read,
+-- Q: How many listings were on the calendar on a given night?
+-- "Charted" = the night was on the listing's calendar when it was read,
 -- available or not. It says the listing was on Airbnb that night, not that
--- anyone stayed. A listing with no row for a night is not "not operating":
--- it had not been scraped yet, had retired, is past Airbnb's ~12-month
--- window, or its calendar never read.
--- Uses `calendar_current`, which excludes retired listings' future nights.
+-- anyone stayed. A listing with no row for a night is not the opposite of
+-- charted: it had not been scraped yet, had retired, is past Airbnb's
+-- ~12-month window, or its calendar never read. Say "no calendar data".
+-- Uses `calendar_current`, which excludes inactive listings' future nights.
 -- ============================================================
 SELECT
     night_date,
-    count(DISTINCT listing_id) AS listings_operating
+    count(DISTINCT listing_id) AS listings_charted
 FROM
     calendar_current
 WHERE
@@ -25,30 +25,31 @@ ORDER BY
     night_date;
 
 -- ============================================================
--- Q: How many are booked (vs. open/vacant) on a given night?
+-- Q: How many are not available on a given night?
 -- A past night keeps its last observed value, so this covers future
 -- bookings and past occupancy alike.
--- Caveat: `available = false` means "not bookable", which includes nights
--- the host blocked. The calendar cannot distinguish the two.
+-- Caveat: `available = false` means "not bookable", which is a guest booking
+-- it and the host blocking it together. The calendar cannot tell them apart,
+-- so these columns are named for what is observed, not for occupancy.
 -- ============================================================
 SELECT
     night_date,
     count(*) FILTER (
         WHERE
             NOT available
-    ) AS booked,
+    ) AS not_available,
     count(*) FILTER (
         WHERE
             available
-    ) AS vacant,
-    count(*) AS total_operating,
+    ) AS available,
+    count(*) AS total_charted,
     round(
         100.0 * count(*) FILTER (
             WHERE
                 NOT available
         ) / count(*),
         1
-    ) AS pct_booked
+    ) AS pct_not_available
 FROM
     calendar_current -- swap in airbnb_calendar_status + a valid_from/valid_to filter
     -- to ask "as observed on date X"
@@ -58,7 +59,7 @@ ORDER BY
     night_date;
 
 -- ============================================================
--- Q: How many distinct listings in Anchorage operated in the last year?
+-- Q: How many distinct listings in Anchorage were active in the last year?
 -- ============================================================
 SELECT
     count(DISTINCT listing_id) AS distinct_listings_last_365_days
@@ -227,7 +228,7 @@ ORDER BY
 -- ============================================================
 -- Q: Which registration ids appear on several Airbnb listings?
 -- Private rooms of one home, duplicate listings, or one id shown on several
--- units; compare the listings' names and points.
+-- units; compare the listings' names and coordinates.
 -- ============================================================
 SELECT
     registration_id,
@@ -328,9 +329,9 @@ LIMIT
 -- - The estimate is never early, only late: a listing exists before its
 --   first review, often by months. A listing with no reviews before this
 --   project first saw it counts as entering in the year collection began.
--- - Only listings seen since collection began are counted. Listings retired
---   earlier are missing, so earlier years undercount the market of
---   that time. `cumulative_listings` counts entries, not listings operating.
+-- - Only listings seen since collection began are counted. Listings that
+--   retired earlier are missing, so earlier years undercount the market of
+--   that time. `cumulative_listings` counts entries, not active listings.
 -- - Joining `airbnb_listing_first_reviews` drops listings whose reviews have not
 --   been read yet, which would otherwise count as new.
 -- ============================================================
@@ -414,7 +415,7 @@ ORDER BY
 -- Q: What do active whole-home listings sleep, and what do they ask per night?
 -- `bedrooms` is Airbnb's text ('2 bedrooms', 'Studio'). The nightly rate is
 -- each listing's latest quote divided by its nights: the asking price of its
--- earliest open stay, so it leans toward nights that were still unbooked.
+-- earliest bookable stay, so it leans toward nights that were still available.
 -- ============================================================
 WITH latest_quote AS (
     SELECT
@@ -463,9 +464,10 @@ ORDER BY
     hosting_started_on;
 
 -- ============================================================
--- Host portfolios. `host_portfolios` stores counts only; the cutoffs below
+-- Host listing portfolios. `host_listing_portfolios` stores counts only; the cutoffs below
 -- are choices, swept rather than fixed.
--- Scope: only listings in the Anchorage search area are counted. A
+-- Scope: an Anchorage listing portfolio -- only listings inside the
+-- Municipality are counted. A
 -- `host_id` is an Airbnb account, so a property manager's account can list
 -- for many owners. Listings with no known host are left out.
 -- ============================================================
@@ -476,7 +478,7 @@ SELECT
     sum(listings_active) AS listings,
     round(100.0 * sum(listings_active) / sum(sum(listings_active)) OVER (), 1) AS pct_of_attributed_listings
 FROM
-    host_portfolios
+    host_listing_portfolios
 WHERE
     scrape_date = (SELECT scrape_date FROM latest_scrape_date)
     AND listings_active > 0
@@ -492,7 +494,7 @@ WITH now AS (
     SELECT
         listings_active
     FROM
-        host_portfolios
+        host_listing_portfolios
     WHERE
         scrape_date = (SELECT scrape_date FROM latest_scrape_date)
         AND listings_active > 0
@@ -528,7 +530,7 @@ SELECT
     round(100.0 * sum(listings_active) FILTER (WHERE listings_active >= 5) / nullif(sum(listings_active), 0), 1) AS pct_held_by_5_plus,
     round(100.0 * sum(listings_active) FILTER (WHERE listings_active >= 10) / nullif(sum(listings_active), 0), 1) AS pct_held_by_10_plus
 FROM
-    host_portfolios
+    host_listing_portfolios
 GROUP BY
     ALL
 ORDER BY
@@ -542,7 +544,7 @@ SELECT
     arg_max(listings_active, scrape_date) AS live_now,
     max(listings_ever_seen) AS ever_seen
 FROM
-    host_portfolios
+    host_listing_portfolios
 GROUP BY
     host_id
 ORDER BY

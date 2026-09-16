@@ -224,7 +224,7 @@ describe('retirement', () => {
     await recordObservations(db, '2026-08-01', [makeListing(1, 'Cabin A')], [read]);
 
     for (let i = 2; i < 12; i++) {
-      // gone long enough to be retired
+      // gone long enough to retire
       const day = `2026-08-${String(i).padStart(2, '0')}`;
       await recordObservations(db, day, []);
       await logRun(db, runRow(day, { listingsSeen: 0 }));
@@ -828,9 +828,9 @@ describe('hosts', () => {
 });
 
 // --------------------------------------------------------------------------
-// host portfolios
+// host listing portfolios
 
-describe('host_portfolios', () => {
+describe('host_listing_portfolios', () => {
   it('counts a multi-listing host', async () => {
     const { db } = await freshDb();
     await recordDay(db, '2026-08-01', [
@@ -842,7 +842,7 @@ describe('host_portfolios', () => {
 
     expect(
       await db.rows(
-        'SELECT host_id, listings_active, listings_ever_seen FROM host_portfolios ORDER BY host_id',
+        'SELECT host_id, listings_active, listings_ever_seen FROM host_listing_portfolios ORDER BY host_id',
       ),
     ).toEqual([
       { host_id: '100', listings_active: 3, listings_ever_seen: 3 },
@@ -861,7 +861,7 @@ describe('host_portfolios', () => {
     ]);
   });
 
-  it('drops retired listings from the live count but not from ever seen', async () => {
+  it('drops inactive listings from the live count but not from ever seen', async () => {
     const { db } = await freshDb();
     const start = '2026-08-01';
     const both: Held[] = [
@@ -869,13 +869,13 @@ describe('host_portfolios', () => {
       { listingId: 2, hostId: '100', page: card('100') },
     ];
     await recordDay(db, start, both);
-    // Listing 2 disappears; it is retired after the grace period.
+    // Listing 2 disappears; it goes inactive after the grace period.
     for (let i = 1; i <= RETIREMENT_GRACE_DAYS + 1; i++) {
       await recordDay(db, addDays(start, i), both.slice(0, 1));
     }
 
     const rows = await db.rows<{ scrape_date: string; listings_active: number; listings_ever_seen: number }>(
-      "SELECT scrape_date, listings_active, listings_ever_seen FROM host_portfolios WHERE host_id = 100 ORDER BY scrape_date",
+      "SELECT scrape_date, listings_active, listings_ever_seen FROM host_listing_portfolios WHERE host_id = 100 ORDER BY scrape_date",
     );
     expect(rows[RETIREMENT_GRACE_DAYS]).toEqual({
       scrape_date: addDays(start, RETIREMENT_GRACE_DAYS),
@@ -899,7 +899,7 @@ describe('host_portfolios', () => {
 
     expect(
       await db.rows(
-        'SELECT scrape_date, listings_active, listings_ever_seen FROM host_portfolios ORDER BY scrape_date',
+        'SELECT scrape_date, listings_active, listings_ever_seen FROM host_listing_portfolios ORDER BY scrape_date',
       ),
     ).toEqual([
       { scrape_date: '2026-08-01', listings_active: 1, listings_ever_seen: 1 },
@@ -914,7 +914,7 @@ describe('host_portfolios', () => {
     await recordDay(db, '2026-08-02', [{ listingId: 1, hostId: '100', page: 'failed' }]);
 
     expect(
-      await db.rows("SELECT listings_active FROM host_portfolios WHERE scrape_date = '2026-08-02'"),
+      await db.rows("SELECT listings_active FROM host_listing_portfolios WHERE scrape_date = '2026-08-02'"),
     ).toEqual([{ listings_active: 1 }]);
   });
 
@@ -925,7 +925,7 @@ describe('host_portfolios', () => {
 
     expect(
       await db.rows(
-        "SELECT host_id, listings_active, listings_ever_seen FROM host_portfolios " +
+        "SELECT host_id, listings_active, listings_ever_seen FROM host_listing_portfolios " +
           "WHERE scrape_date = '2026-08-02' ORDER BY host_id",
       ),
     ).toEqual([
@@ -939,7 +939,7 @@ describe('host_portfolios', () => {
 
     expect(
       await db.rows(
-        "SELECT column_name FROM duckdb_columns() WHERE table_name = 'host_portfolios' " +
+        "SELECT column_name FROM duckdb_columns() WHERE table_name = 'host_listing_portfolios' " +
           'ORDER BY column_index',
       ),
     ).toEqual([
@@ -949,8 +949,8 @@ describe('host_portfolios', () => {
       { column_name: 'listings_ever_seen' },
     ]);
     expect(
-      await db.value("SELECT comment FROM duckdb_views() WHERE view_name = 'host_portfolios'"),
-    ).toMatch(/Anchorage search area/);
+      await db.value("SELECT comment FROM duckdb_views() WHERE view_name = 'host_listing_portfolios'"),
+    ).toMatch(/Anchorage listing portfolio/);
   });
 });
 
@@ -967,9 +967,9 @@ describe('mergeCalendar', () => {
     // Same value again: no new version.
     expect((await mergeCalendar(db, '2026-08-02', open)).nightsChanged).toBe(0);
 
-    // Flips to booked: new version, old one closed.
-    const booked = [calendar('1', [night('2026-09-01', false, 2)])];
-    expect((await mergeCalendar(db, '2026-08-03', booked)).nightsChanged).toBe(1);
+    // Flips to not available: new version, old one closed.
+    const taken = [calendar('1', [night('2026-09-01', false, 2)])];
+    expect((await mergeCalendar(db, '2026-08-03', taken)).nightsChanged).toBe(1);
 
     expect(
       await db.rows(
@@ -1007,7 +1007,7 @@ describe('mergeCalendar', () => {
 describe('calendar_current', () => {
   const nights = [night('2026-08-05', true, 2), night('2027-01-01', true, 2)];
 
-  it('drops a retired listing’s unconfirmed future', async () => {
+  it('drops an inactive listing’s unconfirmed future', async () => {
     const { db } = await freshDb();
     const start = '2026-08-01';
     await recordObservations(db, start, [makeListing(1, 'A'), makeListing(2, 'B')]);
@@ -1020,17 +1020,17 @@ describe('calendar_current', () => {
       await mergeCalendar(db, day, [calendar('1', nights)]);
     }
 
-    const operating = (view: string): Promise<number> =>
+    const charted = (view: string): Promise<number> =>
       db.count(
         `SELECT count(DISTINCT listing_id) FROM ${view} ` +
           "WHERE is_current AND night_date = '2027-01-01'",
       );
 
-    expect(await operating('airbnb_calendar_status')).toBe(2); // the raw table still holds both
-    expect(await operating('calendar_current')).toBe(1); // only listing 1 is still active
+    expect(await charted('airbnb_calendar_status')).toBe(2); // the raw table still holds both
+    expect(await charted('calendar_current')).toBe(1); // only listing 1 is still active
   });
 
-  it('keeps a retired listing’s nights up to its last sighting', async () => {
+  it('keeps an inactive listing’s nights up to its last sighting', async () => {
     const { db } = await freshDb();
     const start = '2026-08-01';
     const past = [night('2026-08-01', false, 2)];

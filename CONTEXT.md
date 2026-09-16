@@ -22,15 +22,31 @@ field.
 
 **Unit**:
 A physical space rented as a whole — a house, an apartment, a cabin, a
-bedroom in an occupied home. The cross-source concept: a unit may have
-listings on several platforms, a registration, both, or neither. No table
-holds units; see [rental-units](./docs/research/rental-units/README.md) for
-why grouping records into them is unsolved.
+bedroom in an occupied home. What it is used for is a separate question: a
+unit may be a short-term rental, a long-term rental, or owner-occupied. Every
+STR is a unit; most units are not STRs, and nothing here sees the ones that
+are not. The cross-source concept: a unit may have listings on several
+platforms, a registration, both, or neither. No table holds units; see
+[rental-units](./docs/research/rental-units/README.md) for why grouping
+records into them is unsolved.
 _Avoid_: property, rental, dwelling, room, STR, home
 
+**STR**:
+Short-term rental: a unit rented out for stays shorter than 30 days, which is
+what the Muni requires a registration for. An adjective, not a countable
+thing: an "STR registration", never "2,600 STRs". Count listings or
+registrations, which are the things this database actually holds.
+_Avoid_: using it to mean a listing or a unit
+
 **Listing**:
-One Airbnb page a guest can book, identified by `listing_id`. A unit can have
-several, and one listing can cover several units.
+One Airbnb page a guest can book, identified by `listing_id`. Neither
+direction is one-to-one, and both counterexamples are in the data rather than
+hypothetical: one unit can carry several listings on one platform — 4011
+Turnagain Blvd E Unit 4A is listed twice, by a property manager and by the
+owner, from two host accounts — and one listing can cover several units —
+STR20261828's triplex is listed whole as well as by unit, and booking the
+whole makes the others unavailable. See
+[rental-units](./docs/research/rental-units/README.md) §1 and §3.
 _Avoid_: room, rental, ad, property, STR, unit
 
 **Room type**:
@@ -40,8 +56,9 @@ only place this repo says "room".
 _Avoid_: listing type, property type, rental type
 
 **Property title**:
-Airbnb's short description of the building (`Cabin in Palmer`). A property
-type, not a room type.
+Airbnb's short description of the building (`Cabin in Palmer`),
+`property_title`. A property type, not a room type.
+_Avoid_: title, name (`name` is the listing's headline)
 
 **Night**:
 One date on a listing's calendar, `night_date`. The grain of
@@ -58,9 +75,9 @@ _Avoid_: booking, reservation, trip
 
 **Host**:
 The Airbnb account a listing is run from, identified by `host_id` and stable
-for the life of the account. The operator: often a property manager or
-rental company listing for many owners, so a host is not an owner. Co-hosts
-are not recorded.
+for the life of the account. The operator: often a property manager or rental
+company listing for many owners, so a host is not necessarily an owner,
+though they may be the same person. Co-hosts are not recorded.
 _Avoid_: operator, owner, property manager, landlord, account, user
 
 **Owner**:
@@ -75,17 +92,35 @@ identity: the same business is spelled several ways, and it is blank or
 _Avoid_: applicant, owner, host, business
 
 **Licensee**:
-The entity a license is issued to. Named on the license page as
-`business_name`, and never identified: the `LC` id belongs to the license,
-not to the licensee, so one business holding four licenses has four of them.
-Like the owner, the licensee is a name in this data, not an identity.
+The entity a license is issued to, named on the license page as
+`business_name`. Like the owner, the licensee is a name in this data, not an
+identity.
 _Avoid_: applicant, registrant, business, license holder
+
+**Portfolio**:
+What one party holds. Both halves are ambiguous on their own, so name them
+unless the sentence has already fixed both: whose it is (**host** or
+**owner**) and what is counted (**listings** or **units**). A host listing
+portfolio and an owner unit portfolio are different measurements, and this
+database can only compute the first.
+
+Unqualified, a portfolio is everything the party holds, wherever it is. Ours
+is not that: `host_listing_portfolios` counts a host's listings inside the
+Municipality only, so it is an **Anchorage host listing portfolio**, and a
+host with ten listings in Palmer has an Anchorage portfolio of zero. Say
+"Anchorage" whenever the boundary is what makes the number what it is. No
+threshold separating a hobbyist from a commercial operator is stored — that
+line is drawn downstream.
+_Avoid_: empire, holdings, inventory, tycoon
 
 ### The Municipality
 
 **The Muni**:
 The Municipality of Anchorage. "The Municipal Clerk" specifically for the
-office that publishes the registration layer.
+office that publishes the registration layer. Its boundary is the scope of
+this database: the daily run searches a padded bounding box that also takes
+in Hope, Palmer and Wasilla, and drops every listing whose coordinate falls
+outside the boundary itself, so every count here is a count inside the Muni.
 _Avoid_: the city, Anchorage, MOA, the municipality
 
 **Registration**:
@@ -93,6 +128,22 @@ One STR certificate the Municipal Clerk publishes, identified by
 `registration_id`. Required to operate a short-term rental; a listing prints
 its id on the listing page, which is the only link between the two sources.
 _Avoid_: permit, certificate, license, registration number, STR number
+
+**What a registration covers** has no fixed grain, so do not treat any tuple
+— (registrant, address), (registrant, address, room type), or another — as
+its key. The registrant decides what to file, and both directions occur:
+
+- One registration, many units: STR20261701 (189 Hightower Rd, Girdwood)
+  covers 8 private-room listings.
+- Many registrations, one unit and one registrant: 7901 Highlander Dr holds
+  four registrations under Nordic Lodgings LLC, all with the same address
+  string, and 400 Turpin St Unit 8 holds one per bedroom.
+
+On 2026-09-15, 115 (registrant, address) pairs held more than one of the
+2,564 active registrations, covering 293 of them.
+`packages/scraper/test/registrationGrain.test.ts` asserts this against the
+live layer, so a Muni change to the rule fails a test rather than quietly
+invalidating a join.
 
 **License**:
 The Muni business license a registration is issued under, read from its
@@ -104,10 +155,11 @@ license** below.
 _Avoid_: registration, permit, licence
 
 **License location**:
-One row of a license page's location list. A row with a `link` comes from a
-Muni property record — label `Property` for a parcel id, `Address` for that
-record's address. A row without one is text the registrant typed that matched
-no record.
+One row of a license page's location list, as `locations`. A row with a
+`link` comes from a Muni property record — label `Property` for a parcel id,
+`Address` for that record's address. A row without one is text the registrant
+typed that matched no record. Never plain "address": `registered_address`,
+`geocoded_address` and `location_exact_address` are three other things.
 _Avoid_: address (unqualified), property, site
 
 **Parcel**:
@@ -117,7 +169,7 @@ _Avoid_: lot, property, tax record
 
 **Community council**:
 The Muni's neighborhood district, derived by the Muni from a registration's
-point. Only registrations have one.
+coordinate. Only registrations have one.
 _Avoid_: neighborhood, district, area
 
 ### Identifiers
@@ -125,8 +177,7 @@ _Avoid_: neighborhood, district, area
 **`_id`, not `_number`**:
 Every identifier here is alphanumeric (`STR20260309`, `LC260500349`) or an
 opaque integer, so it is an id. Reserve `_number` for something countable.
-_Avoid_: `registration_number`, `application_number`, `licensee_number`,
-`licensee_id` (it names a license, not a licensee)
+_Avoid_: `registration_number`, `application_number`, `licensee_number`
 
 **Three ids, one license**:
 A registration, the license it was issued under, and that license's CityView
@@ -154,22 +205,17 @@ STR20260008-11 under LC260500044-47 and CityView ids 13615-18 — four
 licenses, not one licensee with four registrations. Never group by it to
 count operators.
 
-**`cityview_license_id`**:
-CityView's own row id for a license, `13923`, read from the `licenseId`
-query parameter of the registration's `status_url`. It keys
-`muni_license_page_reads` because it is what fetches a page; it is an
-implementation detail of the portal and means nothing outside it.
-
 **`registration_id`**:
 `STR20260309`. On a registration it is the Clerk's; on a listing it is what
 the listing page prints, which may match no registration.
 
 ### Where a thing is
 
-**Point**:
+**Coordinate**:
 A `lat`/`lng` pair. A listing's is Airbnb's (`location_lat`/`location_lng`);
 a registration's is the Muni geocoder's (`geocoded_lat`/`geocoded_lng`).
-_Avoid_: location, coordinate, position, pin, geo
+ArcGIS's own "point layer" stays verbatim, as a source's label does.
+_Avoid_: point, location, position, pin, geo
 
 **Address**:
 A street address as text. A listing has one only when the host published it
@@ -177,42 +223,49 @@ A street address as text. A listing has one only when the host published it
 a property record's or the registrant's typed text.
 _Avoid_: location, street, place
 
-**Exact**:
-Of a listing's point: Airbnb's real position rather than its privacy offset.
-About half are not. Filter `location_is_exact` before any spatial join.
-_Avoid_: precise, real, verified, unjittered
-
-**Jittered**:
-Of a listing's point: offset by Airbnb for privacy. Stable per listing, so
-repeat scraping does not average it out.
-_Avoid_: fuzzed, blurred, approximate, obfuscated
+**Exact and jittered**:
+The two states of a listing's coordinate, and opposites. **Exact** is
+Airbnb's real position; **jittered** is the privacy offset Airbnb publishes
+instead, stable per listing so repeat scraping does not average it out. About
+half are jittered, so filter `location_is_exact` before any spatial join.
+_Avoid_: for exact — precise, real, verified, unjittered; for jittered —
+fuzzed, blurred, approximate, obfuscated
 
 **Geocoded**:
-Of a registration: derived by the Muni from `registered_address`, not given
-by the registrant. Applies to its point, `geocoded_address`,
+Of a registration: derived by the Muni from `registered_address` rather than
+given by the registrant — its coordinate, `geocoded_address`,
 `community_council` and `parcel_type`.
 
 ### Lifecycle
+
+**Operating**:
+Of a unit: being rented as an STR. A fact about the world, not about this
+data — a unit operating without a registration or a listing is invisible
+here, and the closest this database gets to the word is an active listing.
+_Avoid_: active, running, in business, live
 
 **Active**:
 Of a listing: still appearing in search, within `RETIREMENT_GRACE_DAYS` of
 the latest completed run (`is_active`, `listings_active`). Of a registration:
 in the latest registry run's layer, which holds only active registrations.
-The word for "still out there" everywhere, in schema and UI alike. Licenses
-are valid or expired instead, and a night is operating or not; neither of
-those is a synonym for this.
+The word for "still out there" in schema and UI alike, at the grain of one
+record: a listing was active from June 2025, a unit is operating. Licenses
+are valid or expired instead; neither is a synonym for this.
 _Avoid_: current, live, operating, open, in service
 
-**Retired**:
-Of a listing: no longer active. The Muni equivalent is lapsed.
-_Avoid_: dead, gone, removed, delisted, inactive
+**Inactive**:
+Of a listing: no longer active. The Muni equivalent is lapsed. **Retire** is
+the transition into it, five days (`RETIREMENT_GRACE_DAYS`) after the last
+run that saw the listing; `airbnb_scrape_runs.listings_retired` counts the
+listings that went inactive on that run.
+_Avoid_: dead, gone, removed, delisted, expired
 
 **Lapsed**:
 Of a registration: no longer published by the Clerk, so its term ended, it
 was withdrawn, or the Muni stopped publishing it. The Airbnb equivalent is
-retired. Not the same as expired, which is about the license term rather
+inactive. Not the same as expired, which is about the license term rather
 than about publication.
-_Avoid_: departed, gone, expired, dropped, inactive
+_Avoid_: departed, gone, expired, dropped, retired
 
 **Valid**:
 Of a license: today is on or before its `expires_date`. A date test, not a
@@ -227,7 +280,7 @@ Of a license: past its `expires_date`. Says nothing about whether the
 registration still appears in the layer: expired is about the term, lapsed
 about publication, and a registration can be either without the other until
 a renewal is observed.
-_Avoid_: lapsed, retired, inactive, dead, invalid
+_Avoid_: lapsed, inactive, retired, dead, invalid
 
 **Version**:
 One run of unchanged attributes on a listing or host, `valid_from` to
@@ -236,8 +289,8 @@ _Avoid_: revision, snapshot, record, change
 
 **Current version**:
 The latest version of a record — `valid_to IS NULL`, or
-`airbnb_calendar_status.is_current`. About the row, never about the listing:
-a retired listing still has a current version.
+`airbnb_calendar_status.is_current`. Bookkeeping about a row, never a
+statement about the listing: an inactive listing still has a current version.
 _Avoid_: active, latest, newest
 
 **Observation**:
@@ -266,55 +319,44 @@ _Avoid_: fetched, scraped, loaded, got
 
 ### Availability
 
-Active and operating are the easiest pair to conflate, and they are at
-different grains. Active is a property of a listing as of the latest run;
-operating is a property of one (listing, night) pair. A retired listing is
-not active, but was operating on every night before it went. An active
-listing whose calendar never fetched is operating on none. "How many
-short-term rentals are there" is `listings WHERE is_active`; "how many were
-on the market last New Year's Eve" is `calendar_current`. Neither word
-replaces the other.
+Three words describe "is this thing going", at three grains, and they are not
+interchangeable. A unit is **operating**; a listing is **active**; a
+(listing, night) pair is **charted**. "How many short-term rentals are there"
+is `listings WHERE is_active`; "how many were on the market last New Year's
+Eve" is `calendar_current`. An inactive listing is not active, but was
+charted on every night before it went, and an active listing whose calendar
+never fetched is charted on none.
 
-**Available**:
-Of a night: bookable on Airbnb's calendar. Its opposite covers both booked
-and host-blocked nights, which the calendar cannot tell apart — say
-"not available", and never infer occupancy without that caveat.
-_Avoid_: open, free, vacant, unbooked
+**Charted**:
+Of a (listing, night) pair: that night was on the listing's calendar when we
+read it, available or not. The denominator for every occupancy question. A
+deliberately odd word, because it is a fact about our data and not about the
+rental — a listing whose host blocked all twelve months is charted on all of
+them.
+_Avoid_: operating, active, running, open, in business
 
-**Booked**:
-Of a night: taken by a guest. Not directly observable; only ever an
-interpretation of a night that is not available.
-_Avoid_: reserved, occupied, sold
+**The states of a night**:
+For a charted (listing, night) pair, Airbnb publishes one bit, `available`,
+so there are two observed states and no third:
 
-**Operating**:
-Of one (listing, night) pair: that night was on the listing's calendar when
-we read it, available or not. The denominator for every occupancy question.
-A fact about the data rather than about the rental — a listing whose host
-blocked all twelve months is operating on all of them.
-_Avoid_: active, running, open, in business
+| State | Meaning | Observable |
+| --- | --- | --- |
+| **Available** | bookable on the calendar we read | yes, `available` |
+| **Not available** | not bookable | yes, `NOT available` |
+| **Booked** | not available because a guest took it | no — an interpretation |
+| **Blocked** | not available because the host closed it off | no — an interpretation |
 
-**Not operating**:
-Not a term, because it is not a state. A listing has no row for a night when
-it had not been scraped yet, when it had already retired, when the night is
-beyond Airbnb's ~12-month window, or when its calendar was never read. Only
-the second is a fact about the rental, and the missing row cannot tell you
-which applies, so write "no calendar data" and say which you mean.
+Available and not available are exhaustive and mutually exclusive. Booked and
+blocked split "not available" and the calendar cannot tell them apart, so
+never report either as a count: say "not available", and caveat any occupancy
+figure derived from it.
+_Avoid_: for available — open, free, vacant, unbooked; for booked — reserved,
+occupied, sold
 
-**Portfolio**:
-The listings held by one host, counted per run in `host_portfolios`. Counts
-only listings inside the Anchorage search area, and no threshold separating
-a hobbyist from a commercial operator is stored — that line is drawn
-downstream.
-_Avoid_: empire, holdings, inventory, tycoon
-
-### Out of scope
-
-**STR**:
-Short-term rental, the subject of the database. An adjective, not a
-countable thing: an "STR registration", never "2,600 STRs".
-_Avoid_: using it to mean a listing or a unit
-
-**Search area**:
-The bounding box the daily run searches, covering the whole Muni including
-Girdwood. Every count in this database is scoped to it.
-_Avoid_: region, bbox, area of interest
+**No calendar data**:
+The absence of a row, which is not a fourth state. A listing has no row for a
+night when it had not been scraped yet, when it had already retired, when the
+night is beyond Airbnb's ~12-month window, or when its calendar was never
+read. Only the second is a fact about the rental, and the missing row cannot
+tell you which applies, so write "no calendar data" and say which you mean.
+_Avoid_: not operating, unavailable, closed

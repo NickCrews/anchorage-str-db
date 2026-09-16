@@ -5,12 +5,12 @@
  * (https://experience.arcgis.com/experience/22b40a78a9fc459e9950a16249b37ed2).
  *
  * The layer has two kinds of address field. `Location` is the address on the
- * license, as the registrant gave it. The rest (`GeocodedAddress`, the point,
+ * license, as the registrant gave it. The rest (`GeocodedAddress`, the coordinate,
  * `CommunityCouncil`, `ParcelType`) the Muni derived from it afterwards.
  * `test/addresses.test.ts` checks this against the live layer.
  *
  * Values are kept as published. That includes the string `'None'` for a
- * missing business name, and a placeholder point for an address the Muni's
+ * missing business name, and a placeholder coordinate for an address the Muni's
  * geocoder could not match (see `NO_MATCH_GEOCODED_ADDRESS`); the
  * `registrations` view cleans both.
  */
@@ -34,7 +34,7 @@ export const REGISTRATIONS_LAYER_URL = `${SERVICE_URL}/0`;
 /**
  * `GeocodedAddress` for a registration whose `Location` the geocoder could
  * not match: every one has no city or zip, including addresses taken from a
- * property record (`311 MELODY PL`). They all sit on one placeholder point,
+ * property record (`311 MELODY PL`). They all sit on one placeholder coordinate,
  * `NO_MATCH_POINT`, and have no `CommunityCouncil` or `ParcelType`.
  */
 export const NO_MATCH_GEOCODED_ADDRESS = 'Incomplete address provided. No Match.';
@@ -66,7 +66,7 @@ export interface Registration {
   status: string | null;
   /** The CityView license page, `.../License/Status?licenseId=13923&category=B`. */
   statusUrl: string | null;
-  /** The council containing the geocoded point; null exactly when geocoding found no match. */
+  /** The council containing the geocoded coordinate; null exactly when geocoding found no match. */
   communityCouncil: string | null;
   /**
    * `Residential` or `Commercial`. Can be null for a license that names a
@@ -81,7 +81,7 @@ export interface Registration {
    * `NO_MATCH_GEOCODED_ADDRESS`.
    */
   geocodedAddress: string | null;
-  /** The geocoded point, not a position the registrant gave. */
+  /** The geocoded coordinate, not a position the registrant gave. */
   geocodedLat: number | null;
   geocodedLng: number | null;
   /** The layer's `PUBDATE`, naive UTC. */

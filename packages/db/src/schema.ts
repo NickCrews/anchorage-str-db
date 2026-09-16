@@ -14,7 +14,7 @@
  *   The only stored facts about a listing.
  * - `airbnb_calendar_status`: SCD2 on (listing_id, night_date). A night that
  *   leaves Airbnb's ~12-month calendar window is no longer observed, so its
- *   last value stays as the realized booked/available state.
+ *   last value stays as the realized available / not-available state.
  * - `airbnb_listing_first_reviews`: one row per listing whose earliest review
  *   date has been resolved. Keyed by `listing_id` rather than a column on
  *   `airbnb_listing_observations`, because it is resolved once: as a daily
@@ -263,7 +263,7 @@ export const muniStrRegistrationObservations = pgTable(
     // The CityView license page; the licenseId in its URL is
     // cityview_license_id, which keys muni_license_page_reads.
     statusUrl: varchar('status_url'),
-    // The council containing the geocoded point; NULL exactly when geocoding
+    // The council containing the geocoded coordinate; NULL exactly when geocoding
     // found no match.
     communityCouncil: varchar('community_council'),
     // 'Residential' or 'Commercial'. Can be NULL even when the license names
@@ -274,9 +274,9 @@ export const muniStrRegistrationObservations = pgTable(
     // Anchorage, Alaska, 99502'.
     // It rewrites typed text too ('#501' becomes 'Apartment 501', 'ROOM 4' is
     // dropped). An address with no city or zip gets
-    // 'Incomplete address provided. No Match.' and a placeholder point.
+    // 'Incomplete address provided. No Match.' and a placeholder coordinate.
     geocodedAddress: varchar('geocoded_address'),
-    // The geocoded point, not a position the registrant gave.
+    // The geocoded coordinate, not a position the registrant gave.
     geocodedLat: doublePrecision('geocoded_lat'),
     geocodedLng: doublePrecision('geocoded_lng'),
     // The layer's PUBDATE, naive UTC.
