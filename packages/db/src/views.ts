@@ -13,7 +13,7 @@
  * `registrations` has one row per registration with its latest license page,
  * and `listings_active_with_registration` joins Airbnb listings to it on the
  * registration id. Cleaning (the `'None'` business name, the no-match
- * placeholder point) happens in the views, so the raw tables can always be
+ * placeholder coordinate) happens in the views, so the raw tables can always be
  * re-derived.
  *
  * Views are not in the Drizzle schema: they use DuckDB syntax drizzle-kit
@@ -231,10 +231,10 @@ SELECT
 FROM airbnb_listing_photos
 QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY valid_from DESC) = 1;
 
--- The current version of each night, minus the future nights of retired
+-- The current version of each night, minus the future nights of inactive
 -- listings.
 --
--- A retired listing's calendar is no longer fetched, so its future nights
+-- An inactive listing's calendar is no longer fetched, so its future nights
 -- stay is_current for up to twelve months. Nights up to its last_seen_date
 -- are real observations and are kept.
 CREATE OR REPLACE VIEW calendar_current AS
@@ -364,9 +364,9 @@ JOIN host_activity a USING (host_id);
 -- \`listings_active.host_id\`. A listing whose page was never read has no
 -- known host and is counted under nobody.
 --
--- Only listings in the Anchorage search area are counted, not a host's
--- listings elsewhere.
-CREATE OR REPLACE VIEW host_portfolios AS
+-- An Anchorage host listing portfolio: only the host's listings inside the
+-- Municipality are counted, not the ones they hold elsewhere.
+CREATE OR REPLACE VIEW host_listing_portfolios AS
 WITH held AS (
     SELECT
         listing_id,
@@ -428,8 +428,8 @@ FROM panel p
 LEFT JOIN live_counts l USING (host_id, scrape_date)
 LEFT JOIN newly_seen n USING (host_id, scrape_date);
 
--- \`listings_active\` plus the owning host's profile and portfolio as of the
--- latest run, so "is this Girdwood listing part of a large portfolio?" needs no
+-- \`listings_active\` plus the owning host's profile and listing portfolio as of
+-- the latest run, so "is this Girdwood listing part of a large one?" needs no
 -- join. The host columns are NULL when the host is unknown.
 CREATE OR REPLACE VIEW listings_active_with_host AS
 SELECT
@@ -442,15 +442,15 @@ SELECT
 FROM listings_active l
 LEFT JOIN hosts h
   ON h.host_id = l.host_id AND h.valid_to IS NULL
-LEFT JOIN host_portfolios p
+LEFT JOIN host_listing_portfolios p
   ON p.host_id = l.host_id
  AND p.scrape_date = (SELECT scrape_date FROM latest_scrape_date);
 
 -- Stored in the file, so readers of the published .duckdb see the scope.
-COMMENT ON VIEW host_portfolios IS 'Listings per Airbnb host account per scrape date. Counts only listings in the Anchorage search area, not a host''s listings elsewhere. No threshold marking a commercial host is stored.';
-COMMENT ON COLUMN host_portfolios.listings_active IS 'Listings held by this host that were live on scrape_date (seen within the retirement grace window ending that day).';
-COMMENT ON COLUMN host_portfolios.listings_ever_seen IS 'Distinct listings observed under this host on or before scrape_date, live or retired.';
-COMMENT ON VIEW listings_active_with_host IS 'listings_active plus the host''s name, tenure, and host_portfolios counts as of the latest run. NULL when the host is unknown. Portfolio counts cover only the Anchorage search area.';
+COMMENT ON VIEW host_listing_portfolios IS 'Listings per Airbnb host account per scrape date: the host''s Anchorage listing portfolio. Counts only listings inside the Municipality, not a host''s listings elsewhere. No threshold marking a commercial host is stored.';
+COMMENT ON COLUMN host_listing_portfolios.listings_active IS 'Listings held by this host that were live on scrape_date (seen within the retirement grace window ending that day).';
+COMMENT ON COLUMN host_listing_portfolios.listings_ever_seen IS 'Distinct listings observed under this host on or before scrape_date, active or inactive.';
+COMMENT ON VIEW listings_active_with_host IS 'listings_active plus the host''s name, tenure, and host_listing_portfolios counts as of the latest run. NULL when the host is unknown. Portfolio counts cover only listings inside the Municipality.';
 `;
 
 /** CityView's own row id for a registration's license, read from its `status_url`. */
@@ -502,7 +502,7 @@ SELECT
     o.community_council,
     o.parcel_type,
     o.geocoded_address,
-    -- NULL where the geocoder found no match, instead of its placeholder point.
+    -- NULL where the geocoder found no match, instead of its placeholder coordinate.
     CASE WHEN o.geocoded_address IS DISTINCT FROM '${NO_MATCH_GEOCODED_ADDRESS}'
          THEN o.geocoded_lat END AS geocoded_lat,
     CASE WHEN o.geocoded_address IS DISTINCT FROM '${NO_MATCH_GEOCODED_ADDRESS}'
@@ -559,11 +559,23 @@ COMMENT ON VIEW registrations IS 'One row per STR registration the Municipal Cle
 COMMENT ON VIEW listings_active_with_registration IS 'listings_active plus the Municipal registration matching registration_id. Registration columns are NULL when there is no match.';
 `;
 
+/**
+ * Views under names this file no longer creates. `CREATE OR REPLACE VIEW`
+ * cannot remove one, so a published database would carry a renamed view's old
+ * name forever, still answering queries from a definition nothing maintains.
+ * Everything below is recreated straight after, so dropping it here is safe.
+ */
+const DROPPED_VIEWS_SQL = `
+-- Renamed to host_listing_portfolios: a portfolio needs to say whose it is
+-- and what it counts.
+DROP VIEW IF EXISTS host_portfolios;
+`;
+
 /** Every view, in dependency order: `registrations` reads `listings_active`. */
 export function viewsSql(): string {
   const listingViews = LISTING_VIEWS_SQL.replaceAll('{grace}', String(RETIREMENT_GRACE_DAYS))
     .replaceAll('{hosting_start}', IMPLIED_HOSTING_START_SQL)
     .replace('{page_attrs}', PAGE_ATTRS_SQL)
     .replace('{version_key}', VERSION_KEY_SQL);
-  return listingViews + REGISTRY_VIEWS_SQL;
+  return DROPPED_VIEWS_SQL + listingViews + REGISTRY_VIEWS_SQL;
 }

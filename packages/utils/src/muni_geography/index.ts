@@ -1,6 +1,6 @@
 /**
  * The Municipality of Anchorage's boundary as GeoJSON, with helpers to test a
- * point against it and to find its bounding box. The Airbnb search covers
+ * coordinate against it and to find its bounding box. The Airbnb search covers
  * that bounding box, which also takes in Hope, Palmer and Wasilla, so the
  * daily run keeps only the listings inside the boundary itself.
  *
@@ -86,7 +86,7 @@ export function boundingBox(collection: PolygonCollection): BoundingBox {
 export const MUNICIPALITY_BOUNDING_BOX: BoundingBox = boundingBox(MUNICIPALITY_BOUNDARY);
 
 /**
- * Whether a point lies inside the boundary, by even-odd ray casting over
+ * Whether a coordinate lies inside the boundary, by even-odd ray casting over
  * every ring, so a polygon's holes count as outside. Coordinates are treated
  * as planar, as GeoJSON edges are.
  */

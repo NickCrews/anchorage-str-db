@@ -48,6 +48,24 @@ describe('connect', () => {
     expect(await db.count('SELECT count(*) FROM drizzle.__drizzle_migrations')).toBe(MIGRATION_COUNT);
   });
 
+  it('drops a view left under a name the views no longer create', async () => {
+    // A published database keeps every view it was ever given: CREATE OR
+    // REPLACE cannot remove one, so a rename leaves the old name answering
+    // queries from a definition nothing maintains.
+    const db = await connected(
+      await preexisting('CREATE VIEW host_portfolios AS SELECT 1 AS host_id;'),
+    );
+
+    expect(
+      await db.count("SELECT count(*) FROM duckdb_views() WHERE view_name = 'host_portfolios'"),
+    ).toBe(0);
+    expect(
+      await db.count(
+        "SELECT count(*) FROM duckdb_views() WHERE view_name = 'host_listing_portfolios'",
+      ),
+    ).toBe(1);
+  });
+
   it('applies each migration once across reopens', async () => {
     const path = await tempPath();
     (await connect(path)).close();

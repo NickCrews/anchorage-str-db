@@ -12,7 +12,7 @@ export const LAKE_TABLES = [
   'listings_active',
   'listings_active_with_host',
   'hosts',
-  'host_portfolios',
+  'host_listing_portfolios',
   'airbnb_listing_observations',
   'airbnb_listing_photos',
   'listing_photos_current',

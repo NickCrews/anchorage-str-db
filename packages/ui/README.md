@@ -4,11 +4,11 @@ A [SQLRooms](https://sqlrooms.org) app for browsing `anchorage_str.duckdb`.
 Queries run in the browser with
 [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview); there is no server.
 
-- **Overview**: active listings, booked tonight, distinct listings over the last
-  year, current Muni registrations and how many listings show one,
-  registration status by room type and community council, host
-  concentration, near-term booked/vacant nights, monthly distinct-STR trend,
-  active listings by year first available, and bedroom mix.
+- **Overview**: active listings, nights not available tonight, distinct
+  listings over the last year, current Muni registrations and how many
+  listings show one, registration status by room type and community council,
+  host concentration, near-term available vs. not, monthly distinct-listing
+  trend, active listings by year first available, and bedroom mix.
 - **Map**: every current Airbnb listing plus every active registration no
   Airbnb listing cites, colored by registration status or price. A listing is
   placed at its registration's geocoded license address when it has one,

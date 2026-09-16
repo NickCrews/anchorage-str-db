@@ -11,7 +11,7 @@
 -- which is uninhabited, is in no council and falls outside.
 --
 -- The union is padded by 1 km because Airbnb shows most listings at a blurred
--- position. For listings not flagged exact, the blurred point is 92 m from the
+-- position. For listings not flagged exact, the jittered coordinate is 92 m from the
 -- Muni's geocoded address for the registration it cites at the median and
 -- 150 m at the 95th percentile (1361 listings, 2026-09-14), and 6 of 2519
 -- listings in the Municipality fell up to 232 m outside the unpadded union.

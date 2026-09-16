@@ -65,7 +65,7 @@ describe('fetchRegistrations on the live layer', () => {
     });
   });
 
-  it("keeps 'None' and the placeholder point for an address the geocoder could not match", () => {
+  it("keeps 'None' and the placeholder coordinate for an address the geocoder could not match", () => {
     expect(byRegistrationId.get('STR20260126')).toEqual({
       registrationId: 'STR20260126',
       licenseId: 'LC260500179',

@@ -30,9 +30,12 @@ import { HostConcentrationCard } from './HostConcentrationCard';
 import { RegistrationCard } from './RegistrationCard';
 import { StatCard } from './StatCard';
 
-const occupancyConfig = {
-  booked: { label: 'Booked', color: 'hsl(var(--chart-1))' },
-  vacant: { label: 'Vacant', color: 'hsl(var(--chart-2))' },
+// "Not available" covers booked and host-blocked nights together, which is
+// all Airbnb's calendar publishes. Naming it "booked" would overstate
+// occupancy.
+const availabilityConfig = {
+  notAvailable: { label: 'Not available', color: 'hsl(var(--chart-1))' },
+  available: { label: 'Available', color: 'hsl(var(--chart-2))' },
 } satisfies ChartConfig;
 
 const strConfig = {
@@ -54,8 +57,8 @@ export const OverviewView: FC = () => {
 
   const { data: kpiData, isLoading: kpiLoading } = useSql<{
     activeListings: number;
-    operatingTonight: number | null;
-    bookedTonight: number | null;
+    chartedTonight: number | null;
+    notAvailableTonight: number | null;
     distinctListingsLastYear: number;
     latestScrapeDate: number | null;
     registrationsActive: number;
@@ -66,8 +69,8 @@ export const OverviewView: FC = () => {
     query: `
       WITH tonight AS (
         SELECT
-          count(*)::INT AS operating_tonight,
-          count(*) FILTER (WHERE NOT available)::INT AS booked_tonight
+          count(*)::INT AS charted_tonight,
+          count(*) FILTER (WHERE NOT available)::INT AS not_available_tonight
         FROM calendar_current
         WHERE night_date = CURRENT_DATE
       ),
@@ -90,8 +93,8 @@ export const OverviewView: FC = () => {
       )
       SELECT
         active.n AS "activeListings",
-        tonight.operating_tonight AS "operatingTonight",
-        tonight.booked_tonight AS "bookedTonight",
+        tonight.charted_tonight AS "chartedTonight",
+        tonight.not_available_tonight AS "notAvailableTonight",
         last_year.n AS "distinctListingsLastYear",
         latest_run.d AS "latestScrapeDate",
         registry.n AS "registrationsActive",
@@ -101,17 +104,17 @@ export const OverviewView: FC = () => {
     `,
   });
 
-  const { data: occupancyData, isLoading: occupancyLoading } = useSql<{
+  const { data: availabilityData, isLoading: availabilityLoading } = useSql<{
     nightDate: number;
-    booked: number;
-    vacant: number;
+    notAvailable: number;
+    available: number;
   }>({
     enabled,
     query: `
       SELECT
         night_date AS "nightDate",
-        count(*) FILTER (WHERE NOT available)::INT AS booked,
-        count(*) FILTER (WHERE available)::INT AS vacant
+        count(*) FILTER (WHERE NOT available)::INT AS "notAvailable",
+        count(*) FILTER (WHERE available)::INT AS "available"
       FROM calendar_current
       WHERE night_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL 90 DAY
       GROUP BY ALL
@@ -182,9 +185,11 @@ export const OverviewView: FC = () => {
   const kpi = kpiData?.toArray()[0];
   const listingAge = listingAgeData?.toArray() ?? [];
   const reviewsUnread = listingAge.reduce((sum, row) => sum + row.reviewsUnread, 0);
-  const pctBooked =
-    kpi?.operatingTonight && kpi.bookedTonight != null
-      ? Math.round((100 * kpi.bookedTonight) / kpi.operatingTonight)
+  // Not "booked": a night that is not available was taken by a guest or
+  // closed off by the host, and the calendar cannot tell the two apart.
+  const pctNotAvailable =
+    kpi?.chartedTonight && kpi.notAvailableTonight != null
+      ? Math.round((100 * kpi.notAvailableTonight) / kpi.chartedTonight)
       : null;
 
   return (
@@ -197,11 +202,11 @@ export const OverviewView: FC = () => {
           detail="Currently visible in Airbnb search"
         />
         <StatCard
-          label="Booked tonight"
-          value={kpiLoading ? '…' : (kpi?.bookedTonight ?? '—')}
+          label="Not available tonight"
+          value={kpiLoading ? '…' : (kpi?.notAvailableTonight ?? '—')}
           detail={
-            pctBooked != null
-              ? `${pctBooked}% of ${kpi?.operatingTonight} operating tonight`
+            pctNotAvailable != null
+              ? `${pctNotAvailable}% of ${kpi?.chartedTonight} on the calendar tonight — booked or host-blocked`
               : 'No calendar data for tonight'
           }
         />
@@ -248,15 +253,15 @@ export const OverviewView: FC = () => {
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-medium">
-            Booked vs. vacant, next 90 nights
+            Available vs. not, next 90 nights
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {occupancyLoading ? (
+          {availabilityLoading ? (
             <SpinnerPane className="h-64" />
           ) : (
-            <ChartContainer config={occupancyConfig} className="h-64 w-full">
-              <AreaChart data={occupancyData?.toArray() ?? []}>
+            <ChartContainer config={availabilityConfig} className="h-64 w-full">
+              <AreaChart data={availabilityData?.toArray() ?? []}>
                 <CartesianGrid vertical={false} />
                 <XAxis
                   dataKey="nightDate"
@@ -278,19 +283,19 @@ export const OverviewView: FC = () => {
                   }
                 />
                 <Area
-                  dataKey="booked"
+                  dataKey="notAvailable"
                   type="monotone"
                   stackId="a"
-                  fill="var(--color-booked)"
-                  stroke="var(--color-booked)"
+                  fill="var(--color-notAvailable)"
+                  stroke="var(--color-notAvailable)"
                   fillOpacity={0.5}
                 />
                 <Area
-                  dataKey="vacant"
+                  dataKey="available"
                   type="monotone"
                   stackId="a"
-                  fill="var(--color-vacant)"
-                  stroke="var(--color-vacant)"
+                  fill="var(--color-available)"
+                  stroke="var(--color-available)"
                   fillOpacity={0.5}
                 />
               </AreaChart>
@@ -303,7 +308,7 @@ export const OverviewView: FC = () => {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium">
-              Distinct listings operating, by month
+              Distinct listings seen, by month
             </CardTitle>
           </CardHeader>
           <CardContent>

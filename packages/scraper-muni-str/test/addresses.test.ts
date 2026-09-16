@@ -1,7 +1,7 @@
 /**
  * Reads the live registration layer and checks how its address fields
  * relate: `Location` is the address on the license, and `GeocodedAddress`,
- * the point, `CommunityCouncil` and `ParcelType` are derived from it by the
+ * the coordinate, `CommunityCouncil` and `ParcelType` are derived from it by the
  * Muni. `packages/scraper/test/addressProvenance.test.ts` checks `Location`
  * against the license pages.
  *
@@ -32,7 +32,7 @@ beforeAll(async () => {
 });
 
 describe('address fields in the live registration layer', () => {
-  it('gives every unmatched address, all lacking a city or zip, the placeholder point and no council or parcel type', () => {
+  it('gives every unmatched address, all lacking a city or zip, the placeholder coordinate and no council or parcel type', () => {
     const unmatched = registrations.filter((r) => r.geocodedAddress === NO_MATCH_GEOCODED_ADDRESS);
 
     expect(unmatched.length).toBeGreaterThan(0);

@@ -35,6 +35,12 @@ two are one-to-one: on 2026-09-15 the layer held 2,564 registrations, 2,564
 the license's fields on the registration's own row for that reason. See
 [CONTEXT.md](../CONTEXT.md) for which id comes from where.
 
+`cityview_license_id` (`13923`) is the odd one out: it is CityView's own row
+id for a license, read from the `licenseId` query parameter of the
+registration's `status_url`. It keys `muni_license_page_reads` because it is
+what fetches a page, and it means nothing outside the portal — never publish
+it as an identifier of anything.
+
 ## Relationships
 
 ```

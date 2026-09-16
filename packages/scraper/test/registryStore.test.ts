@@ -165,7 +165,7 @@ describe('registrations view', () => {
     ]);
   });
 
-  it("cleans the 'None' business name and the no-match placeholder point", async () => {
+  it("cleans the 'None' business name and the no-match placeholder coordinate", async () => {
     const db = await freshDb();
     await registryRun(db, '2026-09-10', [
       registration('STR20260126', 1, {

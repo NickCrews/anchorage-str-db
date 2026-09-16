@@ -85,7 +85,10 @@ COLUMN` keeps each column's position, which `appendRows` depends on. Edit
 entry, and cover it the way `connect.test.ts` covers 0001: seed a database
 from `0000_baseline.sql` under the old names and assert the rows survive.
 
-Views are SQL in `packages/db/src/views.ts`. They need no migration.
+Views are SQL in `packages/db/src/views.ts`. They need no migration. To
+**rename** one, add its old name to `DROPPED_VIEWS_SQL` there: `CREATE OR
+REPLACE VIEW` cannot remove a view, so the published database would keep
+answering queries under the old name from a definition nothing maintains.
 
 ### Dependencies
 
@@ -242,7 +245,7 @@ What the Muni publishes, and how it is cleaned:
 - `BusinessName` is the string `'None'` when none was given. Stored as
   published; `registrations.business_name` is NULL.
 - A `Location` the Muni's geocoder couldn't match has `GeocodedAddress`
-  `'Incomplete address provided. No Match.'` and the placeholder point
+  `'Incomplete address provided. No Match.'` and the placeholder coordinate
   (-150.20935, 61.153442). Stored as published; `registrations.geocoded_lat`/`lng`
   are NULL.
 
@@ -308,11 +311,12 @@ Every run fails with `LegacySchemaError` until someone:
   `host_start_date_stable` warns when that spread exceeds
   `HOST_START_MAX_SPREAD_DAYS`. The host checks are warnings because the
   views carry every host's last read forward.
-- **Portfolio size is counts, not a classification.** `host_portfolios` is
+- **Portfolio size is counts, not a classification.** `host_listing_portfolios` is
   derived from `airbnb_listing_observations.host_id` with no extra requests, as a
   time series. Where an owner ends and an operator begins is left to
   downstream users, so no threshold is stored; the viewer's cutoff is a
-  labelled display choice. It counts only listings in the search area.
+  labelled display choice. It counts only listings inside the Municipality,
+  so it is an Anchorage listing portfolio.
 - **Listings are never UPDATEd.** `first_seen_date`, `last_seen_date` and
   `page_seen_date` are derived from observations, so they stay correct for a
   listing that retires and later relists, and a bug in version logic is
@@ -333,9 +337,9 @@ Every run fails with `LegacySchemaError` until someone:
   view. The registration snapshot is stored every run, like
   `airbnb_listing_observations`, rather than change-only: ~2500 rows compress to
   ~50 KB a day, and a row per run gives exact first- and last-seen dates.
-- **Read `calendar_current`, not `airbnb_calendar_status`.** A retired listing's
-  calendar is no longer fetched, so its future nights stay `is_active` in
-  the raw table for up to twelve months. `calendar_current` drops nights after
+- **Read `calendar_current`, not `airbnb_calendar_status`.** An inactive
+  listing's calendar is no longer fetched, so its future nights stay
+  `is_current` in the raw table for up to twelve months. `calendar_current` drops nights after
   the listing's last sighting and keeps the ones before it.
 - **Undated search.** `searchAnchorage` sends no check-in/check-out, so
   Airbnb returns every listing in the area rather than only those free on

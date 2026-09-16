@@ -171,7 +171,7 @@ async function recordPhotos(
 }
 
 /**
- * How many listings became retired on this date: those last observed
+ * How many listings retired on this date: those last observed
  * exactly `grace + 1` days ago.
  *
  * Assumes daily runs. A gap shifts which run reports the retirement but not
