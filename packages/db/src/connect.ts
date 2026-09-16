@@ -157,7 +157,7 @@ const normalizeType = (type: string) => type.replaceAll('"', '').replace(/\s+/g,
  * not been carried over, never anything about the file being opened.
  */
 async function rejectMismatchedViews(db: Database): Promise<void> {
-  const declared = new Set(views.map(getViewName));
+  const declared: ReadonlySet<string> = new Set<string>(views.map(getViewName));
   const undeclared = (
     await db.rows<{ view_name: string }>(
       'SELECT view_name FROM duckdb_views() ' +

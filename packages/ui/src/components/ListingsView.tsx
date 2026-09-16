@@ -1,9 +1,9 @@
 import {airbnbListingObservations} from '@anchorage-str-db/db/schema';
-import {from, toSql} from '@anchorage-str-db/db/sql';
+import {toSql} from '@anchorage-str-db/db/sql';
 import {
   listingPhotosCurrent,
-  listingsCurrentWithHost,
-  listingsCurrentWithRegistration,
+  listingsCurrentWithHost as withHost,
+  listingsCurrentWithRegistration as withRegistration,
 } from '@anchorage-str-db/db/viewSchema';
 import {
   DataTablePaginated,
@@ -14,10 +14,14 @@ import {
 } from '@sqlrooms/data-table';
 import {sanitizeQuery, useSql} from '@sqlrooms/duckdb';
 import {Badge, Input, ToggleGroup, ToggleGroupItem} from '@sqlrooms/ui';
-import {sql, type SQL} from 'drizzle-orm';
-import {alias} from 'drizzle-orm/pg-core';
+import {and, desc, eq, ilike, or, sql, type SQL} from 'drizzle-orm';
+import {QueryBuilder} from 'drizzle-orm/pg-core';
 import {useMemo, useState, type FC} from 'react';
-import {REGISTRATION_STATUSES, registrationStatusSql} from '../registrationStatus';
+import {
+  REGISTRATION_STATUSES,
+  registrationStatusSql,
+  type RegistrationStatus,
+} from '../registrationStatus';
 import {DataStatusGate} from './DataStatusGate';
 
 const PAGE_SIZE = 50;
@@ -26,11 +30,26 @@ type TableProps = DataTablePaginatedProps<object>;
 type PaginationState = NonNullable<TableProps['pagination']>;
 type SortingState = NonNullable<TableProps['sorting']>;
 
-const l = alias(listingsCurrentWithHost, 'l');
-const r = alias(listingsCurrentWithRegistration, 'r');
-const p = alias(listingPhotosCurrent, 'p');
-/** Each listing's latest observation: one row of the table it comes from. */
-const o = alias(airbnbListingObservations, 'o');
+/** Builds queries without a connection; `toSql` renders them for SQLRooms. */
+const qb = new QueryBuilder();
+
+/** Each listing's latest observation: the row of it with the newest scrape. */
+const latest = qb
+  .selectDistinctOn([airbnbListingObservations.listingId], {
+    listingId: airbnbListingObservations.listingId,
+    ratingValue: airbnbListingObservations.ratingValue,
+    reviewCount: airbnbListingObservations.reviewCount,
+    quoteTotal: airbnbListingObservations.quoteTotal,
+    quoteNights: airbnbListingObservations.quoteNights,
+    quoteCheckIn: airbnbListingObservations.quoteCheckIn,
+    priceHintPerNight: airbnbListingObservations.priceHintPerNight,
+  })
+  .from(airbnbListingObservations)
+  .orderBy(
+    airbnbListingObservations.listingId,
+    desc(airbnbListingObservations.scrapeDate),
+  )
+  .as('o');
 
 /**
  * Photos come from `listing_photos_current`, not `listings`: they are stored
@@ -40,53 +59,54 @@ const o = alias(airbnbListingObservations, 'o');
  * The registration columns come from the Muni registration matching the
  * number the listing page shows; see `listings_current_with_registration`.
  */
-const BASE_QUERY = sql`
-  SELECT
-    ${p.photoUrls}[1] AS photo,
-    ${l.listingId},
-    ${l.name},
-    ${l.propertyTitle},
-    ${l.roomType},
-    ${l.bedrooms},
-    ${l.beds},
-    ${l.bathrooms},
-    ${l.guestCapacity},
-    ${o.ratingValue},
-    ${o.reviewCount},
-    ${o.quoteTotal},
-    ${o.quoteNights},
-    ${o.quoteCheckIn},
-    ${o.priceHintPerNight},
-    ${l.hostName},
-    ${l.hostYearsHosting},
-    ${l.hostListingsLive},
-    ${l.hostListingsEverSeen},
-    ${registrationStatusSql(r)} AS registration_status,
-    ${l.strRegistrationId},
-    ${r.registrationLocation},
-    ${r.registrationParcelId},
-    ${r.registrationParcelType},
-    ${r.registrationCommunityCouncil},
-    ${r.registrationBusinessName},
-    ${r.registrationExpiresDate},
-    ${l.firstAvailableDateEst},
-    ${l.firstReviewDate},
-    ${l.firstSeenDate},
-    ${l.lastSeenDate},
-    ${l.url}
-  FROM ${from(listingsCurrentWithHost, l)}
-  JOIN ${from(listingsCurrentWithRegistration, r)} USING (listing_id)
-  LEFT JOIN ${from(listingPhotosCurrent, p)} ON ${p.listingId} = ${l.listingId}
-  LEFT JOIN (
-    SELECT *
-    FROM ${from(airbnbListingObservations)}
-    QUALIFY row_number() OVER (
-      PARTITION BY ${airbnbListingObservations.listingId}
-      ORDER BY ${airbnbListingObservations.scrapeDate} DESC
-    ) = 1
-  ) ${o} ON ${o.listingId} = ${l.listingId}
-  WHERE true
-`;
+const LISTING_FIELDS = {
+  photo: sql<string>`${listingPhotosCurrent.photoUrls}[1]`.as('photo'),
+  listing_id: withHost.listingId,
+  name: withHost.name,
+  property_title: withHost.propertyTitle,
+  room_type: withHost.roomType,
+  bedrooms: withHost.bedrooms,
+  beds: withHost.beds,
+  bathrooms: withHost.bathrooms,
+  guest_capacity: withHost.guestCapacity,
+  rating_value: latest.ratingValue,
+  review_count: latest.reviewCount,
+  quote_total: latest.quoteTotal,
+  quote_nights: latest.quoteNights,
+  quote_check_in: latest.quoteCheckIn,
+  price_hint_per_night: latest.priceHintPerNight,
+  host_name: withHost.hostName,
+  host_years_hosting: withHost.hostYearsHosting,
+  host_listings_live: withHost.hostListingsLive,
+  host_listings_ever_seen: withHost.hostListingsEverSeen,
+  registration_status: registrationStatusSql(withRegistration).as('registration_status'),
+  str_registration_id: withHost.strRegistrationId,
+  registration_location: withRegistration.registrationLocation,
+  registration_parcel_id: withRegistration.registrationParcelId,
+  registration_parcel_type: withRegistration.registrationParcelType,
+  registration_community_council: withRegistration.registrationCommunityCouncil,
+  registration_business_name: withRegistration.registrationBusinessName,
+  registration_expires_date: withRegistration.registrationExpiresDate,
+  first_available_date_est: withHost.firstAvailableDateEst,
+  first_review_date: withHost.firstReviewDate,
+  first_seen_date: withHost.firstSeenDate,
+  last_seen_date: withHost.lastSeenDate,
+  url: withHost.url,
+};
+
+/** The table, before the search box's and the status toggle's filters. */
+const listingsQuery = (where: SQL | undefined) =>
+  qb
+    .select(LISTING_FIELDS)
+    .from(withHost)
+    .innerJoin(withRegistration, eq(withRegistration.listingId, withHost.listingId))
+    .leftJoin(
+      listingPhotosCurrent,
+      eq(listingPhotosCurrent.listingId, withHost.listingId),
+    )
+    .leftJoin(latest, eq(latest.listingId, withHost.listingId))
+    .where(where)
+    .orderBy(desc(withHost.lastSeenDate));
 
 const ALL_STATUSES = 'All';
 
@@ -109,7 +129,9 @@ const Thumbnail: FC<{url: unknown}> = ({url}) =>
 
 export const ListingsView: FC = () => {
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<string>(ALL_STATUSES);
+  const [status, setStatus] = useState<RegistrationStatus | typeof ALL_STATUSES>(
+    ALL_STATUSES,
+  );
   const [sorting, setSorting] = useState<SortingState>([]);
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
@@ -117,21 +139,26 @@ export const ListingsView: FC = () => {
   });
 
   const query = useMemo(() => {
-    const filters: SQL[] = [];
     const term = search.trim();
-    if (term) {
-      const pattern = `%${term}%`;
-      filters.push(
-        sql`(${l.name} ILIKE ${pattern} OR ${l.propertyTitle} ILIKE ${pattern}
-          OR ${l.hostName} ILIKE ${pattern} OR ${l.strRegistrationId} ILIKE ${pattern}
-          OR ${r.registrationLocation} ILIKE ${pattern})`,
-      );
-    }
-    if (status !== ALL_STATUSES) {
-      filters.push(sql`${registrationStatusSql(r)} = ${status}`);
-    }
-    const where = sql.join(filters.map((filter) => sql`\n  AND ${filter}`));
-    return toSql(sql`${BASE_QUERY}${where}\n  ORDER BY ${l.lastSeenDate} DESC`);
+    const pattern = `%${term}%`;
+    return toSql(
+      listingsQuery(
+        and(
+          term
+            ? or(
+                ilike(withHost.name, pattern),
+                ilike(withHost.propertyTitle, pattern),
+                ilike(withHost.hostName, pattern),
+                ilike(withHost.strRegistrationId, pattern),
+                ilike(withRegistration.registrationLocation, pattern),
+              )
+            : undefined,
+          status === ALL_STATUSES
+            ? undefined
+            : eq(registrationStatusSql(withRegistration), status),
+        ),
+      ),
+    );
   }, [search, status]);
 
   // QueryDataTable renders every cell as text, so this assembles the same
@@ -179,7 +206,7 @@ export const ListingsView: FC = () => {
           value={status}
           onValueChange={(v) => {
             if (!v) return;
-            setStatus(v);
+            setStatus(v as RegistrationStatus | typeof ALL_STATUSES);
             setPagination((p) => ({...p, pageIndex: 0}));
           }}
         >

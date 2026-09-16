@@ -1,38 +1,50 @@
-import {from, toSql} from '@anchorage-str-db/db/sql';
+import {toSql} from '@anchorage-str-db/db/sql';
 import {registrations} from '@anchorage-str-db/db/viewSchema';
 import {QueryDataTable, QueryDataTableActionsMenu} from '@sqlrooms/data-table';
 import {Input, ToggleGroup, ToggleGroupItem} from '@sqlrooms/ui';
-import {sql, type SQL} from 'drizzle-orm';
+import {and, asc, eq, ilike, or, sql, type SQL} from 'drizzle-orm';
+import {QueryBuilder} from 'drizzle-orm/pg-core';
 import {useMemo, useState, type FC} from 'react';
 import {DataStatusGate} from './DataStatusGate';
+
+/** Builds queries without a connection; `toSql` renders them for SQLRooms. */
+const qb = new QueryBuilder();
 
 /**
  * `license_*` columns come from the latest CityView license page read, which
  * is re-read about weekly, so they can be NULL for a new registration.
  * `airbnb_listings_current` counts current Airbnb listings showing the number.
  */
-const BASE_QUERY = sql`
-  SELECT
-    ${registrations.registrationNumber},
-    ${registrations.businessName},
-    ${registrations.location},
-    ${registrations.communityCouncil},
-    ${registrations.parcelType},
-    ${registrations.parcelId},
-    ${registrations.airbnbListingsCurrent},
-    ${registrations.issuedDate},
-    ${registrations.expiresDate},
-    ${registrations.status},
-    ${registrations.licenseStatus},
-    ${registrations.licenseDescription},
-    ${registrations.licenseReadDate},
-    ${registrations.firstSeenDate},
-    ${registrations.lastSeenDate},
-    ${registrations.isCurrent},
-    ${registrations.statusUrl}
-  FROM ${from(registrations)}
-  WHERE true
-`;
+const REGISTRATION_FIELDS = {
+  registration_number: registrations.registrationNumber,
+  business_name: registrations.businessName,
+  location: registrations.location,
+  community_council: registrations.communityCouncil,
+  parcel_type: registrations.parcelType,
+  parcel_id: registrations.parcelId,
+  airbnb_listings_current: registrations.airbnbListingsCurrent,
+  issued_date: registrations.issuedDate,
+  expires_date: registrations.expiresDate,
+  status: registrations.status,
+  license_status: registrations.licenseStatus,
+  license_description: registrations.licenseDescription,
+  license_read_date: registrations.licenseReadDate,
+  first_seen_date: registrations.firstSeenDate,
+  last_seen_date: registrations.lastSeenDate,
+  is_current: registrations.isCurrent,
+  status_url: registrations.statusUrl,
+};
+
+/** The table, before the search box's and the scope toggle's filters. */
+const registrationsQuery = (where: SQL | undefined) =>
+  qb
+    .select(REGISTRATION_FIELDS)
+    .from(registrations)
+    .where(where)
+    .orderBy(
+      sql`${registrations.issuedDate} DESC NULLS LAST`,
+      asc(registrations.registrationNumber),
+    );
 
 const SCOPES = {
   current: 'Current',
@@ -42,11 +54,14 @@ const SCOPES = {
 } as const;
 type Scope = keyof typeof SCOPES;
 
-const SCOPE_FILTER: Record<Scope, SQL | null> = {
-  current: sql`${registrations.isCurrent}`,
-  unlisted: sql`${registrations.isCurrent} AND ${registrations.airbnbListingsCurrent} = 0`,
-  lapsed: sql`NOT ${registrations.isCurrent}`,
-  all: null,
+const SCOPE_FILTER: Record<Scope, SQL | undefined> = {
+  current: eq(registrations.isCurrent, true),
+  unlisted: and(
+    eq(registrations.isCurrent, true),
+    eq(registrations.airbnbListingsCurrent, 0),
+  ),
+  lapsed: eq(registrations.isCurrent, false),
+  all: undefined,
 };
 
 export const RegistrationsView: FC = () => {
@@ -54,24 +69,25 @@ export const RegistrationsView: FC = () => {
   const [scope, setScope] = useState<Scope>('current');
 
   const query = useMemo(() => {
-    const filters: SQL[] = [];
-    const scopeFilter = SCOPE_FILTER[scope];
-    if (scopeFilter) filters.push(scopeFilter);
     const term = search.trim();
-    if (term) {
-      const pattern = `%${term}%`;
-      filters.push(
-        sql`(${registrations.registrationNumber} ILIKE ${pattern}
-          OR ${registrations.businessName} ILIKE ${pattern}
-          OR ${registrations.location} ILIKE ${pattern}
-          OR ${registrations.communityCouncil} ILIKE ${pattern}
-          OR ${registrations.parcelId} ILIKE ${pattern}
-          OR ${registrations.licenseDescription} ILIKE ${pattern})`,
-      );
-    }
-    const where = sql.join(filters.map((filter) => sql`\n  AND ${filter}`));
-    return toSql(sql`${BASE_QUERY}${where}
-  ORDER BY ${registrations.issuedDate} DESC NULLS LAST, ${registrations.registrationNumber}`);
+    const pattern = `%${term}%`;
+    return toSql(
+      registrationsQuery(
+        and(
+          SCOPE_FILTER[scope],
+          term
+            ? or(
+                ilike(registrations.registrationNumber, pattern),
+                ilike(registrations.businessName, pattern),
+                ilike(registrations.location, pattern),
+                ilike(registrations.communityCouncil, pattern),
+                ilike(registrations.parcelId, pattern),
+                ilike(registrations.licenseDescription, pattern),
+              )
+            : undefined,
+        ),
+      ),
+    );
   }, [search, scope]);
 
   return (

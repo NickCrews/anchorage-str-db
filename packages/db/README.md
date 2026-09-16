@@ -9,10 +9,10 @@ The DuckDB database, and the only package that uses DuckDB directly.
   `RETIREMENT_GRACE_DAYS`
 - `columns.ts`: the column builders both schemas are written with, and the
   DuckDB types they stand for
-- `catalog.ts`: every table and view in one list
+- `catalog.ts`: every table and view in one list, each keeping its own type
 - `sql.ts`: `toSql`, which renders a Drizzle query to one DuckDB SQL string
 - `rows.ts`: `NodeRow` and `WasmRow`, a table's or view's row type as each
-  driver delivers it
+  driver delivers it, and `WasmSelection`, the same for a query's own selection
 - `connect.ts`: `connect(path)`, which applies the migrations, checks the
   tables, recreates the views and checks them against `viewSchema.ts`
 - `database.ts`: `Database`, a wrapper over one connection with raw SQL,

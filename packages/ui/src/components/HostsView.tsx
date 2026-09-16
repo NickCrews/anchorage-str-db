@@ -1,19 +1,34 @@
-import {from, toSql} from '@anchorage-str-db/db/sql';
+import {toSql} from '@anchorage-str-db/db/sql';
 import {
-  listingsCurrentWithHost,
-  listingsCurrentWithRegistration,
+  listingsCurrentWithHost as withHost,
+  listingsCurrentWithRegistration as withRegistration,
 } from '@anchorage-str-db/db/viewSchema';
 import {QueryDataTable, QueryDataTableActionsMenu} from '@sqlrooms/data-table';
 import {Input, ToggleGroup, ToggleGroupItem} from '@sqlrooms/ui';
-import {sql, type SQL} from 'drizzle-orm';
-import {alias} from 'drizzle-orm/pg-core';
+import {and, eq, sql, type SQL} from 'drizzle-orm';
+import {QueryBuilder} from 'drizzle-orm/pg-core';
 import {useMemo, useState, type FC} from 'react';
-import {registrationStatusSql} from '../registrationStatus';
+import {
+  registrationStatusSql,
+  type RegistrationStatus,
+} from '../registrationStatus';
 import {DataStatusGate} from './DataStatusGate';
 
-const l = alias(listingsCurrentWithHost, 'l');
-/** The same view with a `status` column added; the join below builds it. */
-const r = alias(listingsCurrentWithRegistration, 'r');
+/** Builds queries without a connection; `toSql` renders them for SQLRooms. */
+const qb = new QueryBuilder();
+
+/** How each listing's registration number matched, to count up per host. */
+const matches = qb
+  .select({
+    listingId: withRegistration.listingId,
+    status: registrationStatusSql(withRegistration).as('status'),
+    businessName: withRegistration.registrationBusinessName,
+  })
+  .from(withRegistration)
+  .as('r');
+
+const listingsWith = (status: RegistrationStatus) =>
+  sql<number>`count(*) FILTER (WHERE ${matches.status} = ${status})::INT`;
 
 /**
  * One row per host with current listings. `business_names` are the names on
@@ -21,31 +36,45 @@ const r = alias(listingsCurrentWithRegistration, 'r');
  * cite many owners' registrations, so a host is not an owner (see
  * docs/data_model.md). `search_text` exists only for filtering.
  */
-const HOSTS_QUERY = sql`
-  SELECT
-    ${l.hostName},
-    ${l.hostId},
-    any_value(${l.hostYearsHosting}) AS host_years_hosting,
-    count(*)::INT AS listings_current,
-    any_value(${l.hostListingsEverSeen}) AS host_listings_ever_seen,
-    count(DISTINCT ${l.strRegistrationId})::INT AS registration_numbers,
-    count(*) FILTER (WHERE status = 'Registered')::INT AS listings_registered,
-    count(*) FILTER (WHERE status = 'Registration not current')::INT
-      AS listings_registration_not_current,
-    count(*) FILTER (WHERE status = 'Number not in registry')::INT
-      AS listings_number_not_in_registry,
-    count(*) FILTER (WHERE status = 'No number shown')::INT AS listings_no_number_shown,
-    string_agg(DISTINCT trim(${r.registrationBusinessName}), '; ') AS business_names,
-    'https://www.airbnb.com/users/show/' || ${l.hostId} AS host_url,
-    concat_ws(' ', ${l.hostName}, string_agg(DISTINCT ${r.registrationBusinessName}, ' '),
-      string_agg(DISTINCT ${l.strRegistrationId}, ' ')) AS search_text
-  FROM ${from(listingsCurrentWithHost, l)}
-  JOIN (
-    SELECT *, ${registrationStatusSql(listingsCurrentWithRegistration)} AS status
-    FROM ${from(listingsCurrentWithRegistration)}
-  ) ${r} USING (listing_id)
-  GROUP BY ${l.hostId}, ${l.hostName}
-`;
+const HOST_FIELDS = {
+  host_name: withHost.hostName,
+  host_id: withHost.hostId,
+  host_years_hosting: sql<number | null>`any_value(${withHost.hostYearsHosting})`.as(
+    'host_years_hosting',
+  ),
+  listings_current: sql<number>`count(*)::INT`.as('listings_current'),
+  host_listings_ever_seen: sql<
+    number | null
+  >`any_value(${withHost.hostListingsEverSeen})`.as('host_listings_ever_seen'),
+  registration_numbers: sql<number>`count(DISTINCT ${withHost.strRegistrationId})::INT`.as(
+    'registration_numbers',
+  ),
+  listings_registered: listingsWith('Registered').as('listings_registered'),
+  listings_registration_not_current: listingsWith('Registration not current').as(
+    'listings_registration_not_current',
+  ),
+  listings_number_not_in_registry: listingsWith('Number not in registry').as(
+    'listings_number_not_in_registry',
+  ),
+  listings_no_number_shown: listingsWith('No number shown').as(
+    'listings_no_number_shown',
+  ),
+  business_names: sql<
+    string | null
+  >`string_agg(DISTINCT trim(${matches.businessName}), '; ')`.as('business_names'),
+  host_url: sql<string>`'https://www.airbnb.com/users/show/' || ${withHost.hostId}`.as(
+    'host_url',
+  ),
+  search_text: sql<string>`concat_ws(' ', ${withHost.hostName},
+    string_agg(DISTINCT ${matches.businessName}, ' '),
+    string_agg(DISTINCT ${withHost.strRegistrationId}, ' '))`.as('search_text'),
+};
+
+const HOSTS_QUERY = qb
+  .select(HOST_FIELDS)
+  .from(withHost)
+  .innerJoin(matches, eq(matches.listingId, withHost.listingId))
+  .groupBy(withHost.hostId, withHost.hostName);
 
 const SCOPES = {
   all: 'All',
@@ -55,8 +84,8 @@ const SCOPES = {
 type Scope = keyof typeof SCOPES;
 
 // The columns `HOSTS_QUERY` counts up, so these are its names, not a view's.
-const SCOPE_FILTER: Record<Scope, SQL | null> = {
-  all: null,
+const SCOPE_FILTER: Record<Scope, SQL | undefined> = {
+  all: undefined,
   multi: sql`listings_current >= 2`,
   noNumber: sql`listings_no_number_shown > 0`,
 };
@@ -66,15 +95,16 @@ export const HostsView: FC = () => {
   const [scope, setScope] = useState<Scope>('all');
 
   const query = useMemo(() => {
-    const filters: SQL[] = [];
-    const scopeFilter = SCOPE_FILTER[scope];
-    if (scopeFilter) filters.push(scopeFilter);
     const term = search.trim();
-    if (term) filters.push(sql`search_text ILIKE ${`%${term}%`}`);
-    const where = sql.join(filters.map((filter) => sql`\n  AND ${filter}`));
+    // `search_text` and the counts are the subquery's own columns, so the
+    // filters below are SQL text rather than schema columns.
+    const where = and(
+      SCOPE_FILTER[scope],
+      term ? sql`search_text ILIKE ${`%${term}%`}` : undefined,
+    );
     return toSql(sql`SELECT * EXCLUDE (search_text)
-FROM (${HOSTS_QUERY})
-WHERE true${where}
+FROM ${HOSTS_QUERY}
+${where ? sql`WHERE ${where}` : sql.empty()}
 ORDER BY listings_current DESC, host_name`);
   }, [search, scope]);
 

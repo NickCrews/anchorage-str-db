@@ -1,8 +1,8 @@
-import type {WasmRow} from '@anchorage-str-db/db/rows';
+import type {WasmSelection} from '@anchorage-str-db/db/rows';
 import {airbnbListingObservations} from '@anchorage-str-db/db/schema';
-import {from, toSql} from '@anchorage-str-db/db/sql';
+import {toSql} from '@anchorage-str-db/db/sql';
 import {
-  listingsCurrentWithRegistration,
+  listingsCurrentWithRegistration as currentListings,
   registrations,
   registrationsCurrent,
 } from '@anchorage-str-db/db/viewSchema';
@@ -12,8 +12,8 @@ import {
 } from '@sqlrooms/color-scales';
 import {DeckJsonMap} from '@sqlrooms/deck';
 import type {DeckDatasetInput, DeckJsonMapProps} from '@sqlrooms/deck';
-import {sql} from 'drizzle-orm';
-import {alias} from 'drizzle-orm/pg-core';
+import {and, desc, eq, isNotNull, sql, type SQLWrapper} from 'drizzle-orm';
+import {QueryBuilder} from 'drizzle-orm/pg-core';
 import {useCallback, useMemo, useState, type FC} from 'react';
 import {registrationStatusSql} from '../registrationStatus';
 import {DataStatusGate} from './DataStatusGate';
@@ -34,78 +34,124 @@ const ANCHORAGE_VIEW_STATE = {
 // Light basemap to match the app's light default theme.
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
 
-const l = alias(listingsCurrentWithRegistration, 'l');
-const r = alias(registrations, 'r');
-/** Each listing's latest observation: one row of the table it comes from. */
-const o = alias(airbnbListingObservations, 'o');
+/** Builds queries without a connection; `toSql` renders them for SQLRooms. */
+const qb = new QueryBuilder();
+
+/** Each listing's latest observation: the row of it with the newest scrape. */
+const latest = qb
+  .selectDistinctOn([airbnbListingObservations.listingId], {
+    listingId: airbnbListingObservations.listingId,
+    ratingValue: airbnbListingObservations.ratingValue,
+    reviewCount: airbnbListingObservations.reviewCount,
+    priceHintPerNight: airbnbListingObservations.priceHintPerNight,
+  })
+  .from(airbnbListingObservations)
+  .orderBy(
+    airbnbListingObservations.listingId,
+    desc(airbnbListingObservations.scrapeDate),
+  )
+  .as('o');
+
+/** A point for `@sqlrooms/deck`, which reads geometry as WKB. */
+const wkbPoint = (lng: SQLWrapper, lat: SQLWrapper) =>
+  sql<Uint8Array>`ST_AsWKB(ST_Point(${lng}, ${lat}))`;
+
+/**
+ * A listing's point: the Muni's geocoding of the registration it cites when
+ * there is one, otherwise Airbnb's pin.
+ */
+const listingLng = sql`coalesce(${registrations.geocodedLng}, ${currentListings.locationLng})`;
+const listingLat = sql`coalesce(${registrations.geocodedLat}, ${currentListings.locationLat})`;
+
+/**
+ * Every current Airbnb listing. The keys are the column names the query
+ * emits, which is what the map layers and the tooltip read it by.
+ */
+const AIRBNB_RENTAL_FIELDS = {
+  name: currentListings.name,
+  bedrooms: currentListings.bedrooms,
+  room_type: currentListings.roomType,
+  rating_value: latest.ratingValue,
+  review_count: latest.reviewCount,
+  price_hint_per_night: latest.priceHintPerNight,
+  registration_status: registrationStatusSql(currentListings).as('registration_status'),
+  str_registration_id: currentListings.strRegistrationId,
+  registration_location: currentListings.registrationLocation,
+  location_source: sql<string>`CASE
+      WHEN ${registrations.geocodedLat} IS NOT NULL THEN 'License address'
+      WHEN ${currentListings.locationIsExact} THEN 'Exact Airbnb pin'
+      ELSE 'Approximate Airbnb pin'
+    END`.as('location_source'),
+  // True for a geocoded license address or an exact Airbnb pin; false for an
+  // Airbnb pin shifted by up to a few hundred meters, which is drawn as a ring.
+  is_precise: sql<boolean>`${registrations.geocodedLat} IS NOT NULL
+    OR coalesce(${currentListings.locationIsExact}, false)`.as('is_precise'),
+  geometry: wkbPoint(listingLng, listingLat).as('geometry'),
+};
+
+const airbnbRentals = qb
+  .select(AIRBNB_RENTAL_FIELDS)
+  .from(currentListings)
+  .leftJoin(
+    registrations,
+    and(
+      eq(registrations.registrationNumber, currentListings.strRegistrationId),
+      isNotNull(registrations.geocodedLat),
+      isNotNull(registrations.geocodedLng),
+    ),
+  )
+  .leftJoin(latest, eq(latest.listingId, currentListings.listingId))
+  .where(and(isNotNull(listingLng), isNotNull(listingLat)));
+
+/** A column the Airbnb half has and a registration does not. */
+const missing = <TValue,>(name: string) => sql<TValue | null>`NULL`.as(name);
+
+/**
+ * Every current Muni registration that no current Airbnb listing cites:
+ * rentals listed elsewhere, such as VRBO, or not listed.
+ *
+ * `UNION ALL` takes its column names from the first half and lines the second
+ * up with it by position, so this emits the same columns in the same order;
+ * `satisfies` is what holds it to the same set of them.
+ */
+const REGISTERED_ONLY_FIELDS = {
+  name: registrationsCurrent.businessName,
+  bedrooms: missing<string>('bedrooms'),
+  room_type: missing<string>('room_type'),
+  rating_value: missing<number>('rating_value'),
+  review_count: missing<number>('review_count'),
+  price_hint_per_night: missing<number>('price_hint_per_night'),
+  registration_status: sql<string>`${NOT_ON_AIRBNB}`.as('registration_status'),
+  str_registration_id: registrationsCurrent.registrationNumber,
+  registration_location: registrationsCurrent.location,
+  location_source: sql<string>`'License address'`.as('location_source'),
+  is_precise: sql<boolean>`true`.as('is_precise'),
+  geometry: wkbPoint(
+    registrationsCurrent.geocodedLng,
+    registrationsCurrent.geocodedLat,
+  ).as('geometry'),
+} satisfies Record<keyof typeof AIRBNB_RENTAL_FIELDS, SQLWrapper>;
+
+const registeredOnly = qb
+  .select(REGISTERED_ONLY_FIELDS)
+  .from(registrationsCurrent)
+  .where(
+    and(
+      eq(registrationsCurrent.airbnbListingsCurrent, 0),
+      isNotNull(registrationsCurrent.geocodedLat),
+      isNotNull(registrationsCurrent.geocodedLng),
+    ),
+  );
 
 /**
  * One point per short-term rental we know of, as WKB geometry for
- * `@sqlrooms/deck` (needs the spatial extension loaded in `store.ts`): every
- * current Airbnb listing, plus every current Muni registration that no current
- * Airbnb listing cites (rentals listed elsewhere, such as VRBO, or not listed).
+ * `@sqlrooms/deck` (needs the spatial extension loaded in `store.ts`).
  * Registrations the Muni's geocoder could not place are left out.
  *
- * A listing's point is the Muni's geocoding of the registration it cites when
- * there is one, otherwise Airbnb's pin. `is_precise` is true for a geocoded
- * license address or an exact Airbnb pin, and false for an Airbnb pin shifted
- * by up to a few hundred meters.
+ * The halves are joined here rather than with Drizzle's `unionAll`, which
+ * takes only the selects of a connected database, not a `QueryBuilder`'s.
  */
-const RENTALS_QUERY = sql`
-  SELECT
-    ${l.name},
-    ${l.bedrooms},
-    ${l.roomType},
-    ${o.ratingValue},
-    ${o.reviewCount},
-    ${o.priceHintPerNight},
-    ${registrationStatusSql(l)} AS registration_status,
-    ${l.strRegistrationId},
-    ${l.registrationLocation},
-    CASE
-      WHEN ${r.geocodedLat} IS NOT NULL THEN 'License address'
-      WHEN ${l.locationIsExact} THEN 'Exact Airbnb pin'
-      ELSE 'Approximate Airbnb pin'
-    END AS location_source,
-    ${r.geocodedLat} IS NOT NULL OR coalesce(${l.locationIsExact}, false) AS is_precise,
-    ST_AsWKB(ST_Point(
-      coalesce(${r.geocodedLng}, ${l.locationLng}),
-      coalesce(${r.geocodedLat}, ${l.locationLat})
-    )) AS geometry
-  FROM ${from(listingsCurrentWithRegistration, l)}
-  LEFT JOIN ${from(registrations, r)}
-    ON ${r.registrationNumber} = ${l.strRegistrationId}
-    AND ${r.geocodedLat} IS NOT NULL
-    AND ${r.geocodedLng} IS NOT NULL
-  LEFT JOIN (
-    SELECT *
-    FROM ${from(airbnbListingObservations)}
-    QUALIFY row_number() OVER (
-      PARTITION BY ${airbnbListingObservations.listingId}
-      ORDER BY ${airbnbListingObservations.scrapeDate} DESC
-    ) = 1
-  ) ${o} ON ${o.listingId} = ${l.listingId}
-  WHERE coalesce(${r.geocodedLat}, ${l.locationLat}) IS NOT NULL
-    AND coalesce(${r.geocodedLng}, ${l.locationLng}) IS NOT NULL
-
-  UNION ALL BY NAME
-
-  SELECT
-    ${registrationsCurrent.businessName} AS name,
-    ${NOT_ON_AIRBNB} AS registration_status,
-    ${registrationsCurrent.registrationNumber} AS str_registration_id,
-    ${registrationsCurrent.location} AS registration_location,
-    'License address' AS location_source,
-    true AS is_precise,
-    ST_AsWKB(ST_Point(
-      ${registrationsCurrent.geocodedLng},
-      ${registrationsCurrent.geocodedLat}
-    )) AS geometry
-  FROM ${from(registrationsCurrent)}
-  WHERE ${registrationsCurrent.airbnbListingsCurrent} = 0
-    AND ${registrationsCurrent.geocodedLat} IS NOT NULL
-    AND ${registrationsCurrent.geocodedLng} IS NOT NULL
-`;
+const RENTALS_QUERY = sql`${airbnbRentals} UNION ALL ${registeredOnly}`;
 
 type ColorMode = 'registration' | 'price';
 
@@ -170,19 +216,10 @@ const createLayers = (colorMode: ColorMode) => [
   },
 ];
 
-/** A row of `RENTALS_QUERY`, as DuckDB-WASM hands it to the tooltip. */
-type RentalRow = Pick<
-  WasmRow<typeof listingsCurrentWithRegistration>,
-  'name' | 'bedrooms' | 'room_type' | 'str_registration_id' | 'registration_location'
-> &
-  Pick<
-    WasmRow<typeof airbnbListingObservations>,
-    'rating_value' | 'review_count' | 'price_hint_per_night'
-  > & {
-    // Columns the query itself derives.
-    registration_status: string | null;
-    location_source: string;
-  };
+/** A row of `RENTALS_QUERY`, as DuckDB-WASM hands it to the tooltip: either half. */
+type RentalRow =
+  | WasmSelection<typeof AIRBNB_RENTAL_FIELDS>
+  | WasmSelection<typeof REGISTERED_ONLY_FIELDS>;
 
 const rentalTooltip = (row: RentalRow): string[] => {
   const lines: string[] = [];

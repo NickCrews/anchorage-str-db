@@ -98,11 +98,18 @@ What crosses the line is the schema, not a connection:
   writes through, with `toSql` (`sql.ts`) rendering a Drizzle query to one
   string for SQLRooms to run. A renamed column is a type error in the viewer
   rather than a query that returns nothing.
+- A query that joins relations is built with Drizzle's query builder
+  (`new QueryBuilder()` from `drizzle-orm/pg-core`, which builds SQL without a
+  connection), so the compiler sees each `select`, `join` and `where` against
+  the relation it names. One over a single relation, or one written in DuckDB
+  syntax the Postgres dialect has no notion of (`FILTER`, `GROUP BY ALL`,
+  `EXCLUDE`), stays a `sql` template with the schema's columns interpolated.
 - The two drivers hand back different JavaScript for the same column, so
   `rows.ts` has a row type for each: `NodeRow` for `Database.rows()`, where a
   `DATE` is `'2026-09-11'` and a `BIGINT` a decimal string, and `WasmRow` for
   the viewer, where the same `DATE` is epoch milliseconds and the `BIGINT` a
-  `bigint`.
+  `bigint`. `WasmSelection` is the same mapping over a query's own selection,
+  for a row the viewer reads back in JavaScript.
 - A query's own invented columns (a `status` a `CASE` derives, a count it
   names) stay plain SQL text. Only database relations come from the schema.
 

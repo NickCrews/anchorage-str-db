@@ -68,7 +68,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 
-import { day, id, naiveTimestamp, structList, varcharList } from './columns.ts';
+import { bigint, day, naiveTimestamp, structList, varcharList } from './columns.ts';
 
 // --------------------------------------------------------------------------
 // Airbnb
@@ -76,7 +76,7 @@ import { day, id, naiveTimestamp, structList, varcharList } from './columns.ts';
 export const airbnbListingObservations = pgTable(
   'airbnb_listing_observations',
   {
-    listingId: id('listing_id').notNull(),
+    listingId: bigint('listing_id').notNull(),
     scrapeDate: day('scrape_date').notNull(),
 
     // From the search response; present for every observed listing.
@@ -103,7 +103,7 @@ export const airbnbListingObservations = pgTable(
     locationVerified: boolean('location_verified'),
     strRegistrationId: varchar('str_registration_id'),
     // The primary host's Airbnb user id (airbnb.com/users/show/<host_id>).
-    hostId: id('host_id'),
+    hostId: bigint('host_id'),
     // Airbnb's text, verbatim: 'Entire home/apt', 'Private room', ...
     roomType: varchar('room_type'),
     guestCapacity: integer('guest_capacity'),
@@ -128,7 +128,7 @@ export const airbnbListingObservations = pgTable(
 );
 
 export const airbnbCalendarStatus = pgTable('airbnb_calendar_status', {
-  listingId: id('listing_id').notNull(),
+  listingId: bigint('listing_id').notNull(),
   nightDate: day('night_date').notNull(),
   available: boolean('available').notNull(),
   minNights: integer('min_nights'),
@@ -145,7 +145,7 @@ export const airbnbCalendarStatus = pgTable('airbnb_calendar_status', {
 export const airbnbListingPhotos = pgTable(
   'airbnb_listing_photos',
   {
-    listingId: id('listing_id').notNull(),
+    listingId: bigint('listing_id').notNull(),
     validFrom: day('valid_from').notNull(),
     photoUrls: varcharList('photo_urls').notNull(),
   },
@@ -184,7 +184,7 @@ export const airbnbScrapeRuns = pgTable('airbnb_scrape_runs', {
  * the date only: no review text or reviewer.
  */
 export const airbnbListingFirstReviews = pgTable('airbnb_listing_first_reviews', {
-  listingId: id('listing_id').primaryKey(),
+  listingId: bigint('listing_id').primaryKey(),
   // UTC date of the listing's oldest review; NULL if it had no reviews.
   firstReviewDate: day('first_review_date'),
   // The scrape date of the run that read the reviews.
@@ -201,7 +201,7 @@ export const airbnbListingFirstReviews = pgTable('airbnb_listing_first_reviews',
 export const airbnbHostObservations = pgTable(
   'airbnb_host_observations',
   {
-    hostId: id('host_id').notNull(),
+    hostId: bigint('host_id').notNull(),
     scrapeDate: day('scrape_date').notNull(),
     profileReadOk: boolean('profile_read_ok').notNull(),
     // A first name or a business name. Airbnb shows no surnames.

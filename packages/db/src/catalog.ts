@@ -4,6 +4,11 @@
  *
  * `connect` checks a file against this, and the viewer exposes exactly these
  * names, so neither keeps a list of its own to fall out of date.
+ *
+ * The lists keep the types of what is in them rather than widening to `Table`
+ * and `View`: `tables` is a union of the declared tables, so a caller reading
+ * one still has its columns, and `tableNames` is a union of the names
+ * themselves (`'airbnb_listings' | ...`) rather than `string`.
  */
 
 import { getTableName, getViewName, is, isView, type Table, type View } from 'drizzle-orm';
@@ -12,12 +17,20 @@ import { PgTable } from 'drizzle-orm/pg-core';
 import * as schema from './schema.ts';
 import * as viewSchema from './viewSchema.ts';
 
-export const tables: readonly Table[] = Object.values<unknown>(schema).filter(
-  (value): value is Table => is(value, PgTable),
+/** A table `schema.ts` exports, as declared. */
+type SchemaTable = Extract<(typeof schema)[keyof typeof schema], Table>;
+
+/** A view `viewSchema.ts` exports, as declared. */
+type SchemaView = Extract<(typeof viewSchema)[keyof typeof viewSchema], View>;
+
+export const tables: readonly SchemaTable[] = Object.values<unknown>(schema).filter(
+  (value): value is SchemaTable => is(value, PgTable),
 );
 
-export const views: readonly View[] = Object.values<unknown>(viewSchema).filter(isView);
+export const views: readonly SchemaView[] = Object.values<unknown>(viewSchema).filter(
+  (value): value is SchemaView => isView(value),
+);
 
-export const tableNames: readonly string[] = tables.map(getTableName);
+export const tableNames: readonly SchemaTable['_']['name'][] = tables.map(getTableName);
 
-export const viewNames: readonly string[] = views.map(getViewName);
+export const viewNames: readonly SchemaView['_']['name'][] = views.map(getViewName);

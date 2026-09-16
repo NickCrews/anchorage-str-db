@@ -64,6 +64,42 @@ Queries are written against the Drizzle schema in `@anchorage-str-db/db`
 rather than as SQL strings: `schema.ts` for the tables, `viewSchema.ts` for
 the views, and `toSql` to render one query to the string SQLRooms runs.
 
+A query that joins relations is built with Drizzle's query builder, which
+builds SQL without a connection, so each `select`, `join` and `where` is
+checked against the relation it names and the row type follows the selection:
+
+```ts
+import type {WasmSelection} from '@anchorage-str-db/db/rows';
+import {toSql} from '@anchorage-str-db/db/sql';
+import {hosts, listingsCurrent} from '@anchorage-str-db/db/viewSchema';
+import {eq, sql} from 'drizzle-orm';
+import {QueryBuilder} from 'drizzle-orm/pg-core';
+
+const qb = new QueryBuilder();
+
+// The keys are the column names the query emits, which is what the browser
+// reads the Arrow columns by: a plain column keeps its own name, and a `sql`
+// expression takes the alias `.as()` gives it.
+const fields = {
+  host_name: hosts.name,
+  listings: sql<number>`count(*)::INT`.as('listings'),
+};
+
+const query = qb
+  .select(fields)
+  .from(listingsCurrent)
+  .innerJoin(hosts, eq(hosts.hostId, listingsCurrent.hostId))
+  .groupBy(hosts.name);
+
+toSql(query);
+type Row = WasmSelection<typeof fields>; // { host_name: string | null; listings: number }
+```
+
+A query over a single relation, or one that needs DuckDB syntax the Postgres
+dialect has no notion of (`FILTER`, `GROUP BY ALL`, `EXCLUDE`, `QUALIFY`),
+stays a `sql` template with the schema's columns interpolated and `from()` for
+the relations:
+
 ```ts
 import {from, toSql} from '@anchorage-str-db/db/sql';
 import {listingsCurrent} from '@anchorage-str-db/db/viewSchema';
@@ -72,10 +108,10 @@ import {sql} from 'drizzle-orm';
 toSql(sql`SELECT count(*) FROM ${from(listingsCurrent)} WHERE ${listingsCurrent.isCurrent}`);
 ```
 
-So a renamed column breaks the build here instead of returning nothing at
-runtime, and values interpolated into a query (a search box's text) are
-escaped by Drizzle rather than by hand. Columns a query invents — a `status`
-a `CASE` derives, a count it names — stay plain SQL text; only the database's
+Either way a renamed column breaks the build here instead of returning nothing
+at runtime, and values interpolated into a query (a search box's text) are
+escaped by Drizzle rather than by hand. Columns a query invents — a `status` a
+`CASE` derives, a count it names — stay plain SQL text; only the database's
 own relations come from the schema. `WasmRow<typeof someView>` is a row of
 that relation as DuckDB-WASM delivers it, which is not how the scraper's
 driver delivers the same columns; see

@@ -9,13 +9,14 @@ import type { StateCreator } from 'zustand';
  * Everything the attached database holds, exposed in the main schema: the
  * tables `@anchorage-str-db/db` declares and the views it builds over them.
  * The list is the schema's, not one kept here, so a view added to the database
- * shows up in the viewer without an edit.
+ * shows up in the viewer without an edit, and its type is the names
+ * themselves rather than `string`.
  *
  * Read `calendar_current` rather than `airbnb_calendar_status` for current
  * availability, and `listings` rather than `airbnb_listing_observations` for
  * what a listing is now.
  */
-export const LAKE_TABLES: readonly string[] = [...tableNames, ...viewNames];
+export const LAKE_TABLES = [...tableNames, ...viewNames];
 
 const DB_FILE_URL = `${import.meta.env.BASE_URL}anchorage_str.duckdb`;
 const DB_FILE_NAME = 'anchorage_str.duckdb';

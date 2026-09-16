@@ -18,7 +18,7 @@
  * ```
  */
 
-import type { Column, Table, View } from 'drizzle-orm';
+import type { Column, SQL, Table, View } from 'drizzle-orm';
 
 type Columns = Record<string, Column>;
 
@@ -79,4 +79,33 @@ export type WasmRow<TRelation extends Table | View> = {
   [K in keyof ColumnsOf<TRelation> as ColumnsOf<TRelation>[K]['_']['name']]: WasmValue<
     ColumnsOf<TRelation>[K]
   >;
+};
+
+/** What one selected field carries: a column's value, or what its `sql<T>` declares. */
+type SelectedValue<TField> =
+  TField extends Column
+    ? WasmValue<TField>
+    : TField extends SQL.Aliased<infer TValue>
+      ? TValue
+      : TField extends SQL<infer TValue>
+        ? TValue
+        : never;
+
+/**
+ * A row of a Drizzle selection — the object passed to `select()` — as the
+ * viewer reads it, so the row type follows the query rather than being
+ * written out beside it:
+ *
+ * ```ts
+ * const fields = {name: listings.name, n: sql<number>`count(*)`.as('n')};
+ * type Row = WasmSelection<typeof fields>; // { name: string | null; n: number }
+ * ```
+ *
+ * The keys have to be the names the rendered SQL emits, which is what the
+ * browser reads the Arrow columns by: a plain column renders under its own
+ * name (Drizzle maps its own results by position, so it aliases nothing), and
+ * a `sql` expression under the alias `.as()` gives it.
+ */
+export type WasmSelection<TSelection> = {
+  [K in keyof TSelection]: SelectedValue<TSelection[K]>;
 };

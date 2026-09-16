@@ -15,7 +15,7 @@
  */
 
 import { duckDbList } from '@duckdbfan/drizzle-duckdb/helpers';
-import { bigint, customType, date, timestamp } from 'drizzle-orm/pg-core';
+import { bigint as pgBigint, customType, date, timestamp } from 'drizzle-orm/pg-core';
 
 /**
  * Each helper takes its column name as a literal type, so a row type built
@@ -28,8 +28,8 @@ export const day = <T extends string>(name: T) => date(name, { mode: 'string' })
 /** A naive UTC DuckDB `TIMESTAMP`, read and written as `YYYY-MM-DD HH:MM:SS`. */
 export const naiveTimestamp = <T extends string>(name: T) => timestamp(name, { mode: 'string' });
 
-/** A DuckDB `BIGINT`: an Airbnb listing or user id. */
-export const id = <T extends string>(name: T) => bigint(name, { mode: 'bigint' });
+/** A DuckDB `BIGINT`, read and written as a `bigint`. */
+export const bigint = <T extends string>(name: T) => pgBigint(name, { mode: 'bigint' });
 
 /** A DuckDB `VARCHAR[]`. */
 export const varcharList = <T extends string>(name: T) => duckDbList<string>(name, 'VARCHAR');

@@ -14,15 +14,26 @@
  * really can be NULL: a listing whose page was never read has no `room_type`,
  * a registration the geocoder could not place has no `geocoded_lat`.
  *
- * The declarations carry no SQL of their own (`.existing()`), so importing
- * this file costs nothing at runtime and reaches no driver: the viewer builds
- * its queries from the same objects the scraper's checks do. See the README
- * for which modules are safe to import in a browser.
+ * `.existing()` says the database already has the view, which makes every
+ * declaration here a description and never a definition. A view Drizzle
+ * defines is one it can render — a `select()` in the Postgres dialect — and
+ * none of these are: they are DuckDB SQL (`SELECT * EXCLUDE`, `* REPLACE`,
+ * `QUALIFY`, struct version keys, `to_months`) that `connect` recreates in
+ * dependency order on every open, which is what lets a change to `views.ts`
+ * land without a migration. Handing that text to `.as()` instead would move
+ * the script into this file without making any of it checkable, and the
+ * column list below would still have to be written by hand: what the columns
+ * are is the one thing raw SQL cannot tell Drizzle.
+ *
+ * So the declarations carry no SQL of their own, and importing this file
+ * costs nothing at runtime and reaches no driver: the viewer builds its
+ * queries from the same objects the scraper's checks do. See the README for
+ * which modules are safe to import in a browser.
  */
 
 import { boolean, doublePrecision, integer, pgView, varchar } from 'drizzle-orm/pg-core';
 
-import { day, hugeint, id, naiveTimestamp, structList, varcharList } from './columns.ts';
+import { bigint, day, hugeint, naiveTimestamp, structList, varcharList } from './columns.ts';
 import {
   LICENSE_ISSUANCES_TYPE,
   LICENSE_LOCATIONS_TYPE,
@@ -40,7 +51,7 @@ export const latestScrapeDate = pgView('latest_scrape_date', {
 
 /** Per listing: first and last seen, last successful page read, and whether current. */
 export const listingActivity = pgView('listing_activity', {
-  listingId: id('listing_id'),
+  listingId: bigint('listing_id'),
   firstSeenDate: day('first_seen_date'),
   lastSeenDate: day('last_seen_date'),
   pageSeenDate: day('page_seen_date'),
@@ -49,7 +60,7 @@ export const listingActivity = pgView('listing_activity', {
 
 /** One row per listing version; see `listings` for the dimension to read. */
 export const listingVersions = pgView('listing_versions', {
-  listingId: id('listing_id'),
+  listingId: bigint('listing_id'),
   versionNo: hugeint('version_no'),
   validFrom: day('valid_from'),
   versionLastSeenDate: day('version_last_seen_date'),
@@ -64,7 +75,7 @@ export const listingVersions = pgView('listing_versions', {
   locationSubtitle: varchar('location_subtitle'),
   locationVerified: boolean('location_verified'),
   strRegistrationId: varchar('str_registration_id'),
-  hostId: id('host_id'),
+  hostId: bigint('host_id'),
   roomType: varchar('room_type'),
   guestCapacity: integer('guest_capacity'),
   beds: integer('beds'),
@@ -78,7 +89,7 @@ export const listingVersions = pgView('listing_versions', {
  * order, because each of those views is `SELECT l.*` with columns appended.
  */
 const listingColumns = {
-  listingId: id('listing_id'),
+  listingId: bigint('listing_id'),
   name: varchar('name'),
   propertyTitle: varchar('property_title'),
   roomType: varchar('room_type'),
@@ -95,7 +106,7 @@ const listingColumns = {
   locationSubtitle: varchar('location_subtitle'),
   locationVerified: boolean('location_verified'),
   strRegistrationId: varchar('str_registration_id'),
-  hostId: id('host_id'),
+  hostId: bigint('host_id'),
   pageSeenDate: day('page_seen_date'),
   firstSeenDate: day('first_seen_date'),
   lastSeenDate: day('last_seen_date'),
@@ -116,7 +127,7 @@ export const listingsCurrent = pgView('listings_current', listingColumns).existi
 
 /** Each listing's most recent photo set; `photoUrls[1]` is the cover photo. */
 export const listingPhotosCurrent = pgView('listing_photos_current', {
-  listingId: id('listing_id'),
+  listingId: bigint('listing_id'),
   photoUrls: varcharList('photo_urls'),
   photoCount: integer('photo_count'),
   photosValidFrom: day('photos_valid_from'),
@@ -124,7 +135,7 @@ export const listingPhotosCurrent = pgView('listing_photos_current', {
 
 /** Current calendar rows, minus the future nights of retired listings. */
 export const calendarCurrent = pgView('calendar_current', {
-  listingId: id('listing_id'),
+  listingId: bigint('listing_id'),
   nightDate: day('night_date'),
   available: boolean('available'),
   minNights: integer('min_nights'),
@@ -136,7 +147,7 @@ export const calendarCurrent = pgView('calendar_current', {
 
 /** Per host: first and last seen, last card read, tenure, and whether current. */
 export const hostActivity = pgView('host_activity', {
-  hostId: id('host_id'),
+  hostId: bigint('host_id'),
   firstSeenDate: day('first_seen_date'),
   lastSeenDate: day('last_seen_date'),
   profileSeenDate: day('profile_seen_date'),
@@ -148,7 +159,7 @@ export const hostActivity = pgView('host_activity', {
 
 /** One row per host version; see `hosts` for the dimension to read. */
 export const hostVersions = pgView('host_versions', {
-  hostId: id('host_id'),
+  hostId: bigint('host_id'),
   versionNo: hugeint('version_no'),
   validFrom: day('valid_from'),
   versionLastSeenDate: day('version_last_seen_date'),
@@ -159,7 +170,7 @@ export const hostVersions = pgView('host_versions', {
 
 /** The host dimension. Join to `listings` on `hostId`. */
 export const hosts = pgView('hosts', {
-  hostId: id('host_id'),
+  hostId: bigint('host_id'),
   name: varchar('name'),
   about: varchar('about'),
   hostingStartedOn: day('hosting_started_on'),
@@ -182,7 +193,7 @@ export const hosts = pgView('hosts', {
  * drawn downstream.
  */
 export const hostPortfolios = pgView('host_portfolios', {
-  hostId: id('host_id'),
+  hostId: bigint('host_id'),
   scrapeDate: day('scrape_date'),
   listingsLive: integer('listings_live'),
   listingsEverSeen: integer('listings_ever_seen'),
