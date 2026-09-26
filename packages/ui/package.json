@@ -8,6 +8,7 @@
     "dev": "vite",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test": "vitest run",
     "typecheck": "tsc -b"
   },
   "dependencies": {
@@ -31,6 +32,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@duckdb/node-api": "1.5.5-r.4",
     "@eslint/js": "^9.36.0",
     "@tailwindcss/vite": "^4.1.18",
     "@types/node": "^24.0.0",
@@ -44,6 +46,7 @@
     "tailwindcss": "^4.1.18",
     "typescript": "5.9.2",
     "typescript-eslint": "^8.44.1",
-    "vite": "^8.0.5"
+    "vite": "^8.0.5",
+    "vitest": "^4.1.11"
   }
 }

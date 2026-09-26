@@ -62,7 +62,14 @@ the whole database.
 
 Queries are written against the Drizzle schema in `@anchorage-str-db/db`
 rather than as SQL strings: `schema.ts` for the tables, `viewSchema.ts` for
-the views, and `toSql` to render one query to the string SQLRooms runs.
+the views, and `toSql` to render one query to the string SQLRooms runs. They
+live in [`src/queries/`](src/queries), one module per component, rather than
+in the components, so [`test/queries.test.ts`](test/queries.test.ts) can run
+every one against a real database: DuckDB has to accept it, and the columns
+it emits have to be the keys the component reads rows by. A query that
+depends on a toggle or the search box is a function of them, and the test
+runs each variant. `pnpm --filter @anchorage-str-db/ui test` runs it; it
+installs DuckDB's `spatial` extension on first use, for the map.
 
 Every query here is built with Drizzle's query builder, which builds SQL
 without a connection. So each `select`, `join`, `where` and `group by` is
@@ -71,12 +78,9 @@ selection:
 
 ```ts
 import type {WasmSelection} from '@anchorage-str-db/db/rows';
-import {toSql} from '@anchorage-str-db/db/sql';
+import {qb, toSql} from '@anchorage-str-db/db/sql';
 import {hosts, listingsActive} from '@anchorage-str-db/db/viewSchema';
 import {eq, sql} from 'drizzle-orm';
-import {QueryBuilder} from 'drizzle-orm/pg-core';
-
-const qb = new QueryBuilder();
 
 // The keys are the column names the query emits, which is what the browser
 // reads the Arrow columns by: a plain column keeps its own name, and a `sql`
@@ -123,7 +127,7 @@ does the same for a CTE whose body has to be raw DuckDB SQL:
 const latest = qb.select().from(hostListingPortfolios).where(...).as('latest');
 const recent = qb
   .$with('recent', {listingId: bigint('listing_id'), scrapeDate: day('scrape_date')})
-  .as(sql`SELECT listing_id, scrape_date FROM ${from(airbnbListingObservations)}
+  .as(sql`SELECT listing_id, scrape_date FROM ${airbnbListingObservations}
           QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY scrape_date DESC) = 1`);
 ```
 

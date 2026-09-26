@@ -1,6 +1,5 @@
 import type { WasmSelection } from '@anchorage-str-db/db/rows';
 import { toSql } from '@anchorage-str-db/db/sql';
-import { hostListingPortfolios, listingsActive } from '@anchorage-str-db/db/viewSchema';
 import { useSql } from '@sqlrooms/duckdb';
 import {
   Bar,
@@ -25,18 +24,18 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from '@sqlrooms/ui';
-import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
-import { QueryBuilder } from 'drizzle-orm/pg-core';
 import { useMemo, useState, type FC } from 'react';
 import { pct, shortDate } from '../format';
+import {
+  CUTOFFS,
+  DISTRIBUTION_FIELDS,
+  DISTRIBUTION_QUERY,
+  summaryQuery,
+  trendQuery,
+  type SummaryRow,
+  type TrendRow,
+} from '../queries/hostConcentration';
 import { useRoomStore } from '../store';
-
-/**
- * Display cutoffs for "hosts with at least N active listings". The database
- * stores counts only; where an owner ends and an operator begins is left to
- * the reader, and the card says so.
- */
-const CUTOFFS = [2, 3, 5, 10, 20] as const;
 
 const distributionConfig = {
   listings: { label: 'Listings held', color: 'hsl(var(--chart-5))' },
@@ -45,109 +44,6 @@ const distributionConfig = {
 const trendConfig = {
   pctHeld: { label: '% of listings', color: 'hsl(var(--chart-5))' },
 } satisfies ChartConfig;
-
-/** Builds queries without a connection; `toSql` renders them for SQLRooms. */
-const qb = new QueryBuilder();
-
-/** The latest date `host_listing_portfolios` has counts for. */
-const latestPortfolioDate = qb
-  .select({ scrapeDate: sql<number>`max(${hostListingPortfolios.scrapeDate})`.as('scrape_date') })
-  .from(hostListingPortfolios);
-
-/**
- * Each host with active listings at the latest run: `host_listing_portfolios` cut down
- * to one date. Selected through the query builder, so the rows are still that
- * view's columns and the queries below read them as such under the name
- * `latest`.
- */
-const latest = qb
-  .select()
-  .from(hostListingPortfolios)
-  .where(
-    and(
-      eq(hostListingPortfolios.scrapeDate, latestPortfolioDate),
-      gt(hostListingPortfolios.listingsActive, 0),
-    ),
-  )
-  .as('latest');
-
-/** Hosts by portfolio size, largest first, for the top-10 share. */
-const ranked = qb.$with('ranked').as(
-  qb
-    .select({
-      listingsActive: latest.listingsActive,
-      rnk: sql<number>`row_number() OVER (ORDER BY ${latest.listingsActive} DESC, ${latest.hostId})`.as(
-        'rnk',
-      ),
-    })
-    .from(latest),
-);
-
-/** Active listings whose page was never read, so no host is known. */
-const unknownHosts = qb
-  .select({ unknownHost: sql<number>`count(*)::INT`.as('unknownHost') })
-  .from(listingsActive)
-  .where(isNull(listingsActive.hostId));
-
-const summaryFields = (cutoff: number) => ({
-  hosts: sql<number>`count(*)::INT`.as('hosts'),
-  hostsAtCutoff: sql<number>`count(*) FILTER (WHERE ${ranked.listingsActive} >= ${cutoff})::INT`.as(
-    'hostsAtCutoff',
-  ),
-  attributed: sql<number>`coalesce(sum(${ranked.listingsActive}), 0)::INT`.as('attributed'),
-  heldAtCutoff:
-    sql<number>`coalesce(sum(${ranked.listingsActive}) FILTER (WHERE ${ranked.listingsActive} >= ${cutoff}), 0)::INT`.as(
-      'heldAtCutoff',
-    ),
-  heldByTop10:
-    sql<number>`coalesce(sum(${ranked.listingsActive}) FILTER (WHERE ${ranked.rnk} <= 10), 0)::INT`.as(
-      'heldByTop10',
-    ),
-  unknownHost: sql<number>`${unknownHosts}`.as('unknownHost'),
-});
-
-type SummaryRow = WasmSelection<ReturnType<typeof summaryFields>>;
-
-const summaryQuery = (cutoff: number) =>
-  qb.with(ranked).select(summaryFields(cutoff)).from(ranked);
-
-const DISTRIBUTION_FIELDS = {
-  bucket: sql<string>`CASE
-        WHEN ${latest.listingsActive} >= 20 THEN '20+'
-        WHEN ${latest.listingsActive} >= 10 THEN '10–19'
-        WHEN ${latest.listingsActive} >= 5 THEN '5–9'
-        WHEN ${latest.listingsActive} >= 3 THEN '3–4'
-        ELSE ${latest.listingsActive}::VARCHAR
-      END`.as('bucket'),
-  listings: sql<number>`sum(${latest.listingsActive})::INT`.as('listings'),
-};
-
-const DISTRIBUTION_QUERY = qb
-  .select(DISTRIBUTION_FIELDS)
-  .from(latest)
-  .groupBy(sql`"bucket"`)
-  .orderBy(sql`min(${latest.listingsActive})`);
-
-const trendFields = (cutoff: number) => ({
-  scrapeDate: sql<number>`${hostListingPortfolios.scrapeDate}`.as('scrapeDate'),
-  pctHeld: sql<number | null>`round(
-        100.0 * coalesce(
-          sum(${hostListingPortfolios.listingsActive})
-            FILTER (WHERE ${hostListingPortfolios.listingsActive} >= ${cutoff}),
-          0
-        ) / nullif(sum(${hostListingPortfolios.listingsActive}), 0),
-        1
-      )::DOUBLE`.as('pctHeld'),
-});
-
-type TrendRow = WasmSelection<ReturnType<typeof trendFields>>;
-
-const trendQuery = (cutoff: number) =>
-  qb
-    .select(trendFields(cutoff))
-    .from(hostListingPortfolios)
-    .groupBy(hostListingPortfolios.scrapeDate)
-    .orderBy(asc(hostListingPortfolios.scrapeDate));
 
 export const HostConcentrationCard: FC = () => {
   const enabled = useRoomStore((s) => s.dataInit.status) === 'ready';

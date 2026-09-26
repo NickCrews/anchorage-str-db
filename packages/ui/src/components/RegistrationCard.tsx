@@ -1,10 +1,5 @@
 import type { WasmSelection } from '@anchorage-str-db/db/rows';
 import { toSql } from '@anchorage-str-db/db/sql';
-import {
-  latestRegistryDate,
-  listingsActiveWithRegistration,
-  registrationsActive,
-} from '@anchorage-str-db/db/viewSchema';
 import { useSql } from '@sqlrooms/duckdb';
 import {
   Bar,
@@ -27,17 +22,18 @@ import {
   CardTitle,
   SpinnerPane,
 } from '@sqlrooms/ui';
-import { asc, desc, eq, sql } from 'drizzle-orm';
-import { QueryBuilder } from 'drizzle-orm/pg-core';
 import type { FC } from 'react';
 import { pct, shortDate } from '../format';
 import {
-  registrationStatusSql,
-  type RegistrationStatus,
-} from '../registrationStatus';
+  BY_LISTING_TYPE_FIELDS,
+  BY_LISTING_TYPE_QUERY,
+  COUNCIL_FIELDS,
+  COUNCIL_QUERY,
+  COUNCILS_SHOWN,
+  SUMMARY_FIELDS,
+  SUMMARY_QUERY,
+} from '../queries/registrationCard';
 import { useRoomStore } from '../store';
-
-const COUNCILS_SHOWN = 15;
 
 const statusConfig = {
   registered: { label: 'Registered', color: 'hsl(var(--chart-2))' },
@@ -50,88 +46,6 @@ const councilConfig = {
   registrations: { label: 'Active registrations', color: 'hsl(var(--chart-3))' },
   listings: { label: 'Airbnb listings citing them', color: 'hsl(var(--chart-2))' },
 } satisfies ChartConfig;
-
-/** Builds queries without a connection; `toSql` renders them for SQLRooms. */
-const qb = new QueryBuilder();
-
-/** Every active listing with how its registration id matched. */
-const listingsWithStatus = qb
-  .select({
-    listingType: listingsActiveWithRegistration.listingType,
-    status: registrationStatusSql(listingsActiveWithRegistration).as('status'),
-  })
-  .from(listingsActiveWithRegistration)
-  .as('listings');
-
-/** `status` is the subquery's own column, so both queries below count it. */
-const listingsWith = (status: RegistrationStatus) =>
-  sql<number>`count(*) FILTER (WHERE ${listingsWithStatus.status} = ${status})::INT`;
-
-const STATUS_COUNTS = {
-  registered: listingsWith('Registered').as('registered'),
-  lapsed: listingsWith('Registration lapsed').as('lapsed'),
-  notInRegistry: listingsWith('Id not in registry').as('notInRegistry'),
-  noId: listingsWith('No id shown').as('noId'),
-};
-
-const registrations = qb
-  .select({ registrations: sql<number>`count(*)::INT`.as('registrations') })
-  .from(registrationsActive);
-
-const registrationsWithoutListing = qb
-  .select({
-    registrationsWithoutListing: sql<number>`count(*)::INT`.as(
-      'registrationsWithoutListing',
-    ),
-  })
-  .from(registrationsActive)
-  .where(eq(registrationsActive.airbnbListingsActive, 0));
-
-const registryDate = qb
-  .select({ registryDate: sql<number | null>`${latestRegistryDate.scrapeDate}`.as('registryDate') })
-  .from(latestRegistryDate);
-
-const SUMMARY_FIELDS = {
-  listings: sql<number>`count(*)::INT`.as('listings'),
-  ...STATUS_COUNTS,
-  registrations: sql<number>`${registrations}`.as('registrations'),
-  registrationsWithoutListing: sql<number>`${registrationsWithoutListing}`.as(
-    'registrationsWithoutListing',
-  ),
-  registryDate: sql<number | null>`${registryDate}`.as('registryDate'),
-};
-
-const SUMMARY_QUERY = qb.select(SUMMARY_FIELDS).from(listingsWithStatus);
-
-const BY_LISTING_TYPE_FIELDS = {
-  listingType: sql<string>`coalesce(${listingsWithStatus.listingType}, 'Not listed')`.as(
-    'listingType',
-  ),
-  ...STATUS_COUNTS,
-};
-
-const BY_LISTING_TYPE_QUERY = qb
-  .select(BY_LISTING_TYPE_FIELDS)
-  .from(listingsWithStatus)
-  .groupBy(listingsWithStatus.listingType)
-  .orderBy(sql`count(*) DESC`);
-
-const COUNCIL_FIELDS = {
-  council: sql<string>`coalesce(${registrationsActive.communityCouncil}, 'Address not geocoded')`.as(
-    'council',
-  ),
-  registrations: sql<number>`count(*)::INT`.as('registrations'),
-  listings: sql<number>`sum(${registrationsActive.airbnbListingsActive})::INT`.as(
-    'listings',
-  ),
-};
-
-const COUNCIL_QUERY = qb
-  .select(COUNCIL_FIELDS)
-  .from(registrationsActive)
-  .groupBy(registrationsActive.communityCouncil)
-  .orderBy(desc(sql`count(*)`), asc(registrationsActive.communityCouncil))
-  .limit(COUNCILS_SHOWN);
 
 export const RegistrationCard: FC = () => {
   const enabled = useRoomStore((s) => s.dataInit.status) === 'ready';

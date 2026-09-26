@@ -1,26 +1,12 @@
-import { tableNames, viewNames } from '@anchorage-str-db/db/catalog';
-import { toSql } from '@anchorage-str-db/db/sql';
 import { isWasmDuckDbConnector } from '@sqlrooms/duckdb';
 import type { RoomShellSliceState } from '@sqlrooms/room-shell';
-import { sql } from 'drizzle-orm';
 import type { StateCreator } from 'zustand';
 
-/**
- * Everything the attached database holds, exposed in the main schema: the
- * tables `@anchorage-str-db/db` declares and the views it builds over them.
- * The list is the schema's, not one kept here, so a view added to the database
- * shows up in the viewer without an edit, and its type is the names
- * themselves rather than `string`.
- *
- * Read `calendar_current` rather than `airbnb_calendar_status` for current
- * availability, and `listings` rather than `airbnb_listing_observations` for
- * what a listing is now.
- */
-export const LAKE_TABLES = [...tableNames, ...viewNames];
+import { attachSql } from './queries/lake';
+
 
 const DB_FILE_URL = `${import.meta.env.BASE_URL}anchorage_str.duckdb`;
 const DB_FILE_NAME = 'anchorage_str.duckdb';
-const ATTACHED_SCHEMA = 'str';
 
 export type DataInitSliceState = {
   dataInit: {
@@ -34,7 +20,7 @@ export type DataInitSliceState = {
 /**
  * Fetches `anchorage_str.duckdb`, which `vite.config.ts` serves from the
  * repo's `data/`, attaches it read-only, and creates a main-schema view for
- * each name in `LAKE_TABLES`.
+ * each name in `LAKE_TABLES` (see `queries/lake.ts`).
  */
 export function createDataInitSlice(): StateCreator<
   RoomShellSliceState & DataInitSliceState,
@@ -66,15 +52,8 @@ export function createDataInitSlice(): StateCreator<
           }
           const bytes = new Uint8Array(await response.arrayBuffer());
           await connector.getDb().registerFileBuffer(DB_FILE_NAME, bytes);
-          await connector.execute(
-            `ATTACH '${DB_FILE_NAME}' AS ${ATTACHED_SCHEMA} (READ_ONLY)`,
-          ).result;
-
-          for (const table of LAKE_TABLES) {
-            await connector.execute(
-              toSql(sql`CREATE OR REPLACE VIEW ${sql.identifier(table)} AS
-                SELECT * FROM ${sql.identifier(ATTACHED_SCHEMA)}.${sql.identifier(table)}`),
-            ).result;
+          for (const statement of attachSql(DB_FILE_NAME)) {
+            await connector.execute(statement).result;
           }
 
           await get().db.refreshTableSchemas();
