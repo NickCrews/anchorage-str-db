@@ -75,6 +75,23 @@ const MAX_HOST_PROFILE_FAILURE_RATE = 0.25;
 const MIN_HOST_PROFILE_SHARE = 0.95;
 
 /**
+ * A profile-listings failure rate above this fails the
+ * `host_listings_failure_rate` check, at warn severity: the views carry each
+ * host's last read forward.
+ */
+const MAX_HOST_LISTINGS_FAILURE_RATE = 0.25;
+
+/**
+ * The share of hosts read today whose profile lists fewer listings than
+ * search saw under them today, above which the run fails. Every listing
+ * search returns is on its host's profile (365 of 365 sampled), so a
+ * shortfall means the endpoint is answering with short or empty lists, which
+ * is also how it answers for an account that doesn't exist. Non-zero for a
+ * listing deactivated between the search and the profile read.
+ */
+const MAX_HOST_LISTINGS_SHORTFALL_SHARE = 0.05;
+
+/**
  * How far the start dates implied by one host's `timeAsHost` readings may
  * spread before `host_start_date_stable` warns. Readings in whole months
  * taken on different days of the month disagree by up to about a month.
@@ -394,6 +411,69 @@ export async function runChecks(
       share >= MIN_HOST_PROFILE_SHARE,
       `${resolved}/${owned} active listings with a host_id resolve to a read host profile ` +
         `(${percent(share)}, min ${percent(MIN_HOST_PROFILE_SHARE)})`,
+    );
+  }
+
+  const listingRuns = await db.rows<{
+    host_listings_fetch_attempted: number | null;
+    host_listings_fetch_failed: number | null;
+  }>(
+    'SELECT host_listings_fetch_attempted, host_listings_fetch_failed FROM airbnb_scrape_runs ' +
+      'WHERE scrape_date = CAST(? AS DATE) ORDER BY run_started_at DESC LIMIT 1',
+    [scrapeDate],
+  );
+  const listingsAttempted = listingRuns[0]?.host_listings_fetch_attempted ?? 0;
+  if (listingsAttempted) {
+    const listingsFailed = listingRuns[0]?.host_listings_fetch_failed ?? 0;
+    const rate = listingsFailed / listingsAttempted;
+    check(
+      'host_listings_failure_rate',
+      'warn',
+      rate <= MAX_HOST_LISTINGS_FAILURE_RATE,
+      `${listingsFailed}/${listingsAttempted} hosts' profile listings failed to read ` +
+        `(${percent(rate)}, max ${percent(MAX_HOST_LISTINGS_FAILURE_RATE)})`,
+    );
+  }
+
+  // An error, unlike the other host checks: a short list is written as a
+  // successful read, so no carry-forward covers for it.
+  const profileHosts = await db.count(
+    'SELECT count(*) FROM airbnb_host_observations ' +
+      'WHERE scrape_date = CAST(? AS DATE) AND listings_on_airbnb_read_ok',
+    [scrapeDate],
+  );
+  if (profileHosts) {
+    const short = await db.rows<{ host_id: string; on_airbnb: number; seen: number }>(
+      `
+      WITH seen AS (
+          SELECT host_id, count(*) AS seen FROM listings
+          WHERE valid_to IS NULL AND last_seen_date = CAST(? AS DATE) AND host_id IS NOT NULL
+          GROUP BY host_id
+      )
+      SELECT o.host_id, o.listings_on_airbnb AS on_airbnb, s.seen::INTEGER AS seen
+      FROM airbnb_host_observations o
+      JOIN seen s USING (host_id)
+      WHERE o.scrape_date = CAST(? AS DATE)
+        AND o.listings_on_airbnb_read_ok
+        AND o.listings_on_airbnb < s.seen
+      ORDER BY s.seen - o.listings_on_airbnb DESC
+      `,
+      [scrapeDate, scrapeDate],
+    );
+    const share = short.length / profileHosts;
+    check(
+      'host_listings_cover_anchorage',
+      'error',
+      share <= MAX_HOST_LISTINGS_SHORTFALL_SHARE,
+      `${short.length}/${profileHosts} hosts read today list fewer listings on their profile ` +
+        `than search saw under them today (${percent(share)}, max ` +
+        `${percent(MAX_HOST_LISTINGS_SHORTFALL_SHARE)})` +
+        (short.length
+          ? `; e.g. ${short
+              .slice(0, 5)
+              .map((row) => `${row.host_id} (${row.on_airbnb} < ${row.seen})`)
+              .join(', ')}`
+          : ''),
     );
   }
 

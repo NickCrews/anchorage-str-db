@@ -289,8 +289,35 @@ export interface HostProfileStats {
   attempted: number;
   /** Of those, how many had no card read today. */
   failed: number;
+  /** Of those, how many had no profile listings read today. */
+  listingsFailed: number;
   new: number;
   changed: number;
+}
+
+/**
+ * The hosts `recordHostObservations` will write a row for, known before the
+ * write phase so the profile-listings pass can request each one: the host a
+ * page read today names, and for a listing whose page failed, the host its
+ * current version carries forward. `pages` holds every listing observed
+ * today.
+ */
+export async function hostsToRead(db: Database, pages: readonly ListingPage[]): Promise<string[]> {
+  const hostIds = new Set<string>();
+  for (const page of pages) {
+    if (!page.error && page.hostId !== null) hostIds.add(page.hostId);
+  }
+  const unread = pages.filter((page) => page.error).map((page) => page.listingId);
+  if (unread.length) {
+    const carried = await db.rows<{ host_id: string }>(
+      'SELECT DISTINCT host_id FROM listings ' +
+        'WHERE valid_to IS NULL AND host_id IS NOT NULL ' +
+        "AND listing_id IN (SELECT unnest(string_split(?, ','))::BIGINT)",
+      [unread.join(',')],
+    );
+    for (const row of carried) hostIds.add(row.host_id);
+  }
+  return [...hostIds];
 }
 
 /**
@@ -301,12 +328,15 @@ export interface HostProfileStats {
  * today's owners are read back from `listings`, so a listing whose page failed
  * today still names its owner through the carried-forward `host_id`.
  *
- * `cards` is `collectHostCards`' output. Idempotent per scrape date.
+ * `cards` is `collectHostCards`' output, and `listingsOnAirbnb` each host's
+ * profile listing count from the profile-listings pass; a host missing from
+ * either is recorded as unread for it. Idempotent per scrape date.
  */
 export async function recordHostObservations(
   db: Database,
   scrapeDate: IsoDate,
   cards: ReadonlyMap<string, HostCard>,
+  listingsOnAirbnb: ReadonlyMap<string, number> = new Map(),
 ): Promise<HostProfileStats> {
   await db.run('DELETE FROM airbnb_host_observations WHERE scrape_date = CAST(? AS DATE)', [scrapeDate]);
   const previouslySeen = new Set(
@@ -335,6 +365,8 @@ export async function recordHostObservations(
         about: card?.about ?? null,
         timeAsHostYears: card?.timeAsHostYears ?? null,
         timeAsHostMonths: card?.timeAsHostMonths ?? null,
+        listingsOnAirbnbReadOk: listingsOnAirbnb.has(hostId),
+        listingsOnAirbnb: listingsOnAirbnb.get(hostId) ?? null,
       };
     }),
   );
@@ -342,6 +374,7 @@ export async function recordHostObservations(
   return {
     attempted: hostIds.length,
     failed: hostIds.filter((hostId) => !cards.has(hostId)).length,
+    listingsFailed: hostIds.filter((hostId) => !listingsOnAirbnb.has(hostId)).length,
     new: hostIds.filter((hostId) => !previouslySeen.has(hostId)).length,
     changed: await db.count(
       'SELECT count(*) FROM host_versions WHERE valid_from = CAST(? AS DATE)',

@@ -8,7 +8,7 @@ import { connect, LegacySchemaError } from '../src/connect.ts';
 import { Database } from '../src/database.ts';
 
 /** Migrations in `../drizzle`; every `connect` should end with exactly these applied. */
-const MIGRATION_COUNT = 4;
+const MIGRATION_COUNT = 5;
 
 const temporary: string[] = [];
 const open: Database[] = [];
@@ -115,6 +115,10 @@ describe('connect', () => {
         "VALUES (1, '2026-09-14', 'Cabin A', 61.1, -149.9, true, 'STR20260309', 'Entire home/apt')",
     );
     await seed.run(
+      "INSERT INTO airbnb_host_observations (host_id, scrape_date, profile_read_ok, name) " +
+        "VALUES (100, '2026-09-14', true, 'Rachel')",
+    );
+    await seed.run(
       "INSERT INTO muni_str_registry_runs " +
         "(scrape_date, run_started_at, registrations_seen, registrations_departed) " +
         "VALUES ('2026-09-14', '2026-09-14 12:00:00', 1, 0)",
@@ -157,6 +161,14 @@ describe('connect', () => {
     expect(
       await db.rows('SELECT listing_type FROM listings WHERE is_active'),
     ).toEqual([{ listing_type: 'Entire home/apt' }]);
+    // 0004: a host read before the profile-listings pass has no count, and
+    // no read to carry forward.
+    expect(
+      await db.rows(
+        'SELECT h.name, o.listings_on_airbnb_read_ok, o.listings_on_airbnb FROM airbnb_host_observations o ' +
+          'JOIN hosts h USING (host_id)',
+      ),
+    ).toEqual([{ name: 'Rachel', listings_on_airbnb_read_ok: null, listings_on_airbnb: null }]);
   });
 
   it('rejects a database with listings as a table', async () => {

@@ -16,7 +16,7 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 | --- | --- | --- |
 | `packages/scraper` | runs the providers below, decides what is stored, writes, checks and the CLI | the five packages below |
 | `packages/db` | the DuckDB schema (Drizzle), its migrations, the views, and the connection | `utils`, `scraper-muni-str`, `@duckdb/node-api`, `drizzle-orm`, `@duckdbfan/drizzle-duckdb` |
-| `packages/scraper-airbnb` | searches Airbnb and fetches listing pages, calendars, price quotes and reviews | `utils`, `impit` |
+| `packages/scraper-airbnb` | searches Airbnb and fetches listing pages, calendars, price quotes, reviews and host profile listings | `utils`, `impit` |
 | `packages/scraper-muni-str` | fetches the Municipal Clerk's STR registration layers from ArcGIS | `utils` |
 | `packages/muni-licenses` | fetches and parses the Muni's CityView license pages | `utils` |
 | `packages/utils` | dates, logging, concurrency, request pacing and retries, `fetch`, the Municipality boundary | none |
@@ -47,8 +47,9 @@ The default `--db` is resolved from the scraper's source, so it is the repo's
 
 A run searches the Anchorage bounding box, keeps the listings inside the
 Municipality's boundary (`utils/src/muni_geography`), fetches every listing's
-page and calendar and up to 1000 listings' earliest review dates, writes the
-day to the database, and runs the data-quality checks.
+page and calendar, every host's profile listings, and up to 1000 listings'
+earliest review dates, writes the day to the database, and runs the
+data-quality checks.
 It exits non-zero if an error-severity check fails; the log names which one.
 `--verbose` logs passing checks too.
 
@@ -181,21 +182,44 @@ listings, which can't be scraped after the fact.
 ### Host pass
 
 Every listing page carries its primary host's profile card (name, bio,
-`timeAsHost`), so the host pass makes no requests. `collectHostCards` reduces
+`timeAsHost`), so the card needs no requests. `collectHostCards` reduces
 the run's pages to one card per distinct host (about 2 listings per host),
 and `recordHostObservations` writes a row for every host with a listing
 observed that day, including hosts whose only page failed.
 
+The same row stores `listings_on_airbnb`: how many listings the host's
+profile shows, anywhere on Airbnb (`hostListings.ts`). This is the one part
+of the host pass that makes requests, one per distinct host rather than per
+listing. `hostsToRead` picks the same hosts `recordHostObservations` will
+write, before the write phase: the host each read page names, and the
+carried-forward host of each listing whose page failed. The profile endpoint
+has no total, so the pass pages 100 at a time until a short page; only
+managers with over 100 listings need a second request. A failed read stores
+`listings_on_airbnb_read_ok = false` and `host_listing_portfolios` carries
+the last read forward, dated by `listings_on_airbnb_read_date`. Only the
+count is stored, not the ids: they carry no location, so they join to
+nothing here. See
+[`docs/research/airbnb-host-listings.md`](docs/research/airbnb-host-listings.md).
+
+A host id no account has comes back as an empty list, like a host with
+nothing listed, so a broken request would read as zeros rather than errors.
+`host_listings_cover_anchorage` fails the run when more than 5% of the day's
+profiles list fewer listings than search saw under the host that day.
+
 ### Request budget
 
-A run makes about `3N + 200` requests for N listings: a page, a calendar and
-a price quote per listing (the host pass adds none), plus one `StaysSearch`
-request per price band (see
+A run makes about `3N + H + 200` requests for N listings and H distinct
+hosts: a page, a calendar and a price quote per listing, a profile-listings
+request per host, plus one `StaysSearch` request per price band (see
 [`docs/research/airbnb-search-pagination.md`](docs/research/airbnb-search-pagination.md)
-for why the search never paginates). At ~2600 listings that is ~8000 requests
-and about 75 minutes. The first-review pass adds about one request per
+for why the search never paginates) and a second profile page for each of
+the few hosts with over 100 listings. At ~2600 listings and ~1200 hosts that
+is ~9300 requests and about 87 minutes; the host requests are ~1250 of them,
+about 12 minutes. The first-review pass adds about one request per
 unresolved listing, at most ~1030 (~10 minutes) while backfilling and a handful
-once caught up. The per-listing passes dominate.
+once caught up. The per-listing passes dominate. The worst case, backfilling
+first reviews, is about 97 minutes against the workflow's 120-minute
+`timeout-minutes`.
 
 The Airbnb API key is fetched once per run in `pipeline.ts` and passed to
 every search and calendar request. It is a long-lived public value, and
@@ -311,13 +335,15 @@ Every run fails with `LegacySchemaError` until someone:
   `host_start_date_stable` warns when that spread exceeds
   `HOST_START_MAX_SPREAD_DAYS`. The host checks are warnings because the
   views carry every host's last read forward.
-- **Portfolio size is counts, not a classification.** `host_listing_portfolios` is
-  derived from `airbnb_listing_observations.host_id` with no extra requests, as a
-  time series. Where an owner ends and an operator begins is left to
+- **Portfolio size is counts, not a classification.** `host_listing_portfolios`
+  derives `listings_active` and `listings_ever_seen` from
+  `airbnb_listing_observations.host_id`, as a time series. Those count only
+  listings inside the Municipality, so they are an Anchorage listing
+  portfolio and undercount a host who also lists elsewhere; the view carries
+  `listings_on_airbnb` from the host's profile beside them for the whole
+  portfolio. Where an owner ends and an operator begins is left to
   downstream users, so no threshold is stored; the viewer's cutoff is a
-  labelled display choice. It counts only listings inside the Municipality,
-  so it is an Anchorage listing portfolio and undercounts a host who also
-  lists elsewhere (issue #34).
+  labelled display choice.
 - **Listings are never UPDATEd.** `first_seen_date`, `last_seen_date` and
   `page_seen_date` are derived from observations, so they stay correct for a
   listing that retires and later relists, and a bug in version logic is
@@ -426,8 +452,9 @@ pnpm typecheck
   converts values.
 
 The tests above need the network; no other test does. Fetching is injected: `searchAnchorage` takes a
-`fetchPage`, `fetchCalendars` takes a `fetchOne`, `fetchFirstReviews` takes a
-`fetchPage`, and `fetchRegistrations` takes a `fetchJson`. The `live*Fetcher` functions are the
+`fetchPage`, `fetchCalendars` takes a `fetchOne`, `fetchFirstReviews` and
+`fetchHostListings` take a `fetchPage`, and `fetchRegistrations` takes a
+`fetchJson`. The `live*Fetcher` functions are the
 only places real requests are made.
 
 When Airbnb changes something, `scraper-airbnb/src/api/` and `parse.ts` break

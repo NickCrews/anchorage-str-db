@@ -466,9 +466,10 @@ ORDER BY
 -- ============================================================
 -- Host listing portfolios. `host_listing_portfolios` stores counts only; the cutoffs below
 -- are choices, swept rather than fixed.
--- Scope: an Anchorage listing portfolio -- only listings inside the
--- Municipality are counted. A
--- `host_id` is an Airbnb account, so a property manager's account can list
+-- Scope: `listings_active` and `listings_ever_seen` are an Anchorage listing
+-- portfolio -- only listings inside the Municipality are counted.
+-- `listings_on_airbnb` is every listing on the host's profile, wherever it is.
+-- A `host_id` is an Airbnb account, so a property manager's account can list
 -- for many owners. Listings with no known host are left out.
 -- ============================================================
 -- Q: How many listings does each host hold right now?
@@ -536,6 +537,31 @@ GROUP BY
 ORDER BY
     scrape_date;
 
+-- ============================================================
+-- Q: Which hosts are larger than their Anchorage listings show?
+-- `listings_on_airbnb` counts every listing on the host's profile; the
+-- difference is roughly what they list outside the Municipality (roughly:
+-- the profile drops a deactivated listing the same day, `listings_active`
+-- keeps it through the grace period).
+-- ============================================================
+SELECT
+    host_id,
+    listings_active AS listings_in_muni,
+    listings_on_airbnb,
+    listings_on_airbnb - listings_active AS listings_elsewhere_approx,
+    listings_on_airbnb_read_date
+FROM
+    host_listing_portfolios
+WHERE
+    scrape_date = (SELECT scrape_date FROM latest_scrape_date)
+    AND listings_active > 0
+    AND listings_on_airbnb IS NOT NULL
+ORDER BY
+    listings_elsewhere_approx DESC,
+    listings_on_airbnb DESC
+LIMIT
+    25;
+
 -- Hosts whose live portfolio grew the most since first observed.
 SELECT
     host_id,
@@ -564,11 +590,13 @@ SELECT
     host_name,
     host_years_hosting,
     host_listings_active,
-    host_listings_ever_seen
+    host_listings_ever_seen,
+    host_listings_on_airbnb
 FROM
     listings_active_with_host
 WHERE
     location_subtitle ILIKE 'Girdwood%'
 ORDER BY
+    host_listings_on_airbnb DESC NULLS LAST,
     host_listings_active DESC NULLS LAST,
     host_id;

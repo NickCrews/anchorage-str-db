@@ -24,7 +24,7 @@
  *   previous one.
  * - `airbnb_host_observations`: append-only, one row per (host, scrape date)
  *   for every host of a listing observed that day: the host card from
- *   the listing page.
+ *   the listing page, and the count of listings on the host's profile.
  * - `airbnb_scrape_runs`: one row per daily run.
  *
  * `airbnb_calendar_status` is stored change-only because a daily snapshot
@@ -193,6 +193,10 @@ export const airbnbScrapeRuns = pgTable('airbnb_scrape_runs', {
   // had no host card read.
   hostProfileAttempted: integer('host_profile_attempted'),
   hostProfileFailed: integer('host_profile_failed'),
+  // Hosts whose profile listings were requested this run, and how many of
+  // those requests failed.
+  hostListingsFetchAttempted: integer('host_listings_fetch_attempted'),
+  hostListingsFetchFailed: integer('host_listings_fetch_failed'),
 });
 
 /**
@@ -229,6 +233,13 @@ export const airbnbHostObservations = pgTable(
     // date; `host_activity` derives one.
     timeAsHostYears: integer('time_as_host_years'),
     timeAsHostMonths: integer('time_as_host_months'),
+    // Whether the host's profile listings were read today. NULL on rows
+    // written before the profile-listings pass existed.
+    listingsOnAirbnbReadOk: boolean('listings_on_airbnb_read_ok'),
+    // Every listing on the host's profile, wherever it is: the host listing
+    // portfolio. Not the Anchorage count, which `host_listing_portfolios`
+    // derives from the listings we observe.
+    listingsOnAirbnb: integer('listings_on_airbnb'),
   },
   (t) => [primaryKey({ columns: [t.hostId, t.scrapeDate] })],
 );

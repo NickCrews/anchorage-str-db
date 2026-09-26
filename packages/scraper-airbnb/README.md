@@ -12,6 +12,7 @@ each listing's page, calendar, price quote and earliest review, in memory.
 | `calendars` | `fetchCalendars`: twelve months of nightly availability |
 | `priceQuotes` | `fetchPriceQuotes`: the price of each listing's earliest bookable stay |
 | `firstReviews` | `fetchFirstReviews`: each listing's oldest review date |
+| `hostListings` | `fetchHostListings`: how many listings are on each host's profile, anywhere on Airbnb |
 | `api/` | one file per Airbnb endpoint; see its README |
 | `pace`, `retry` | the process-wide Airbnb request rate, and the attempt loop that aborts on a 429 |
 
