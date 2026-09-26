@@ -12,23 +12,8 @@
  * strings the way DuckDB reads them. Nothing here reaches a driver.
  */
 
-import {
-  getTableColumns,
-  getViewSelectedFields,
-  sql,
-  type SQL,
-  type SQLWrapper,
-  type Table,
-  type View,
-} from 'drizzle-orm';
-import {
-  PgDialect,
-  pgTable,
-  QueryBuilder,
-  type BuildAliasTable,
-  type PgColumnBuilderBase,
-  type PgTable,
-} from 'drizzle-orm/pg-core';
+import type { SQLWrapper } from 'drizzle-orm';
+import { PgDialect, QueryBuilder } from 'drizzle-orm/pg-core';
 
 const dialect = new PgDialect();
 
@@ -45,41 +30,4 @@ export const qb = new QueryBuilder();
  */
 export function toSql(query: SQLWrapper): string {
   return dialect.sqlToQuery(query.getSQL().inlineParams()).sql;
-}
-
-/**
- * A table or view in a `FROM` or `JOIN` clause, optionally under an alias:
- * `from(listings, l)` is `"listings" "l"`.
- *
- * An `alias()` interpolates as the alias alone — that is what its columns
- * render against — so the relation it stands for has to be named here beside
- * it. Passing an alias of some other relation does not typecheck.
- */
-export function from<TRelation extends PgTable | View, TAlias extends string>(
-  relation: TRelation,
-  aliased?: BuildAliasTable<TRelation, TAlias>,
-): SQL {
-  return aliased === undefined ? sql`${relation}` : sql`${relation} ${aliased as Table | View}`;
-}
-
-/**
- * A view's columns, to select or to build another view's columns from:
- * `qb.select({...columnsOf(listingsActive), extra})` is `SELECT l.*, extra`
- * with every column named.
- */
-export function columnsOf<TView extends View>(view: TView): TView['_']['selectedFields'] {
-  return getViewSelectedFields(view) as TView['_']['selectedFields'];
-}
-
-/**
- * The columns a subquery or CTE derives, for declaring what it returns when
- * that is not a relation's own column: `$with('activity', derived('activity',
- * {firstSeenDate: day('first_seen_date')}))`. A reference to one renders
- * qualified, as `"activity"."first_seen_date"`.
- */
-export function derived<TColumns extends Record<string, PgColumnBuilderBase>>(
-  name: string,
-  columns: TColumns,
-) {
-  return getTableColumns(pgTable(name, columns));
 }

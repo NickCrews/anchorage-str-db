@@ -6,7 +6,7 @@
 
 import type { Database } from '@anchorage-str-db/db/database';
 import { muniLicensePageReads, muniStrRegistrationObservations, muniStrRegistryRuns } from '@anchorage-str-db/db/schema';
-import { cityviewLicenseIdSql } from '@anchorage-str-db/db/viewSchema';
+import { CITYVIEW_LICENSE_ID_SQL } from '@anchorage-str-db/db/views';
 import type { LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
 import {
   cityviewLicenseIdFromStatusUrl,
@@ -209,7 +209,7 @@ export async function pendingLicensePages(
     .groupBy(muniLicensePageReads.cityviewLicenseId);
   const seen = await db.orm
     .select({
-      cityviewLicenseId: cityviewLicenseIdSql(muniStrRegistrationObservations.statusUrl).as('cityview_license_id'),
+      cityviewLicenseId: sql<number | null>`${sql.raw(CITYVIEW_LICENSE_ID_SQL)}`.as('cityview_license_id'),
       lastSeen: sql`max(${muniStrRegistrationObservations.scrapeDate})`
         .mapWith(muniStrRegistrationObservations.scrapeDate)
         .as('last_seen'),

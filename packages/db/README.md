@@ -3,11 +3,10 @@
 The DuckDB database, and the only package that uses DuckDB directly.
 
 - `schema.ts`: the tables, as Drizzle `pgTable` definitions
-- `viewSchema.ts`: the views, as Drizzle `pgView` definitions — the columns
-  each one returns, for whoever queries them, and the query that builds it —
-  and `RETIREMENT_GRACE_DAYS`
-- `views.ts`: the `CREATE OR REPLACE VIEW` script those declarations render
-  to, which `connect` runs
+- `views.ts`: the views, as the DuckDB SQL script `connect` runs, and
+  `RETIREMENT_GRACE_DAYS`
+- `viewSchema.ts`: the columns each view returns, as Drizzle `pgView`
+  declarations, for whoever builds queries against them
 - `columns.ts`: the column builders both schemas are written with, and the
   DuckDB types they stand for
 - `catalog.ts`: every table and view in one list, each keeping its own type

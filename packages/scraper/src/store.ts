@@ -19,8 +19,8 @@ import {
   hostVersions,
   listingVersions,
   listings,
-  RETIREMENT_GRACE_DAYS,
 } from '@anchorage-str-db/db/viewSchema';
+import { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views';
 import type { CalendarResult } from '@anchorage-str-db/scraper-airbnb/calendars';
 import type { FirstReviewCandidate, FirstReviewResult } from '@anchorage-str-db/scraper-airbnb/firstReviews';
 import type { HostCard, Layer, ListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
