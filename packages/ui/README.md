@@ -33,6 +33,14 @@ registry: `Registered`, `Registration lapsed` (no longer published),
 `Id not in registry` (includes numbers issued since the Muni's last
 publish), or `No id shown`.
 
+## Published site
+
+[`.github/workflows/pages.yml`](../../.github/workflows/pages.yml) builds the
+viewer with the `latest-data` database and deploys it to GitHub Pages at
+<https://nickcrews.github.io/anchorage-str-db/> on every push to `main` and
+after every daily scrape. The repo's Pages source must be set to "GitHub
+Actions" (Settings → Pages).
+
 ## Running locally
 
 The viewer reads the repo's `data/anchorage_str.duckdb`. From the repo root:

@@ -14,7 +14,8 @@ Anchorage, Alaska, for answering questions like:
 - One DuckDB file, `anchorage_str.duckdb`, with daily snapshots of listings
   and calendar availability, and of the Municipality's STR registrations
 - Policy queries in `docs/policy_questions.sql`
-- A browser viewer in `packages/ui/`
+- A browser viewer in `packages/ui/`, published at
+  <https://nickcrews.github.io/anchorage-str-db/>
 
 ## Quick start
 

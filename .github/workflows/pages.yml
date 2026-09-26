@@ -1,0 +1,72 @@
+name: Publish viewer to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # Rebuild after every daily scrape so the site carries the new database.
+  # A failed scrape republishes the previous one, which is harmless.
+  workflow_run:
+    workflows: ["Daily Anchorage STR scrape"]
+    types: [completed]
+  workflow_dispatch:
+
+# One deploy at a time; a newer one supersedes a queued one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile --filter "@anchorage-str-db/ui..."
+
+      # The build copies data/anchorage_str.duckdb into dist/ and fails
+      # without it.
+      - name: Download latest database
+        run: |
+          mkdir -p data
+          gh release download latest-data --repo "$GITHUB_REPOSITORY" \
+            --pattern anchorage_str.duckdb --output data/anchorage_str.duckdb
+
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      # The site is served under /<repo>/, so assets and the database URL
+      # (import.meta.env.BASE_URL) need that prefix.
+      - name: Build
+        env:
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+        run: |
+          pnpm --filter @anchorage-str-db/ui exec tsc -b
+          pnpm --filter @anchorage-str-db/ui exec vite build --base "$BASE_PATH"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/ui/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
