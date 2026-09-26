@@ -6,10 +6,10 @@
 
 import type { Database } from '@anchorage-str-db/db/database';
 import { muniLicensePageReads, muniStrRegistrationObservations, muniStrRegistryRuns } from '@anchorage-str-db/db/schema';
-import { licenseIdSql } from '@anchorage-str-db/db/viewSchema';
+import { cityviewLicenseIdSql } from '@anchorage-str-db/db/viewSchema';
 import type { LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
 import {
-  licenseIdFromStatusUrl,
+  cityviewLicenseIdFromStatusUrl,
   type Registration,
 } from '@anchorage-str-db/scraper-muni-str/registrationLayers';
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
@@ -21,12 +21,12 @@ import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 export interface RegistrationStats {
   seen: number;
   new: number;
-  departed: number;
+  lapsed: number;
 }
 
 /**
  * Write one registry run's registrations. Idempotent per scrape date: re-running a
- * day replaces its rows. Throws on a repeated registration number, which the
+ * day replaces its rows. Throws on a repeated registration id, which the
  * layer should never publish.
  */
 export async function recordRegistrations(
@@ -34,10 +34,10 @@ export async function recordRegistrations(
   scrapeDate: IsoDate,
   registrations: readonly Registration[],
 ): Promise<RegistrationStats> {
-  const numbers = new Set(registrations.map((r) => r.registrationNumber));
+  const numbers = new Set(registrations.map((r) => r.registrationId));
   if (numbers.size !== registrations.length) {
     throw new Error(
-      `the registration layer repeats ${registrations.length - numbers.size} registration numbers`,
+      `the registration layer repeats ${registrations.length - numbers.size} registration ids`,
     );
   }
 
@@ -47,27 +47,32 @@ export async function recordRegistrations(
 
   const previous = await db.orm
     .select({
-      registrationNumber: muniStrRegistrationObservations.registrationNumber,
-      lastSeen: sql<IsoDate>`max(${muniStrRegistrationObservations.scrapeDate})`.as('last_seen'),
+      registrationId: muniStrRegistrationObservations.registrationId,
+      // `mapWith` decodes it as the column does, to an `IsoDate`; left to the
+      // driver, an aggregated `DATE` comes back as a `Date`, which `===` and
+      // `<=` against a string would compare wrongly.
+      lastSeen: sql`max(${muniStrRegistrationObservations.scrapeDate})`
+        .mapWith(muniStrRegistrationObservations.scrapeDate)
+        .as('last_seen'),
     })
     .from(muniStrRegistrationObservations)
-    .groupBy(muniStrRegistrationObservations.registrationNumber);
+    .groupBy(muniStrRegistrationObservations.registrationId);
   const previousRunDate = previous.reduce<string | null>(
     (latest, row) => (latest === null || row.lastSeen > latest ? row.lastSeen : latest),
     null,
   );
-  const everSeen = new Set(previous.map((row) => row.registrationNumber));
+  const everSeen = new Set(previous.map((row) => row.registrationId));
 
   await db.appendRows(
     muniStrRegistrationObservations,
     registrations.map((r) => ({
-      registrationNumber: r.registrationNumber,
+      registrationId: r.registrationId,
       scrapeDate,
-      applicationNumber: r.applicationNumber,
+      licenseId: r.licenseId,
       submittedDate: r.submittedDate,
       issuedDate: r.issuedDate,
       expiresDate: r.expiresDate,
-      location: r.location,
+      registeredAddress: r.registeredAddress,
       businessName: r.businessName,
       status: r.status,
       statusUrl: r.statusUrl,
@@ -82,9 +87,9 @@ export async function recordRegistrations(
 
   return {
     seen: registrations.length,
-    new: registrations.filter((r) => !everSeen.has(r.registrationNumber)).length,
-    departed: previous.filter(
-      (row) => row.lastSeen === previousRunDate && !numbers.has(row.registrationNumber),
+    new: registrations.filter((r) => !everSeen.has(r.registrationId)).length,
+    lapsed: previous.filter(
+      (row) => row.lastSeen === previousRunDate && !numbers.has(row.registrationId),
     ).length,
   };
 }
@@ -109,17 +114,17 @@ export async function recordLicensePages(
     and(
       eq(muniLicensePageReads.scrapeDate, scrapeDate),
       inArray(
-        muniLicensePageReads.licenseId,
-        pages.map((page) => page.licenseId),
+        muniLicensePageReads.cityviewLicenseId,
+        pages.map((page) => page.cityviewLicenseId),
       ),
     ),
   );
   await db.appendRows(
     muniLicensePageReads,
     pages.map((page) => ({
-      licenseId: page.licenseId,
+      cityviewLicenseId: page.cityviewLicenseId,
       scrapeDate,
-      licenseeNumber: page.licenseeNumber,
+      licenseId: page.licenseId,
       businessName: page.businessName,
       licenseType: page.licenseType,
       status: page.status,
@@ -165,7 +170,7 @@ export function chooseLicensePages(selection: LicensePageSelection): number[] {
   const byId = (a: number, b: number) => a - b;
 
   const unread = [...today].filter((id) => !lastRead.has(id)).sort(byId);
-  const departed = [...lastSeen]
+  const lapsed = [...lastSeen]
     .filter(([id, seen]) => !today.has(id) && (lastRead.get(id) ?? '') <= seen)
     .map(([id]) => id)
     .sort(byId);
@@ -177,7 +182,7 @@ export function chooseLicensePages(selection: LicensePageSelection): number[] {
     })
     .sort((a, b) => lastRead.get(a)!.localeCompare(lastRead.get(b)!) || a - b);
 
-  return [...unread, ...departed, ...stale].slice(0, selection.max);
+  return [...unread, ...lapsed, ...stale].slice(0, selection.max);
 }
 
 /** `chooseLicensePages` over the database's history and today's layer. */
@@ -189,31 +194,35 @@ export async function pendingLicensePages(
 ): Promise<number[]> {
   const today = new Set(
     registrations.flatMap((r) => {
-      const id = licenseIdFromStatusUrl(r.statusUrl);
+      const id = cityviewLicenseIdFromStatusUrl(r.statusUrl);
       return id === null ? [] : [id];
     }),
   );
   const reads = await db.orm
     .select({
-      licenseId: muniLicensePageReads.licenseId,
-      lastRead: sql<IsoDate>`max(${muniLicensePageReads.scrapeDate})`.as('last_read'),
+      cityviewLicenseId: muniLicensePageReads.cityviewLicenseId,
+      lastRead: sql`max(${muniLicensePageReads.scrapeDate})`
+        .mapWith(muniLicensePageReads.scrapeDate)
+        .as('last_read'),
     })
     .from(muniLicensePageReads)
-    .groupBy(muniLicensePageReads.licenseId);
+    .groupBy(muniLicensePageReads.cityviewLicenseId);
   const seen = await db.orm
     .select({
-      licenseId: licenseIdSql(muniStrRegistrationObservations.statusUrl).as('license_id'),
-      lastSeen: sql<IsoDate>`max(${muniStrRegistrationObservations.scrapeDate})`.as('last_seen'),
+      cityviewLicenseId: cityviewLicenseIdSql(muniStrRegistrationObservations.statusUrl).as('cityview_license_id'),
+      lastSeen: sql`max(${muniStrRegistrationObservations.scrapeDate})`
+        .mapWith(muniStrRegistrationObservations.scrapeDate)
+        .as('last_seen'),
     })
     .from(muniStrRegistrationObservations)
     .where(lt(muniStrRegistrationObservations.scrapeDate, scrapeDate))
-    // `license_id` is this query's own column, so `ALL` groups by it.
+    // `cityview_license_id` is this query's own column, so `ALL` groups by it.
     .groupBy(sql`ALL`)
-    .having(sql`license_id IS NOT NULL`);
+    .having(sql`cityview_license_id IS NOT NULL`);
   return chooseLicensePages({
     today,
-    lastRead: new Map(reads.map((row) => [row.licenseId, row.lastRead])),
-    lastSeen: new Map(seen.map((row) => [row.licenseId!, row.lastSeen])),
+    lastRead: new Map(reads.map((row) => [row.cityviewLicenseId, row.lastRead])),
+    lastSeen: new Map(seen.map((row) => [row.cityviewLicenseId!, row.lastSeen])),
     scrapeDate,
     ...options,
   });

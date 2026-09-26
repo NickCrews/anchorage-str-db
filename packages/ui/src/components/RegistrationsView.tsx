@@ -13,16 +13,16 @@ const qb = new QueryBuilder();
 /**
  * `license_*` columns come from the latest CityView license page read, which
  * is re-read about weekly, so they can be NULL for a new registration.
- * `airbnb_listings_current` counts current Airbnb listings showing the number.
+ * `airbnb_listings_active` counts active Airbnb listings showing the id.
  */
 const REGISTRATION_FIELDS = {
-  registration_number: registrations.registrationNumber,
+  registration_id: registrations.registrationId,
   business_name: registrations.businessName,
-  location: registrations.location,
+  location: registrations.registeredAddress,
   community_council: registrations.communityCouncil,
   parcel_type: registrations.parcelType,
   parcel_id: registrations.parcelId,
-  airbnb_listings_current: registrations.airbnbListingsCurrent,
+  airbnb_listings_active: registrations.airbnbListingsActive,
   issued_date: registrations.issuedDate,
   expires_date: registrations.expiresDate,
   status: registrations.status,
@@ -31,7 +31,7 @@ const REGISTRATION_FIELDS = {
   license_read_date: registrations.licenseReadDate,
   first_seen_date: registrations.firstSeenDate,
   last_seen_date: registrations.lastSeenDate,
-  is_current: registrations.isCurrent,
+  is_active: registrations.isActive,
   status_url: registrations.statusUrl,
 };
 
@@ -43,30 +43,30 @@ const registrationsQuery = (where: SQL | undefined) =>
     .where(where)
     .orderBy(
       sql`${registrations.issuedDate} DESC NULLS LAST`,
-      asc(registrations.registrationNumber),
+      asc(registrations.registrationId),
     );
 
 const SCOPES = {
-  current: 'Current',
-  unlisted: 'Current, no Airbnb listing',
-  lapsed: 'No longer published',
+  active: 'Active',
+  unlisted: 'Active, no Airbnb listing',
+  lapsed: 'Lapsed',
   all: 'All',
 } as const;
 type Scope = keyof typeof SCOPES;
 
 const SCOPE_FILTER: Record<Scope, SQL | undefined> = {
-  current: eq(registrations.isCurrent, true),
+  active: eq(registrations.isActive, true),
   unlisted: and(
-    eq(registrations.isCurrent, true),
-    eq(registrations.airbnbListingsCurrent, 0),
+    eq(registrations.isActive, true),
+    eq(registrations.airbnbListingsActive, 0),
   ),
-  lapsed: eq(registrations.isCurrent, false),
+  lapsed: eq(registrations.isActive, false),
   all: undefined,
 };
 
 export const RegistrationsView: FC = () => {
   const [search, setSearch] = useState('');
-  const [scope, setScope] = useState<Scope>('current');
+  const [scope, setScope] = useState<Scope>('active');
 
   const query = useMemo(() => {
     const term = search.trim();
@@ -77,9 +77,9 @@ export const RegistrationsView: FC = () => {
           SCOPE_FILTER[scope],
           term
             ? or(
-                ilike(registrations.registrationNumber, pattern),
+                ilike(registrations.registrationId, pattern),
                 ilike(registrations.businessName, pattern),
-                ilike(registrations.location, pattern),
+                ilike(registrations.registeredAddress, pattern),
                 ilike(registrations.communityCouncil, pattern),
                 ilike(registrations.parcelId, pattern),
                 ilike(registrations.licenseDescription, pattern),
@@ -117,20 +117,20 @@ export const RegistrationsView: FC = () => {
         <div className="text-muted-foreground max-w-4xl space-y-1 text-xs">
           <p>
             Each row is a short-term rental registration from the Municipality
-            of Anchorage. Operators register a rental with the city and get a
-            number like STR20261754, which they are expected to show on their
-            listing. The city publishes only active registrations, so one that
+            of Anchorage. A registrant registers a unit with the Muni and gets
+            an id like STR20261754, which they are expected to show on their
+            listing. The Muni publishes only active registrations, so one that
             is no longer published has lapsed or been withdrawn.
           </p>
           <p>
             A <strong>listing</strong> is an Airbnb page. A{' '}
             <strong>host</strong> is the Airbnb account running it, often a
             property manager. The only thing tying a listing to a
-            registration is the number on the listing page. Most registrations
+            registration is the id on the listing page. Most registrations
             are shown by one listing. Some are shown by several, such as
-            separate rooms in one house. Some are shown by none: the rental
-            may be on another site, not operating, or listed without its
-            number.
+            private rooms in one house. Some are shown by none: the unit
+            may be listed on another site, not operating, or listed without
+            its id.
           </p>
         </div>
         <div className="min-h-0 flex-1">

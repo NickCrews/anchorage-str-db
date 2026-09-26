@@ -2,8 +2,8 @@ import {airbnbListingObservations} from '@anchorage-str-db/db/schema';
 import {toSql} from '@anchorage-str-db/db/sql';
 import {
   listingPhotosCurrent,
-  listingsCurrentWithHost as withHost,
-  listingsCurrentWithRegistration as withRegistration,
+  listingsActiveWithHost as withHost,
+  listingsActiveWithRegistration as withRegistration,
 } from '@anchorage-str-db/db/viewSchema';
 import {
   DataTablePaginated,
@@ -57,14 +57,14 @@ const latest = qb
  * `photo_urls[1]` is the cover photo (DuckDB lists are 1-based).
  *
  * The registration columns come from the Muni registration matching the
- * number the listing page shows; see `listings_current_with_registration`.
+ * number the listing page shows; see `listings_active_with_registration`.
  */
 const LISTING_FIELDS = {
   photo: sql<string>`${listingPhotosCurrent.photoUrls}[1]`.as('photo'),
   listing_id: withHost.listingId,
   name: withHost.name,
   property_title: withHost.propertyTitle,
-  room_type: withHost.roomType,
+  listing_type: withHost.listingType,
   bedrooms: withHost.bedrooms,
   beds: withHost.beds,
   bathrooms: withHost.bathrooms,
@@ -77,11 +77,11 @@ const LISTING_FIELDS = {
   price_hint_per_night: latest.priceHintPerNight,
   host_name: withHost.hostName,
   host_years_hosting: withHost.hostYearsHosting,
-  host_listings_live: withHost.hostListingsLive,
+  host_listings_active: withHost.hostListingsActive,
   host_listings_ever_seen: withHost.hostListingsEverSeen,
   registration_status: registrationStatusSql(withRegistration).as('registration_status'),
-  str_registration_id: withHost.strRegistrationId,
-  registration_location: withRegistration.registrationLocation,
+  registration_id: withHost.registrationId,
+  registration_address: withRegistration.registrationAddress,
   registration_parcel_id: withRegistration.registrationParcelId,
   registration_parcel_type: withRegistration.registrationParcelType,
   registration_community_council: withRegistration.registrationCommunityCouncil,
@@ -149,8 +149,8 @@ export const ListingsView: FC = () => {
                 ilike(withHost.name, pattern),
                 ilike(withHost.propertyTitle, pattern),
                 ilike(withHost.hostName, pattern),
-                ilike(withHost.strRegistrationId, pattern),
-                ilike(withRegistration.registrationLocation, pattern),
+                ilike(withHost.registrationId, pattern),
+                ilike(withRegistration.registrationAddress, pattern),
               )
             : undefined,
           status === ALL_STATUSES
@@ -191,7 +191,7 @@ export const ListingsView: FC = () => {
     <div className="flex h-full flex-col gap-2 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <Input
-          placeholder="Filter by listing, host, registration number or address…"
+          placeholder="Filter by listing, host, registration id or address…"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);

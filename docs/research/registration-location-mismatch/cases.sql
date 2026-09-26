@@ -31,10 +31,10 @@ SELECT
     l.host_name,
     l.page_seen_date,
     p.photo_urls[1] AS photo_url,
-    r.registration_number,
+    r.registration_id,
     meters(l.location_lat, l.location_lng, r.geocoded_lat, r.geocoded_lng) AS distance_m
-FROM listings_current_with_host l
-JOIN registrations_current r ON r.registration_number = l.str_registration_id
+FROM listings_active_with_host l
+JOIN registrations_active r ON r.registration_id = l.registration_id
 LEFT JOIN listing_photos_current p ON p.listing_id = l.listing_id
 WHERE r.geocoded_lat IS NOT NULL
   AND l.location_lat IS NOT NULL;
@@ -55,9 +55,9 @@ SELECT
     l.photo_url,
     round(l.distance_m)::INTEGER AS distance_m,
 
-    r.registration_number,
+    r.registration_id,
     r.business_name,
-    r.location AS registered_address,
+    r.registered_address,
     r.geocoded_address,
     r.geocoded_lat AS registered_lat,
     r.geocoded_lng AS registered_lng,
@@ -66,7 +66,7 @@ SELECT
     r.status_url AS license_url,
     r.published_at::DATE AS registry_published_date,
 
-    -- Every current listing citing this registration, this one included.
+    -- Every active listing citing this registration, this one included.
     (
         SELECT list({
             'listing_id': o.listing_id::VARCHAR,
@@ -79,27 +79,27 @@ SELECT
             'distance_m': round(o.distance_m)::INTEGER
         } ORDER BY o.distance_m)
         FROM linked o
-        WHERE o.registration_number = l.registration_number
-    ) AS listings_on_number,
+        WHERE o.registration_id = l.registration_id
+    ) AS listings_on_registration,
 
-    -- Other current registrations within 200 m of this listing's pin: a
+    -- Other active registrations within 200 m of this listing's pin: a
     -- registration that may cover the place the listing is.
     (
         SELECT list({
-            'registration_number': n.registration_number,
+            'registration_id': n.registration_id,
             'business_name': n.business_name,
-            'address': n.location,
+            'address': n.registered_address,
             'lat': n.geocoded_lat,
             'lng': n.geocoded_lng,
             'license_url': n.status_url,
             'distance_m': round(meters(l.location_lat, l.location_lng, n.geocoded_lat, n.geocoded_lng))::INTEGER
         } ORDER BY meters(l.location_lat, l.location_lng, n.geocoded_lat, n.geocoded_lng))
-        FROM registrations_current n
+        FROM registrations_active n
         WHERE n.geocoded_lat IS NOT NULL
-          AND n.registration_number <> l.registration_number
+          AND n.registration_id <> l.registration_id
           AND meters(l.location_lat, l.location_lng, n.geocoded_lat, n.geocoded_lng) < 200
     ) AS registrations_near_listing
 FROM linked l
-JOIN registrations_current r USING (registration_number)
+JOIN registrations_active r USING (registration_id)
 WHERE l.distance_m > threshold_m()
-ORDER BY r.registration_number, l.distance_m DESC;
+ORDER BY r.registration_id, l.distance_m DESC;

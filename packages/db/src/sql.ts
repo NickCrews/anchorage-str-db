@@ -64,7 +64,7 @@ export function from<TRelation extends PgTable | View, TAlias extends string>(
 
 /**
  * A view's columns, to select or to build another view's columns from:
- * `qb.select({...columnsOf(listingsCurrent), extra})` is `SELECT l.*, extra`
+ * `qb.select({...columnsOf(listingsActive), extra})` is `SELECT l.*, extra`
  * with every column named.
  */
 export function columnsOf<TView extends View>(view: TView): TView['_']['selectedFields'] {

@@ -294,7 +294,7 @@ export async function auditCoverage(
   scrapeDate: IsoDate,
   options: AuditOptions,
 ): Promise<CoverageAudit> {
-  const foundIds = new Set(listings.map((listing) => listing.roomId));
+  const foundIds = new Set(listings.map((listing) => listing.listingId));
   const located = listings.filter(
     (listing) => listing.latitude !== null && listing.longitude !== null,
   );
@@ -321,7 +321,7 @@ export async function auditCoverage(
       );
       continue;
     }
-    const ids = new Set(rows.map((row) => row.roomId));
+    const ids = new Set(rows.map((row) => row.listingId));
     audit.boxes += 1;
     audit.seen += ids.size;
     audit.missedIds.push(

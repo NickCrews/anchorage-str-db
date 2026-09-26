@@ -2,18 +2,18 @@
  * Read a listing's own page for fields search results lack or report
  * unreliably: whether its coordinate is exact, its municipal STR registration
  * number, its host's Airbnb user id and public profile card (`HostCard`), its
- * room type, guest, bed, bedroom and bathroom counts, and its photo gallery.
+ * listing type, guest, bed, bedroom and bathroom counts, and its photo gallery.
  *
  * Airbnb jitters the map pin unless the host shows the exact location. Search
  * returns a coordinate either way; the listing page's `isExactLocation` says
  * which. See `docs/research/airbnb-pdp-location-payload.md`. The registration
  * number is required in listings from 2026-07-31 under AO 2025-115(S-2). The
  * host id is the account id in `airbnb.com/users/show/<id>`, stable for the
- * life of the account; see `docs/research/airbnb-pdp-host-id.md`. Room type,
+ * life of the account; see `docs/research/airbnb-pdp-host-id.md`. Listing type,
  * the counts and photos are described in
  * `docs/research/airbnb-pdp-listing-attributes.md`.
  *
- * Airbnb publishes guest capacity and bed count as integers. Room type,
+ * Airbnb publishes guest capacity and bed count as integers. Listing type,
  * bedrooms and bathrooms exist only as display text ("Entire home/apt",
  * "Studio", "Shared bathroom"), so they are stored verbatim rather than
  * parsed into categories or numbers.
@@ -80,8 +80,9 @@ const HOST_USER_RE = /^DemandUser:(\d+)$/;
 // The decimal host id in the page's analytics context, e.g. `"hostId":"3682901"`.
 const RAW_HOST_ID_RE_G = /"host_?id"\s*:\s*"?(\d+)/gi;
 
+// Airbnb's key is `roomType`; we store it as `listingType`.
 // e.g. `"roomType":"Entire home/apt"` in the page's analytics context.
-const RAW_ROOM_TYPE_RE_G = /"roomType"\s*:\s*"([^"]+)"/g;
+const RAW_LISTING_TYPE_RE_G = /"roomType"\s*:\s*"([^"]+)"/g;
 const RAW_PERSON_CAPACITY_RE_G = /"personCapacity"\s*:\s*(\d+)/g;
 const RAW_BED_COUNT_RE_G = /"bedCount"\s*:\s*(\d+)/g;
 // The overview's `"items":["5 guests","2 bedrooms","3 beds","1 bath"]`.
@@ -124,14 +125,14 @@ export interface PageFields {
   locationExactAddress: string | null;
   locationSubtitle: string | null;
   locationVerified: boolean | null;
-  strRegistrationId: string | null;
+  registrationId: string | null;
   /**
    * The primary host's Airbnb user id, as a decimal string: newer ids are 19
    * digits, which a JS number would round.
    */
   hostId: string | null;
-  /** Airbnb's room type, verbatim: `"Entire home/apt"`, `"Private room"`, … */
-  roomType: string | null;
+  /** Airbnb's `roomType`, verbatim: `"Entire home/apt"`, `"Private room"`, … */
+  listingType: string | null;
   /** Airbnb's `personCapacity`: the most guests the listing allows. */
   guestCapacity: number | null;
   /** Airbnb's `bedCount`. A bunk bed counts as 2. */
@@ -171,7 +172,7 @@ export interface HostCard {
 
 /** What one listing's page yielded. Fields no layer found are null. */
 export interface ListingPage extends PageFields {
-  roomId: string;
+  listingId: string;
   /** Only the `state` layer yields a card. Null if absent, ambiguous, or for another account. */
   hostCard: HostCard | null;
   /**
@@ -182,18 +183,18 @@ export interface ListingPage extends PageFields {
   error: string | null;
 }
 
-export function emptyListingPage(roomId: string, error: string | null = null): ListingPage {
+export function emptyListingPage(listingId: string, error: string | null = null): ListingPage {
   return {
-    roomId,
+    listingId,
     lat: null,
     lng: null,
     locationIsExact: null,
     locationExactAddress: null,
     locationSubtitle: null,
     locationVerified: null,
-    strRegistrationId: null,
+    registrationId: null,
     hostId: null,
-    roomType: null,
+    listingType: null,
     guestCapacity: null,
     beds: null,
     bedrooms: null,
@@ -485,9 +486,9 @@ function fromEmbeddedState(html: string): Partial<PageFields> {
   const found: Partial<PageFields> = {};
   for (const doc of jsonScripts(html)) {
     if (found.locationIsExact === undefined) Object.assign(found, locationFrom(doc));
-    if (found.strRegistrationId === undefined) {
+    if (found.registrationId === undefined) {
       const registration = findRegistration(doc);
-      if (registration) found.strRegistrationId = registration;
+      if (registration) found.registrationId = registration;
     }
     if (found.hostId === undefined) {
       const hostId = findHostId(doc);
@@ -496,7 +497,7 @@ function fromEmbeddedState(html: string): Partial<PageFields> {
     Object.assign(
       found,
       dropNulls({
-        roomType: found.roomType ?? soleValue(doc, 'roomType', 'string'),
+        listingType: found.listingType ?? soleValue(doc, 'roomType', 'string'),
         guestCapacity: found.guestCapacity ?? soleValue(doc, 'personCapacity', 'number'),
         beds: found.beds ?? soleValue(doc, 'bedCount', 'number'),
         bedrooms: found.bedrooms ?? findOverviewLine(doc, BEDROOM_LINE_RE),
@@ -526,11 +527,11 @@ function fromRawHtml(html: string): Partial<PageFields> {
   const flag = soleMatch(RAW_FLAG_RE_G, html);
   if (flag !== null) found.locationIsExact = flag === 'true';
   const number = soleMatch(STR_NUMBER_RE_G, html);
-  if (number !== null) found.strRegistrationId = `STR${number}`;
+  if (number !== null) found.registrationId = `STR${number}`;
   const hostId = soleMatch(RAW_HOST_ID_RE_G, html);
   if (hostId !== null) found.hostId = hostId;
-  const roomType = soleMatch(RAW_ROOM_TYPE_RE_G, html);
-  if (roomType !== null) found.roomType = roomType;
+  const listingType = soleMatch(RAW_LISTING_TYPE_RE_G, html);
+  if (listingType !== null) found.listingType = listingType;
   const capacity = soleMatch(RAW_PERSON_CAPACITY_RE_G, html);
   if (capacity !== null) found.guestCapacity = Number(capacity);
   const beds = soleMatch(RAW_BED_COUNT_RE_G, html);
@@ -567,9 +568,9 @@ const PAGE_FIELD_NAMES = [
   'locationExactAddress',
   'locationSubtitle',
   'locationVerified',
-  'strRegistrationId',
+  'registrationId',
   'hostId',
-  'roomType',
+  'listingType',
   'guestCapacity',
   'beds',
   'bedrooms',
@@ -583,14 +584,14 @@ const PAGE_FIELD_NAMES = [
  * Throws if no layer produced anything, which indicates a blocked or
  * redirected fetch rather than a listing with no data.
  */
-export function parseListingPage(html: string, roomId: string): ListingPage {
+export function parseListingPage(html: string, listingId: string): ListingPage {
   const byLayer: Record<Layer, Partial<PageFields>> = {
     'json-ld': fromJsonLd(html),
     state: fromEmbeddedState(html),
     'raw-html': fromRawHtml(html),
   };
 
-  const page = emptyListingPage(roomId);
+  const page = emptyListingPage(listingId);
   const contributors: Layer[] = [];
   for (const layer of LAYERS) {
     let used = false;
@@ -605,12 +606,12 @@ export function parseListingPage(html: string, roomId: string): ListingPage {
   }
 
   if (contributors.length === 0) {
-    throw new Error(`no location data in the page for room ${roomId}`);
+    throw new Error(`no location data in the page for listing ${listingId}`);
   }
 
-  warnOnDisagreement(byLayer, roomId);
+  warnOnDisagreement(byLayer, listingId);
   page.locationSource = contributors.join('+');
-  page.hostCard = checkedHostCard(hostCardFromState(html), page.hostId, roomId);
+  page.hostCard = checkedHostCard(hostCardFromState(html), page.hostId, listingId);
   return page;
 }
 
@@ -618,9 +619,9 @@ const COMPARED_FIELDS = [
   'lat',
   'lng',
   'locationIsExact',
-  'strRegistrationId',
+  'registrationId',
   'hostId',
-  'roomType',
+  'listingType',
   'guestCapacity',
   'beds',
   'bedrooms',
@@ -634,11 +635,11 @@ const COMPARED_FIELDS = [
 function checkedHostCard(
   card: HostCard | null,
   hostId: string | null,
-  roomId: string,
+  listingId: string,
 ): HostCard | null {
   if (card !== null && card.hostId !== null && hostId !== null && card.hostId !== hostId) {
     log.warn(
-      `room ${roomId}: host card is for account ${card.hostId} but the listing's host is ` +
+      `listing ${listingId}: host card is for account ${card.hostId} but the listing's host is ` +
         `${hostId}; not recording the card`,
     );
     return null;
@@ -650,24 +651,24 @@ function checkedHostCard(
  * One card per distinct host, from a run's listing pages. A host with twelve
  * listings was read twelve times; readings should match, since they are the
  * same account read minutes apart. If they differ (a profile edited mid-run,
- * or `timeAsHost` crossing a month), the lowest room id's reading wins so a
+ * or `timeAsHost` crossing a month), the lowest listing id's reading wins so a
  * re-run records the same thing.
  */
 export function collectHostCards(pages: readonly ListingPage[]): Map<string, HostCard> {
-  const readings = new Map<string, Array<{ roomId: bigint; card: HostCard }>>();
+  const readings = new Map<string, Array<{ listingId: bigint; card: HostCard }>>();
   for (const page of pages) {
     if (page.error || page.hostId === null || page.hostCard === null) continue;
     const list = readings.get(page.hostId) ?? [];
-    list.push({ roomId: BigInt(page.roomId), card: page.hostCard });
+    list.push({ listingId: BigInt(page.listingId), card: page.hostCard });
     readings.set(page.hostId, list);
   }
   const cards = new Map<string, HostCard>();
   for (const [hostId, seen] of readings) {
-    seen.sort((a, b) => (a.roomId < b.roomId ? -1 : a.roomId > b.roomId ? 1 : 0));
+    seen.sort((a, b) => (a.listingId < b.listingId ? -1 : a.listingId > b.listingId ? 1 : 0));
     if (new Set(seen.map(({ card }) => JSON.stringify(card))).size > 1) {
       log.warn(
         `host ${hostId}: ${seen.length} listing pages disagree about the host card; ` +
-          `keeping room ${seen[0]!.roomId}'s`,
+          `keeping listing ${seen[0]!.listingId}'s`,
       );
     }
     cards.set(hostId, seen[0]!.card);
@@ -676,7 +677,7 @@ export function collectHostCards(pages: readonly ListingPage[]): Map<string, Hos
 }
 
 /** Warn when layers disagree, which means one is matching the wrong thing. */
-function warnOnDisagreement(byLayer: Record<Layer, Partial<PageFields>>, roomId: string): void {
+function warnOnDisagreement(byLayer: Record<Layer, Partial<PageFields>>, listingId: string): void {
   for (const name of COMPARED_FIELDS) {
     const reported = new Map<Layer, unknown>();
     for (const layer of LAYERS) {
@@ -690,7 +691,7 @@ function warnOnDisagreement(byLayer: Record<Layer, Partial<PageFields>>, roomId:
     );
     if (distinct.size > 1) {
       const detail = [...reported].map(([layer, value]) => `${layer}=${String(value)}`).join(', ');
-      log.warn(`room ${roomId}: layers disagree on ${name}: ${detail}`);
+      log.warn(`listing ${listingId}: layers disagree on ${name}: ${detail}`);
     }
   }
 }
@@ -699,23 +700,23 @@ function warnOnDisagreement(byLayer: Record<Layer, Partial<PageFields>>, roomId:
 // fetching
 
 /** One listing's page. A per-listing failure is reported, not thrown. */
-export type FetchOnePage = (roomId: string) => Promise<ListingPage>;
+export type FetchOnePage = (listingId: string) => Promise<ListingPage>;
 
 export function livePageFetcher(): FetchOnePage {
-  return async (roomId) => {
+  return async (listingId) => {
     try {
       // Parsing inside the retry means a truncated or blocked page is
       // fetched again.
       return await withRetries(
         async () => {
-          const html = await request(`https://www.airbnb.com/rooms/${roomId}`, {
+          const html = await request(`https://www.airbnb.com/rooms/${listingId}`, {
             headers: PAGE_HEADERS,
             timeoutMs: PAGE_TIMEOUT_MS,
           });
-          return parseListingPage(html, roomId);
+          return parseListingPage(html, listingId);
         },
         {
-          label: `listing page for room ${roomId}`,
+          label: `listing page for listing ${listingId}`,
           attempts: PAGE_MAX_RETRIES,
           backoffMs: RETRY_BACKOFF_MS,
         },
@@ -723,7 +724,7 @@ export function livePageFetcher(): FetchOnePage {
     } catch (err) {
       // A rate limit is IP-wide, so it aborts the pass.
       if (err instanceof RateLimitedError) throw err;
-      return emptyListingPage(roomId, describeError(rootCause(err)));
+      return emptyListingPage(listingId, describeError(rootCause(err)));
     }
   };
 }
@@ -738,17 +739,17 @@ export interface FetchListingPagesOptions {
  * `concurrency` only caps open connections.
  */
 export async function fetchListingPages(
-  roomIds: readonly string[],
+  listingIds: readonly string[],
   options: FetchListingPagesOptions,
 ): Promise<ListingPage[]> {
   const results = await mapWithConcurrency(
-    roomIds,
+    listingIds,
     options.concurrency ?? PAGE_CONCURRENCY,
-    (roomId) => options.fetchOne(roomId),
+    (listingId) => options.fetchOne(listingId),
   );
   for (const result of results) {
     if (result.error) {
-      log.warn(`listing page fetch failed for room ${result.roomId}: ${result.error}`);
+      log.warn(`listing page fetch failed for listing ${result.listingId}: ${result.error}`);
     }
   }
   return results;

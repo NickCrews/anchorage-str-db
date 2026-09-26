@@ -1,7 +1,7 @@
 import {toSql} from '@anchorage-str-db/db/sql';
 import {
-  listingsCurrentWithHost as withHost,
-  listingsCurrentWithRegistration as withRegistration,
+  listingsActiveWithHost as withHost,
+  listingsActiveWithRegistration as withRegistration,
 } from '@anchorage-str-db/db/viewSchema';
 import {QueryDataTable, QueryDataTableActionsMenu} from '@sqlrooms/data-table';
 import {Input, ToggleGroup, ToggleGroupItem} from '@sqlrooms/ui';
@@ -17,7 +17,7 @@ import {DataStatusGate} from './DataStatusGate';
 /** Builds queries without a connection; `toSql` renders them for SQLRooms. */
 const qb = new QueryBuilder();
 
-/** How each listing's registration number matched, to count up per host. */
+/** How each listing's registration id matched, to count up per host. */
 const matches = qb
   .select({
     listingId: withRegistration.listingId,
@@ -31,7 +31,7 @@ const listingsWith = (status: RegistrationStatus) =>
   sql<number>`count(*) FILTER (WHERE ${matches.status} = ${status})::INT`;
 
 /**
- * One row per host with current listings. `business_names` are the names on
+ * One row per host with active listings. `business_names` are the names on
  * the registrations the host's listings cite; a property manager's listings
  * cite many owners' registrations, so a host is not an owner (see
  * docs/data_model.md). `search_text` exists only for filtering.
@@ -42,22 +42,22 @@ const HOST_FIELDS = {
   host_years_hosting: sql<number | null>`any_value(${withHost.hostYearsHosting})`.as(
     'host_years_hosting',
   ),
-  listings_current: sql<number>`count(*)::INT`.as('listings_current'),
+  listings_active: sql<number>`count(*)::INT`.as('listings_active'),
   host_listings_ever_seen: sql<
     number | null
   >`any_value(${withHost.hostListingsEverSeen})`.as('host_listings_ever_seen'),
-  registration_numbers: sql<number>`count(DISTINCT ${withHost.strRegistrationId})::INT`.as(
-    'registration_numbers',
+  registration_ids: sql<number>`count(DISTINCT ${withHost.registrationId})::INT`.as(
+    'registration_ids',
   ),
   listings_registered: listingsWith('Registered').as('listings_registered'),
-  listings_registration_not_current: listingsWith('Registration not current').as(
-    'listings_registration_not_current',
+  listings_registration_lapsed: listingsWith('Registration lapsed').as(
+    'listings_registration_lapsed',
   ),
-  listings_number_not_in_registry: listingsWith('Number not in registry').as(
-    'listings_number_not_in_registry',
+  listings_id_not_in_registry: listingsWith('Id not in registry').as(
+    'listings_id_not_in_registry',
   ),
-  listings_no_number_shown: listingsWith('No number shown').as(
-    'listings_no_number_shown',
+  listings_no_id_shown: listingsWith('No id shown').as(
+    'listings_no_id_shown',
   ),
   business_names: sql<
     string | null
@@ -67,7 +67,7 @@ const HOST_FIELDS = {
   ),
   search_text: sql<string>`concat_ws(' ', ${withHost.hostName},
     string_agg(DISTINCT ${matches.businessName}, ' '),
-    string_agg(DISTINCT ${withHost.strRegistrationId}, ' '))`.as('search_text'),
+    string_agg(DISTINCT ${withHost.registrationId}, ' '))`.as('search_text'),
 };
 
 /**
@@ -90,19 +90,19 @@ const hostsQuery = (where: SQL | undefined) =>
     .select({all: sql`* EXCLUDE (search_text)`})
     .from(hosts)
     .where(where)
-    .orderBy(desc(hosts.listings_current), asc(hosts.host_name));
+    .orderBy(desc(hosts.listings_active), asc(hosts.host_name));
 
 const SCOPES = {
   all: 'All',
   multi: '2+ listings',
-  noNumber: 'Some listings show no number',
+  noId: 'Some listings show no id',
 } as const;
 type Scope = keyof typeof SCOPES;
 
 const SCOPE_FILTER: Record<Scope, SQL | undefined> = {
   all: undefined,
-  multi: gte(hosts.listings_current, 2),
-  noNumber: gt(hosts.listings_no_number_shown, 0),
+  multi: gte(hosts.listings_active, 2),
+  noId: gt(hosts.listings_no_id_shown, 0),
 };
 
 export const HostsView: FC = () => {
@@ -126,7 +126,7 @@ export const HostsView: FC = () => {
       <div className="flex h-full flex-col gap-2 p-3">
         <div className="flex flex-wrap items-center gap-2">
           <Input
-            placeholder="Filter by host, business name or registration number…"
+            placeholder="Filter by host, business name or registration id…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="max-w-sm"
@@ -149,7 +149,7 @@ export const HostsView: FC = () => {
           Each row is an Airbnb host account with at least one active listing.
           A host is whoever runs the listing on Airbnb, often a property
           management company, and not necessarily the owner. "Business names"
-          are the names on the city registrations the host's listings show,
+          are the registrants on the registrations the host's listings show,
           which is the closest thing to the owners this data has.
         </p>
         <div className="min-h-0 flex-1">

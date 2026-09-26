@@ -27,13 +27,13 @@ interface FakeListing {
 /** A reviews endpoint over fixed listings, recording each request. */
 function fakeEndpoint(listings: Record<string, FakeListing>): {
   fetchPage: FetchReviewPage;
-  calls: Array<{ roomId: string; offset: number; limit: number }>;
+  calls: Array<{ listingId: string; offset: number; limit: number }>;
 } {
-  const calls: Array<{ roomId: string; offset: number; limit: number }> = [];
-  const fetchPage: FetchReviewPage = async (roomId, offset, limit) => {
-    calls.push({ roomId, offset, limit });
-    const listing = listings[roomId];
-    if (!listing) throw new Error(`unknown room ${roomId}`);
+  const calls: Array<{ listingId: string; offset: number; limit: number }> = [];
+  const fetchPage: FetchReviewPage = async (listingId, offset, limit) => {
+    calls.push({ listingId, offset, limit });
+    const listing = listings[listingId];
+    if (!listing) throw new Error(`unknown room ${listingId}`);
     if (listing.error) throw listing.error;
     const reviews = listing.reviews ?? [];
     return { totalCount: reviews.length, createdAt: reviews.slice(offset, offset + limit) };
@@ -46,16 +46,16 @@ describe('findFirstReviewDate', () => {
     const reviews = reviewTimestamps(138);
     const { fetchPage, calls } = fakeEndpoint({ '1': { reviews } });
 
-    const date = await findFirstReviewDate({ roomId: '1', reviewCountHint: 138 }, fetchPage);
+    const date = await findFirstReviewDate({ listingId: '1', reviewCountHint: 138 }, fetchPage);
 
     expect(date).toBe(reviews.at(-1)!.slice(0, 10));
-    expect(calls).toEqual([{ roomId: '1', offset: 138 - TAIL_WINDOW, limit: TAIL_WINDOW }]);
+    expect(calls).toEqual([{ listingId: '1', offset: 138 - TAIL_WINDOW, limit: TAIL_WINDOW }]);
   });
 
   it('resolves a listing with no reviews to null in one request', async () => {
     const { fetchPage, calls } = fakeEndpoint({ '1': { reviews: [] } });
 
-    expect(await findFirstReviewDate({ roomId: '1', reviewCountHint: null }, fetchPage)).toBeNull();
+    expect(await findFirstReviewDate({ listingId: '1', reviewCountHint: null }, fetchPage)).toBeNull();
     expect(calls).toHaveLength(1);
   });
 
@@ -63,7 +63,7 @@ describe('findFirstReviewDate', () => {
     const reviews = reviewTimestamps(2);
     const { fetchPage, calls } = fakeEndpoint({ '1': { reviews } });
 
-    const date = await findFirstReviewDate({ roomId: '1', reviewCountHint: null }, fetchPage);
+    const date = await findFirstReviewDate({ listingId: '1', reviewCountHint: null }, fetchPage);
 
     expect(date).toBe(reviews[1]!.slice(0, 10));
     expect(calls).toHaveLength(1);
@@ -73,7 +73,7 @@ describe('findFirstReviewDate', () => {
     const reviews = reviewTimestamps(40);
     const { fetchPage, calls } = fakeEndpoint({ '1': { reviews } });
 
-    const date = await findFirstReviewDate({ roomId: '1', reviewCountHint: 12 }, fetchPage);
+    const date = await findFirstReviewDate({ listingId: '1', reviewCountHint: 12 }, fetchPage);
 
     expect(date).toBe(reviews[39]!.slice(0, 10));
     expect(calls.map((call) => call.offset)).toEqual([12 - TAIL_WINDOW, 40 - TAIL_WINDOW]);
@@ -83,7 +83,7 @@ describe('findFirstReviewDate', () => {
     const reviews = reviewTimestamps(20);
     const { fetchPage, calls } = fakeEndpoint({ '1': { reviews } });
 
-    const date = await findFirstReviewDate({ roomId: '1', reviewCountHint: 50 }, fetchPage);
+    const date = await findFirstReviewDate({ listingId: '1', reviewCountHint: 50 }, fetchPage);
 
     expect(date).toBe(reviews[19]!.slice(0, 10));
     expect(calls.map((call) => call.offset)).toEqual([50 - TAIL_WINDOW, 20 - TAIL_WINDOW]);
@@ -95,7 +95,7 @@ describe('findFirstReviewDate', () => {
       createdAt: ['2025-06-01T00:00:00Z', '2024-01-02T00:00:00Z', '2024-03-01T00:00:00Z'],
     });
 
-    expect(await findFirstReviewDate({ roomId: '1', reviewCountHint: 3 }, fetchPage)).toBe(
+    expect(await findFirstReviewDate({ listingId: '1', reviewCountHint: 3 }, fetchPage)).toBe(
       '2024-01-02',
     );
   });
@@ -104,7 +104,7 @@ describe('findFirstReviewDate', () => {
     const fetchPage: FetchReviewPage = async () => ({ totalCount: 30, createdAt: [] });
 
     await expect(
-      findFirstReviewDate({ roomId: '1', reviewCountHint: 30 }, fetchPage),
+      findFirstReviewDate({ listingId: '1', reviewCountHint: 30 }, fetchPage),
     ).rejects.toThrow(/do not reach the reported total of 30/);
   });
 });
@@ -120,17 +120,17 @@ describe('fetchFirstReviews', () => {
 
     const results = await fetchFirstReviews(
       [
-        { roomId: '1', reviewCountHint: 8 },
-        { roomId: '2', reviewCountHint: null },
-        { roomId: '3', reviewCountHint: 4 },
+        { listingId: '1', reviewCountHint: 8 },
+        { listingId: '2', reviewCountHint: null },
+        { listingId: '3', reviewCountHint: 4 },
       ],
       { fetchPage, concurrency: 1 },
     );
 
     expect(results).toEqual([
-      { roomId: '1', firstReviewDate: reviews[7]!.slice(0, 10), error: null },
-      { roomId: '2', firstReviewDate: null, error: null },
-      { roomId: '3', firstReviewDate: null, error: expect.stringContaining('HTTP 500') },
+      { listingId: '1', firstReviewDate: reviews[7]!.slice(0, 10), error: null },
+      { listingId: '2', firstReviewDate: null, error: null },
+      { listingId: '3', firstReviewDate: null, error: expect.stringContaining('HTTP 500') },
     ]);
   });
 
@@ -139,19 +139,19 @@ describe('fetchFirstReviews', () => {
       [...Array(7).keys()].map((i) => [String(i), { reviews: reviewTimestamps(1) }]),
     );
     const { fetchPage, calls } = fakeEndpoint(listings);
-    const candidates = Object.keys(listings).map((roomId) => ({ roomId, reviewCountHint: 1 }));
+    const candidates = Object.keys(listings).map((listingId) => ({ listingId, reviewCountHint: 1 }));
 
     const results = await fetchFirstReviews(candidates, { fetchPage, maxListings: 3 });
 
-    expect(results.map((result) => result.roomId)).toEqual(['0', '1', '2']);
-    expect(new Set(calls.map((call) => call.roomId))).toEqual(new Set(['0', '1', '2']));
+    expect(results.map((result) => result.listingId)).toEqual(['0', '1', '2']);
+    expect(new Set(calls.map((call) => call.listingId))).toEqual(new Set(['0', '1', '2']));
   });
 
   it('aborts the pass on a rate limit', async () => {
     const { fetchPage } = fakeEndpoint({ '1': { error: new RateLimitedError('429') } });
 
     await expect(
-      fetchFirstReviews([{ roomId: '1', reviewCountHint: 3 }], { fetchPage }),
+      fetchFirstReviews([{ listingId: '1', reviewCountHint: 3 }], { fetchPage }),
     ).rejects.toThrow(RateLimitedError);
   });
 });

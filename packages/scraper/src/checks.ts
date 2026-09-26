@@ -20,7 +20,7 @@ import { and, asc, count, desc, eq, gt, isNotNull, isNull, lt, ne, or, sql, type
 import type { PageFetchStats, QuoteStats } from './store.ts';
 
 /**
- * A run fails if the current listing count is outside this range, which
+ * A run fails if the active listing count is outside this range, which
  * suggests a broken bbox, a blocked scrape, or an API change. The floor is
  * well above the 280 a single unsplit query returns.
  */
@@ -45,8 +45,8 @@ const MAX_CALENDAR_FAILURE_RATE = 0.25;
 const MAX_PAGE_FAILURE_RATE = 0.25;
 
 /**
- * The share of current, page-read listings with a value below which the run
- * fails, for each page field every listing has: `host_id`, `room_type`,
+ * The share of active, page-read listings with a value below which the run
+ * fails, for each page field every listing has: `host_id`, `listing_type`,
  * `guest_capacity`, `beds`, `bathrooms`, and photos. Every real page sampled
  * (41 for the host, 44 for the rest) yielded each one, so a shortfall means
  * the extraction broke. `registryChecks.ts` holds license pages to the same
@@ -155,13 +155,13 @@ export async function runChecks(
     check('search_coverage', 'warn', false, 'coverage audit did not run: no usable audit boxes');
   }
 
-  const currentCount = await db.orm.$count(listings, eq(listings.isCurrent, true));
+  const currentCount = await db.orm.$count(listings, eq(listings.isActive, true));
   const [lo, hi] = PLAUSIBLE_LISTING_COUNT;
   check(
     'listing_count_plausible',
     'error',
     lo <= currentCount && currentCount <= hi,
-    `${currentCount} current listings, expected [${lo}, ${hi}]`,
+    `${currentCount} active listings, expected [${lo}, ${hi}]`,
   );
 
   // This and the overlap check test the SCD2 logic in the `listings` view.
@@ -169,16 +169,16 @@ export async function runChecks(
     qb
       .select({ listingId: listings.listingId })
       .from(listings)
-      .where(eq(listings.isCurrent, true))
+      .where(eq(listings.isActive, true))
       .groupBy(listings.listingId)
       .having(gt(count(), 1))
       .as('duplicated'),
   );
   check(
-    'no_duplicate_current_listings',
+    'no_duplicate_active_listings',
     'error',
     dupes === 0,
-    `${dupes} listing_ids with >1 current row`,
+    `${dupes} listing_ids with >1 active row`,
   );
 
   const overlap = await db.orm.$count(
@@ -212,7 +212,7 @@ export async function runChecks(
       lng: listings.locationLng,
     })
     .from(listings)
-    .where(eq(listings.isCurrent, true))
+    .where(eq(listings.isActive, true))
     .orderBy(asc(listings.listingId));
   const outside = coords.filter(
     ({ lat, lng }) => lat === null || lng === null || !inMunicipality(lat, lng),
@@ -221,7 +221,7 @@ export async function runChecks(
     'coords_within_municipality',
     'warn',
     outside.length === 0,
-    `${outside.length} current listings with no coordinates or outside the Municipality` +
+    `${outside.length} active listings with no coordinates or outside the Municipality` +
       (outside.length ? `; e.g. ${outside.slice(0, 5).map((row) => row.listingId).join(', ')}` : ''),
   );
 
@@ -330,12 +330,12 @@ export async function runChecks(
   // affected listing, and again when the parser is fixed. Failing the run
   // keeps that day out of the published archive.
   const minShare = MIN_PAGE_FIELD_SHARE;
-  const pageWasRead = and(eq(listings.isCurrent, true), isNotNull(listings.pageSeenDate));
+  const pageWasRead = and(eq(listings.isActive, true), isNotNull(listings.pageSeenDate));
   const pageRead = await db.orm.$count(listings, pageWasRead);
   if (pageRead) {
     const minimums: ReadonlyArray<readonly [Column, number]> = [
       [listings.hostId, minShare],
-      [listings.roomType, minShare],
+      [listings.listingType, minShare],
       [listings.guestCapacity, minShare],
       [listings.beds, minShare],
       [listings.bedrooms, MIN_BEDROOMS_SHARE],
@@ -351,7 +351,7 @@ export async function runChecks(
         `${column.name}_coverage`,
         'error',
         share >= min,
-        `${present}/${pageRead} current listings with a page read have a ${column.name} ` +
+        `${present}/${pageRead} active listings with a page read have a ${column.name} ` +
           `(${percent(share)}, min ${percent(min)})`,
       );
     }
@@ -411,7 +411,7 @@ export async function runChecks(
   // Listings with no host_id at all are `host_id_coverage`'s concern.
   const owned = await db.orm.$count(
     listings,
-    and(eq(listings.isCurrent, true), isNotNull(listings.hostId)),
+    and(eq(listings.isActive, true), isNotNull(listings.hostId)),
   );
   if (owned) {
     const resolved = await db.orm.$count(
@@ -422,7 +422,7 @@ export async function runChecks(
           hosts,
           and(eq(hosts.hostId, listings.hostId), isNull(hosts.validTo)),
         )
-        .where(and(eq(listings.isCurrent, true), isNotNull(hosts.profileSeenDate)))
+        .where(and(eq(listings.isActive, true), isNotNull(hosts.profileSeenDate)))
         .as('resolved'),
     );
     const share = resolved / owned;
@@ -430,7 +430,7 @@ export async function runChecks(
       'host_profile_coverage',
       'warn',
       share >= MIN_HOST_PROFILE_SHARE,
-      `${resolved}/${owned} current listings with a host_id resolve to a read host profile ` +
+      `${resolved}/${owned} active listings with a host_id resolve to a read host profile ` +
         `(${percent(share)}, min ${percent(MIN_HOST_PROFILE_SHARE)})`,
     );
   }
@@ -443,7 +443,7 @@ export async function runChecks(
     .from(hosts)
     .where(
       and(
-        eq(hosts.isCurrent, true),
+        eq(hosts.isActive, true),
         gt(hosts.hostingStartSpreadDays, HOST_START_MAX_SPREAD_DAYS),
       ),
     )
@@ -452,7 +452,7 @@ export async function runChecks(
     'host_start_date_stable',
     'warn',
     moved.length === 0,
-    `${moved.length} current hosts whose hosting start date moved by more than ` +
+    `${moved.length} active hosts whose hosting start date moved by more than ` +
       `${HOST_START_MAX_SPREAD_DAYS} days between readings` +
       (moved.length
         ? `; e.g. ${moved.slice(0, 5).map((row) => `${row.hostId} (${row.spread}d)`).join(', ')}`
@@ -468,7 +468,7 @@ export async function runChecks(
       AND length(split_part(abs(${listings.locationLng})::VARCHAR, '.', 2)) <= 4
     )`;
   const hasExactFlag = and(
-    eq(listings.isCurrent, true),
+    eq(listings.isActive, true),
     isNotNull(listings.locationIsExact),
   );
   const mismatched = await db.orm.$count(

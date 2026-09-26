@@ -16,8 +16,8 @@
  *
  * Text is stored as the page shows it: entities decoded, leading and
  * trailing whitespace trimmed, and line breaks and repeated spaces inside a
- * description kept. An unknown `licenseId` returns HTTP 200 with an "Invalid
- * License" page, which has no summary and is rejected.
+ * description kept. An unknown `cityviewLicenseId` returns HTTP 200 with an
+ * "Invalid License" page, which has no summary and is rejected.
  */
 
 import { HTMLElement, NodeType, parse, type Node } from 'node-html-parser';
@@ -36,7 +36,7 @@ import { withRetries } from '@anchorage-str-db/utils/retry';
  * the Muni's property records: `Property` is a parcel id, and `Address` is
  * that record's address in the Muni's parcel-address style (all caps, units
  * as `Unit:APT 1`). The ArcGIS layer's `Location` is the same string. An
- * unlinked value is text the applicant typed that matched no property
+ * unlinked value is text the registrant typed that matched no property
  * record, such as `525 w 3rd Ave #501, anchorage AK 99501`; it usually has no
  * label, and the registration then has no parcel id.
  */
@@ -58,14 +58,19 @@ export interface LicenseIssuance {
   issuedDate: IsoDate | null;
   expiresDate: IsoDate | null;
   status: string | null;
-  /** The registration number, `STR20260309`. */
+  /** The registration id, `STR20260309`. */
   number: string | null;
 }
 
 export interface LicensePage {
-  licenseId: number;
-  /** `LC260500349`: the layer's `ApplicationNumber`. */
-  licenseeNumber: string;
+  /** CityView's own row id, from the `licenseId` in the page's URL. */
+  cityviewLicenseId: number;
+  /**
+   * `LC260500349`, the license's own id, which the page labels "Licensee
+   * Number" and the registration layer calls `ApplicationNumber`. One per
+   * license, not per licensee.
+   */
+  licenseId: string;
   businessName: string | null;
   /** `Short-Term Rentals`. */
   licenseType: string | null;
@@ -79,8 +84,8 @@ export interface LicensePage {
 
 const PORTAL_ORIGIN = 'https://www.muni.org';
 
-export function licensePageUrl(licenseId: number): string {
-  return `${PORTAL_ORIGIN}/CityViewPortal/License/Status?licenseId=${licenseId}&category=B`;
+export function licensePageUrl(cityviewLicenseId: number): string {
+  return `${PORTAL_ORIGIN}/CityViewPortal/License/Status?licenseId=${cityviewLicenseId}&category=B`;
 }
 
 /** Whitespace collapsed to single spaces and trimmed, for labels and short values. */
@@ -209,17 +214,17 @@ function parseIssuances(root: HTMLElement): LicenseIssuance[] {
 }
 
 /** Throws on a page without a license summary, such as the "Invalid License" page, or a changed layout. */
-export function parseLicensePage(html: string, licenseId: number): LicensePage {
+export function parseLicensePage(html: string, cityviewLicenseId: number): LicensePage {
   // The portal sends CRLF line endings. Browsers normalize them to LF when
   // parsing (HTML spec, input stream preprocessing); node-html-parser doesn't.
   const root = parse(html.replace(/\r\n?/g, '\n'));
   const labels = root.querySelectorAll('label');
   try {
-    const licenseeNumber = summaryValue(root, labels, 'Licensee Number');
-    if (licenseeNumber === null) throw new Error('empty "Licensee Number"');
+    const licenseId = summaryValue(root, labels, 'Licensee Number');
+    if (licenseId === null) throw new Error('empty "Licensee Number"');
     return {
+      cityviewLicenseId,
       licenseId,
-      licenseeNumber,
       businessName: summaryValue(root, labels, 'Business Name'),
       licenseType: summaryValue(root, labels, 'License Type'),
       status: summaryValue(root, labels, 'Application Status'),
@@ -229,12 +234,12 @@ export function parseLicensePage(html: string, licenseId: number): LicensePage {
     };
   } catch (err) {
     const title = squash(root.querySelector('title')?.textContent ?? '');
-    throw new Error(`license ${licenseId}: ${(err as Error).message} (page title: ${title})`);
+    throw new Error(`license ${cityviewLicenseId}: ${(err as Error).message} (page title: ${title})`);
   }
 }
 
 export interface LicensePageResult {
-  licenseId: number;
+  cityviewLicenseId: number;
   page: LicensePage | null;
   error: string | null;
 }
@@ -251,18 +256,18 @@ const TIMEOUT_MS = 30_000;
 /** Backoff between retries of a failed read: `RETRY_BACKOFF_MS * attempt`. */
 const RETRY_BACKOFF_MS = 500;
 
-export type FetchOneLicensePage = (licenseId: number) => Promise<LicensePage>;
+export type FetchOneLicensePage = (cityviewLicenseId: number) => Promise<LicensePage>;
 
 /** Real requests, paced by one `Pacer` for all pages and retried. */
 export function liveLicensePageFetcher(
   pacer = new Pacer({ rate: REQUESTS_PER_SECOND, service: 'the CityView portal' }),
 ): FetchOneLicensePage {
-  return (licenseId) =>
+  return (cityviewLicenseId) =>
     // Parsing inside the retry means a truncated page is fetched again.
     withRetries(
-      async () => parseLicensePage(await fetchText(licensePageUrl(licenseId), TIMEOUT_MS), licenseId),
+      async () => parseLicensePage(await fetchText(licensePageUrl(cityviewLicenseId), TIMEOUT_MS), cityviewLicenseId),
       {
-        label: `license page ${licenseId}`,
+        label: `license page ${cityviewLicenseId}`,
         attempts: MAX_RETRIES,
         backoffMs: RETRY_BACKOFF_MS,
         pacer,
@@ -277,23 +282,23 @@ export interface FetchLicensePagesOptions {
 
 /** Read each license page. A failure is recorded in its result rather than thrown. */
 export async function fetchLicensePages(
-  licenseIds: readonly number[],
+  cityviewLicenseIds: readonly number[],
   options: FetchLicensePagesOptions = {},
 ): Promise<LicensePageResult[]> {
   const fetchOne = options.fetchOne ?? liveLicensePageFetcher();
   const results = await mapWithConcurrency(
-    licenseIds,
+    cityviewLicenseIds,
     options.concurrency ?? CONCURRENCY,
-    async (licenseId): Promise<LicensePageResult> => {
+    async (cityviewLicenseId): Promise<LicensePageResult> => {
       try {
-        return { licenseId, page: await fetchOne(licenseId), error: null };
+        return { cityviewLicenseId, page: await fetchOne(cityviewLicenseId), error: null };
       } catch (err) {
-        return { licenseId, page: null, error: describeError(rootCause(err)) };
+        return { cityviewLicenseId, page: null, error: describeError(rootCause(err)) };
       }
     },
   );
   for (const result of results) {
-    if (result.error) log.warn(`license page ${result.licenseId} failed: ${result.error}`);
+    if (result.error) log.warn(`license page ${result.cityviewLicenseId} failed: ${result.error}`);
   }
   return results;
 }

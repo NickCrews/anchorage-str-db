@@ -15,7 +15,7 @@
  *   The only stored facts about a listing.
  * - `airbnb_calendar_status`: SCD2 on (listing_id, night_date). A night that
  *   leaves Airbnb's ~12-month calendar window is no longer observed, so its
- *   last value stays as the realized booked/available state.
+ *   last value stays as the realized available / not-available state.
  * - `airbnb_listing_first_reviews`: one row per listing whose earliest review
  *   date has been resolved. Keyed by `listing_id` rather than a column on
  *   `airbnb_listing_observations`, because it is resolved once: as a daily
@@ -24,7 +24,7 @@
  *   distinct set, written only when the set differs from the listing's
  *   previous one.
  * - `airbnb_host_observations`: append-only, one row per (host, scrape date)
- *   for every host owning a listing observed that day: the host card from
+ *   for every host of a listing observed that day: the host card from
  *   the listing page.
  * - `airbnb_scrape_runs`: one row per daily run.
  *
@@ -94,18 +94,18 @@ export const airbnbListingObservations = pgTable(
     priceQualifier: varchar('price_qualifier'),
 
     // From the listing's own page, a separate request. `page_fetch_ok`
-    // distinguishes "read the page, no STR number" from "page not read";
+    // distinguishes "read the page, no registration id" from "page not read";
     // the columns below it are NULL when it is false.
     pageFetchOk: boolean('page_fetch_ok').notNull(),
     locationIsExact: boolean('location_is_exact'),
     locationExactAddress: varchar('location_exact_address'),
     locationSubtitle: varchar('location_subtitle'),
     locationVerified: boolean('location_verified'),
-    strRegistrationId: varchar('str_registration_id'),
+    registrationId: varchar('registration_id'),
     // The primary host's Airbnb user id (airbnb.com/users/show/<host_id>).
     hostId: bigint('host_id'),
     // Airbnb's text, verbatim: 'Entire home/apt', 'Private room', ...
-    roomType: varchar('room_type'),
+    listingType: varchar('listing_type'),
     guestCapacity: integer('guest_capacity'),
     // Airbnb's bedCount; a bunk bed counts as 2.
     beds: integer('beds'),
@@ -172,7 +172,7 @@ export const airbnbScrapeRuns = pgTable('airbnb_scrape_runs', {
   firstReviewFetchFailed: integer('first_review_fetch_failed'),
   quoteFetchAttempted: integer('quote_fetch_attempted'),
   quoteFetchFailed: integer('quote_fetch_failed'),
-  // Distinct hosts owning a listing observed this run, and how many of them
+  // Distinct hosts of a listing observed this run, and how many of them
   // had no host card read.
   hostProfileAttempted: integer('host_profile_attempted'),
   hostProfileFailed: integer('host_profile_failed'),
@@ -222,11 +222,14 @@ export const airbnbHostObservations = pgTable(
 export const muniStrRegistrationObservations = pgTable(
   'muni_str_registration_observations',
   {
-    // 'STR20260309'; Airbnb listings show it as str_registration_id.
-    registrationNumber: varchar('registration_number').notNull(),
+    // 'STR20260309'; Airbnb listings show it as registration_id.
+    registrationId: varchar('registration_id').notNull(),
     scrapeDate: day('scrape_date').notNull(),
-    // 'LC260500349', the license page's Licensee Number.
-    applicationNumber: varchar('application_number'),
+    // 'LC260500349', the license's own id. The license page labels it
+    // "Licensee Number" and the layer calls it ApplicationNumber, but it
+    // identifies the license, not the licensee: a business holding four
+    // licenses has four. One per registration, like cityview_license_id.
+    licenseId: varchar('license_id'),
     submittedDate: day('submitted_date'),
     issuedDate: day('issued_date'),
     expiresDate: day('expires_date'),
@@ -234,33 +237,35 @@ export const muniStrRegistrationObservations = pgTable(
     // record, this is that record's address in the Muni's parcel-address
     // style ('7730 MAYFAIR DR, Unit:APT 1, ANCHORAGE, AK 99502', or just
     // '311 MELODY PL' when the record has no city); otherwise it is the text
-    // the applicant typed ('525 w 3rd Ave #501, anchorage AK 99501'). See
+    // the registrant typed ('525 w 3rd Ave #501, anchorage AK 99501'). See
     // muni_license_page_reads.locations for which.
-    location: varchar('location'),
+    registeredAddress: varchar('registered_address'),
     // The string 'None' when the registrant gave no business name.
     businessName: varchar('business_name'),
     status: varchar('status'),
-    // The CityView license page; its licenseId keys muni_license_page_reads.
+    // The CityView license page; the licenseId in its URL is
+    // cityview_license_id, which keys muni_license_page_reads.
     statusUrl: varchar('status_url'),
-    // The council containing the geocoded point; NULL exactly when geocoding
+    // The council containing the geocoded coordinate; NULL exactly when geocoding
     // found no match.
     communityCouncil: varchar('community_council'),
     // 'Residential' or 'Commercial'. Can be NULL even when the license names
     // a parcel and the address geocoded (7821 MAYFAIR DR, Unit:APT C).
     parcelType: varchar('parcel_type'),
-    // The Muni geocoder's (MOA_Multirole_Locator) reading of location, in its
-    // own style: '7821 Mayfair Dr, Apartment C, Anchorage, Alaska, 99502'.
+    // The Muni geocoder's (MOA_Multirole_Locator) reading of
+    // registered_address, in its own style: '7821 Mayfair Dr, Apartment C,
+    // Anchorage, Alaska, 99502'.
     // It rewrites typed text too ('#501' becomes 'Apartment 501', 'ROOM 4' is
-    // dropped). A location with no city or zip gets
-    // 'Incomplete address provided. No Match.' and a placeholder point.
+    // dropped). An address with no city or zip gets
+    // 'Incomplete address provided. No Match.' and a placeholder coordinate.
     geocodedAddress: varchar('geocoded_address'),
-    // The geocoded point, not a location the applicant gave.
+    // The geocoded coordinate, not a position the registrant gave.
     geocodedLat: doublePrecision('geocoded_lat'),
     geocodedLng: doublePrecision('geocoded_lng'),
     // The layer's PUBDATE, naive UTC.
     publishedAt: naiveTimestamp('published_at'),
   },
-  (t) => [primaryKey({ columns: [t.registrationNumber, t.scrapeDate] })],
+  (t) => [primaryKey({ columns: [t.registrationId, t.scrapeDate] })],
 );
 
 export interface LicenseLocation {
@@ -287,9 +292,9 @@ export const LICENSE_ISSUANCES_TYPE =
 export const muniLicensePageReads = pgTable(
   'muni_license_page_reads',
   {
-    licenseId: integer('license_id').notNull(),
+    cityviewLicenseId: integer('cityview_license_id').notNull(),
     scrapeDate: day('scrape_date').notNull(),
-    licenseeNumber: varchar('licensee_number').notNull(),
+    licenseId: varchar('license_id').notNull(),
     businessName: varchar('business_name'),
     // 'Short-Term Rentals'.
     licenseType: varchar('license_type'),
@@ -299,13 +304,13 @@ export const muniLicensePageReads = pgTable(
     // In page order. A value with a link is from the Muni's property records,
     // and the link is the portal's property search for it: label 'Property'
     // holds a parcel id, 'Address' the record's address. A value without a
-    // link is text the applicant typed that matched no record, and usually
+    // link is text the registrant typed that matched no record, and usually
     // has no label. The label can be the portal's own lookup error
     // (license 13966).
     locations: structList<LicenseLocation>(LICENSE_LOCATIONS_TYPE)('locations').notNull(),
     issuances: structList<LicenseIssuance>(LICENSE_ISSUANCES_TYPE)('issuances').notNull(),
   },
-  (t) => [primaryKey({ columns: [t.licenseId, t.scrapeDate] })],
+  (t) => [primaryKey({ columns: [t.cityviewLicenseId, t.scrapeDate] })],
 );
 
 /** Counts are NULL on a failed run, which wrote nothing else. */
@@ -318,7 +323,7 @@ export const muniStrRegistryRuns = pgTable('muni_str_registry_runs', {
   registrationsSeen: integer('registrations_seen'),
   registrationsNew: integer('registrations_new'),
   // In the previous run's layer but not this one's.
-  registrationsDeparted: integer('registrations_departed'),
+  registrationsLapsed: integer('registrations_lapsed'),
   licensePageAttempted: integer('license_page_attempted'),
   licensePageFailed: integer('license_page_failed'),
   errorSummary: varchar('error_summary'),

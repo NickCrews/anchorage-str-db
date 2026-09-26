@@ -12,7 +12,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import {
   fetchRegistrations,
-  licenseIdFromStatusUrl,
+  cityviewLicenseIdFromStatusUrl,
   NO_MATCH_GEOCODED_ADDRESS,
   PAGE_SIZE,
   toRegistration,
@@ -25,12 +25,12 @@ const TIMESTAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
 describe('fetchRegistrations on the live layer', () => {
   let layer: RegistrationLayer;
-  const byNumber = new Map<string, Registration>();
+  const byRegistrationId = new Map<string, Registration>();
 
   beforeAll(async () => {
     layer = await fetchRegistrations();
     for (const registration of layer.registrations) {
-      byNumber.set(registration.registrationNumber, registration);
+      byRegistrationId.set(registration.registrationId, registration);
     }
   });
 
@@ -38,7 +38,7 @@ describe('fetchRegistrations on the live layer', () => {
     // fetchLayer throws unless the pages add up to the server's count, so
     // a layer larger than one page shows the offset paging is complete.
     expect(layer.registrations.length).toBeGreaterThan(PAGE_SIZE);
-    expect(byNumber.size).toBe(layer.registrations.length);
+    expect(byRegistrationId.size).toBe(layer.registrations.length);
   });
 
   it("reads the layer's data edit date", () => {
@@ -46,13 +46,13 @@ describe('fetchRegistrations on the live layer', () => {
   });
 
   it('reads a geocoded registration with every field', () => {
-    expect(byNumber.get('STR20260309')).toEqual({
-      registrationNumber: 'STR20260309',
-      applicationNumber: 'LC260500349',
+    expect(byRegistrationId.get('STR20260309')).toEqual({
+      registrationId: 'STR20260309',
+      licenseId: 'LC260500349',
       submittedDate: '2026-05-03',
       issuedDate: '2026-05-04',
       expiresDate: '2027-04-30',
-      location: '257 ECHO RIDGE DR, GIRDWOOD, AK 99587',
+      registeredAddress: '257 ECHO RIDGE DR, GIRDWOOD, AK 99587',
       businessName: 'Echo Ridge Mountain Retreat',
       status: 'Active',
       statusUrl: 'https://www.muni.org/CityViewPortal/License/Status?licenseId=13923&category=B',
@@ -65,14 +65,14 @@ describe('fetchRegistrations on the live layer', () => {
     });
   });
 
-  it("keeps 'None' and the placeholder point for an address the geocoder could not match", () => {
-    expect(byNumber.get('STR20260126')).toEqual({
-      registrationNumber: 'STR20260126',
-      applicationNumber: 'LC260500179',
+  it("keeps 'None' and the placeholder coordinate for an address the geocoder could not match", () => {
+    expect(byRegistrationId.get('STR20260126')).toEqual({
+      registrationId: 'STR20260126',
+      licenseId: 'LC260500179',
       submittedDate: '2026-05-01',
       issuedDate: '2026-05-01',
       expiresDate: '2027-04-30',
-      location: '311 MELODY PL',
+      registeredAddress: '311 MELODY PL',
       businessName: 'None',
       status: 'Active',
       statusUrl: 'https://www.muni.org/CityViewPortal/License/Status?licenseId=13753&category=B',
@@ -87,7 +87,7 @@ describe('fetchRegistrations on the live layer', () => {
 });
 
 describe('toRegistration', () => {
-  it('rejects a feature with no registration number', () => {
+  it('rejects a feature with no registration id', () => {
     expect(() => toRegistration({ attributes: { OBJECTID: 1 } })).toThrow(/RegistrationNumber/);
   });
 
@@ -98,17 +98,17 @@ describe('toRegistration', () => {
   });
 });
 
-describe('licenseIdFromStatusUrl', () => {
-  it('reads licenseId from the query string', () => {
+describe('cityviewLicenseIdFromStatusUrl', () => {
+  it('reads cityviewLicenseId from the query string', () => {
     expect(
-      licenseIdFromStatusUrl(
+      cityviewLicenseIdFromStatusUrl(
         'https://www.muni.org/CityViewPortal/License/Status?licenseId=13923&category=B',
       ),
     ).toBe(13923);
   });
 
   it('returns null for a missing or different URL', () => {
-    expect(licenseIdFromStatusUrl(null)).toBeNull();
-    expect(licenseIdFromStatusUrl('https://www.muni.org/CityViewPortal/')).toBeNull();
+    expect(cityviewLicenseIdFromStatusUrl(null)).toBeNull();
+    expect(cityviewLicenseIdFromStatusUrl('https://www.muni.org/CityViewPortal/')).toBeNull();
   });
 });

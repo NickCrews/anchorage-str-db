@@ -10,9 +10,9 @@
  * backfilling the only copy of the archive. `hosts` is built from
  * `airbnb_host_observations` the same way. `registrations` has one row per
  * registration with its latest license page, and
- * `listingsCurrentWithRegistration` joins Airbnb listings to it on the
- * registration number. Cleaning (the `'None'` business name, the no-match
- * placeholder point) happens here, so the raw tables can always be
+ * `listingsActiveWithRegistration` joins Airbnb listings to it on the
+ * registration id. Cleaning (the `'None'` business name, the no-match
+ * placeholder coordinate) happens here, so the raw tables can always be
  * re-derived.
  *
  * Each view is declared with its columns and defined with its query, so the
@@ -33,7 +33,7 @@
  *
  * Every column is nullable. DuckDB reports no nullability for a view, so a
  * `notNull()` here would be an unchecked claim, and most of these columns
- * really can be NULL: a listing whose page was never read has no `room_type`,
+ * really can be NULL: a listing whose page was never read has no `listing_type`,
  * a registration the geocoder could not place has no `geocoded_lat`.
  *
  * Nothing here reaches a driver, so the viewer builds its queries from the
@@ -73,12 +73,12 @@ import {
 } from './schema.ts';
 
 /**
- * Days a listing may be absent from search before `listings.is_current` goes
+ * Days a listing may be absent from search before `listings.is_active` goes
  * false. Search occasionally omits a listing for a day.
  */
 export const RETIREMENT_GRACE_DAYS = 5;
 
-/** The listing and host activity views measure "current" from this date. */
+/** The listing and host activity views measure "active" from this date. */
 const withinGrace = (lastSeen: SQL | Column): SQL<boolean> =>
   sql`${lastSeen} >= (${qb
     .select({ scrapeDate: latestScrapeDate.scrapeDate })
@@ -109,7 +109,7 @@ export const latestScrapeDate = pgView('latest_scrape_date', {
 
 /**
  * Per listing: first and last seen, last successful page read, and whether
- * current. A listing is current if it was seen within `RETIREMENT_GRACE_DAYS`
+ * active. A listing is active if it was seen within `RETIREMENT_GRACE_DAYS`
  * of the latest scrape, because search occasionally omits a listing for a day.
  */
 export const listingActivity = pgView('listing_activity', {
@@ -117,7 +117,7 @@ export const listingActivity = pgView('listing_activity', {
   firstSeenDate: day('first_seen_date'),
   lastSeenDate: day('last_seen_date'),
   pageSeenDate: day('page_seen_date'),
-  isCurrent: boolean('is_current'),
+  isActive: boolean('is_active'),
 }).as(
   sql`${qb
     .select({
@@ -128,7 +128,7 @@ export const listingActivity = pgView('listing_activity', {
         sql`max(${airbnbListingObservations.scrapeDate}) FILTER (WHERE ${airbnbListingObservations.pageFetchOk})`.as(
           'page_seen_date',
         ),
-      isCurrent: withinGrace(sql`max(${airbnbListingObservations.scrapeDate})`).as('is_current'),
+      isActive: withinGrace(sql`max(${airbnbListingObservations.scrapeDate})`).as('is_active'),
     })
     .from(airbnbListingObservations)
     .groupBy(airbnbListingObservations.listingId)}`,
@@ -139,7 +139,7 @@ export const listingActivity = pgView('listing_activity', {
  * that change most days (rating, review count, price hint) and `url`, which
  * is derived from `listing_id`. Coordinates are rounded to 6dp so float noise
  * doesn't open a version. `page_attrs` holds the listing-page fields, so a
- * room changing hands, converting from a whole home to a rented room, or
+ * listing changing hands, converting from a whole home to a private room, or
  * changing its guest, bed, bedroom or bathroom count opens a version. The
  * price quote changes most days and is not part of it. Photos are stored
  * separately and never open one: hosts reorder and replace photos far more
@@ -159,9 +159,9 @@ const PAGE_ATTRS = sql`{
     'location_exact_address': ${airbnbListingObservations.locationExactAddress},
     'location_subtitle': ${airbnbListingObservations.locationSubtitle},
     'location_verified': ${airbnbListingObservations.locationVerified},
-    'str_registration_id': ${airbnbListingObservations.strRegistrationId},
+    'registration_id': ${airbnbListingObservations.registrationId},
     'host_id': ${airbnbListingObservations.hostId},
-    'room_type': ${airbnbListingObservations.roomType},
+    'listing_type': ${airbnbListingObservations.listingType},
     'guest_capacity': ${airbnbListingObservations.guestCapacity},
     'beds': ${airbnbListingObservations.beds},
     'bedrooms': ${airbnbListingObservations.bedrooms},
@@ -173,7 +173,7 @@ const PAGE_ATTRS = sql`{
  * observed until the next distinct set appears.
  *
  * The chain carries the page fields forward as one struct, which keeps "read
- * the page, no registration number" (a struct holding a NULL) distinct from
+ * the page, no registration id" (a struct holding a NULL) distinct from
  * "page not read" (a NULL struct), and is what `SELECT * EXCLUDE`,
  * `* REPLACE` and a windowed `IS DISTINCT FROM` are for: DuckDB SQL through
  * and through, so the body below is SQL over the schema's columns.
@@ -193,9 +193,9 @@ export const listingVersions = pgView('listing_versions', {
   locationExactAddress: varchar('location_exact_address'),
   locationSubtitle: varchar('location_subtitle'),
   locationVerified: boolean('location_verified'),
-  strRegistrationId: varchar('str_registration_id'),
+  registrationId: varchar('registration_id'),
   hostId: bigint('host_id'),
-  roomType: varchar('room_type'),
+  listingType: varchar('listing_type'),
   guestCapacity: integer('guest_capacity'),
   beds: integer('beds'),
   bedrooms: varchar('bedrooms'),
@@ -206,8 +206,8 @@ export const listingVersions = pgView('listing_versions', {
     SELECT
         * EXCLUDE (
             location_is_exact, location_exact_address, location_subtitle,
-            location_verified, str_registration_id, host_id,
-            room_type, guest_capacity, beds, bedrooms, bathrooms
+            location_verified, registration_id, host_id,
+            listing_type, guest_capacity, beds, bedrooms, bathrooms
         ),
         -- NULL when the page fetch failed, so the carry-forward skips it.
         CASE WHEN ${airbnbListingObservations.pageFetchOk} THEN ${PAGE_ATTRS} END AS page_attrs
@@ -260,9 +260,9 @@ SELECT
     page_attrs.location_exact_address AS location_exact_address,
     page_attrs.location_subtitle AS location_subtitle,
     page_attrs.location_verified AS location_verified,
-    page_attrs.str_registration_id AS str_registration_id,
+    page_attrs.registration_id AS registration_id,
     page_attrs.host_id AS host_id,
-    page_attrs.room_type AS room_type,
+    page_attrs.listing_type AS listing_type,
     page_attrs.guest_capacity AS guest_capacity,
     page_attrs.beds AS beds,
     page_attrs.bedrooms AS bedrooms,
@@ -279,7 +279,7 @@ const listingColumns = {
   listingId: bigint('listing_id'),
   name: varchar('name'),
   propertyTitle: varchar('property_title'),
-  roomType: varchar('room_type'),
+  listingType: varchar('listing_type'),
   guestCapacity: integer('guest_capacity'),
   beds: integer('beds'),
   bedrooms: varchar('bedrooms'),
@@ -292,7 +292,7 @@ const listingColumns = {
   locationExactAddress: varchar('location_exact_address'),
   locationSubtitle: varchar('location_subtitle'),
   locationVerified: boolean('location_verified'),
-  strRegistrationId: varchar('str_registration_id'),
+  registrationId: varchar('registration_id'),
   hostId: bigint('host_id'),
   pageSeenDate: day('page_seen_date'),
   firstSeenDate: day('first_seen_date'),
@@ -303,7 +303,7 @@ const listingColumns = {
   versionLastSeenDate: day('version_last_seen_date'),
   validFrom: day('valid_from'),
   validTo: day('valid_to'),
-  isCurrent: boolean('is_current'),
+  isActive: boolean('is_active'),
 } as const;
 
 /** Every listing version ever observed: the dimension downstream queries read. */
@@ -313,7 +313,7 @@ export const listings = pgView('listings', listingColumns).as(
       listingId: listingVersions.listingId,
       name: listingVersions.name,
       propertyTitle: listingVersions.propertyTitle,
-      roomType: listingVersions.roomType,
+      listingType: listingVersions.listingType,
       guestCapacity: listingVersions.guestCapacity,
       beds: listingVersions.beds,
       bedrooms: listingVersions.bedrooms,
@@ -326,7 +326,7 @@ export const listings = pgView('listings', listingColumns).as(
       locationExactAddress: listingVersions.locationExactAddress,
       locationSubtitle: listingVersions.locationSubtitle,
       locationVerified: listingVersions.locationVerified,
-      strRegistrationId: listingVersions.strRegistrationId,
+      registrationId: listingVersions.registrationId,
       hostId: listingVersions.hostId,
       pageSeenDate: listingActivity.pageSeenDate,
       firstSeenDate: listingActivity.firstSeenDate,
@@ -346,8 +346,8 @@ export const listings = pgView('listings', listingColumns).as(
       versionLastSeenDate: listingVersions.versionLastSeenDate,
       validFrom: listingVersions.validFrom,
       validTo: listingVersions.validTo,
-      isCurrent:
-        sql`${listingVersions.validTo} IS NULL AND ${listingActivity.isCurrent}`.as('is_current'),
+      isActive:
+        sql`${listingVersions.validTo} IS NULL AND ${listingActivity.isActive}`.as('is_active'),
     })
     .from(listingVersions)
     .innerJoin(listingActivity, eq(listingActivity.listingId, listingVersions.listingId))
@@ -357,9 +357,9 @@ export const listings = pgView('listings', listingColumns).as(
     )}`,
 );
 
-/** `listings` filtered to the current version of a listing still in search. */
-export const listingsCurrent = pgView('listings_current', listingColumns).as(
-  sql`${qb.select(columnsOf(listings)).from(listings).where(eq(listings.isCurrent, true))}`,
+/** `listings` filtered to the current version of each active listing. */
+export const listingsActive = pgView('listings_active', listingColumns).as(
+  sql`${qb.select(columnsOf(listings)).from(listings).where(eq(listings.isActive, true))}`,
 );
 
 /** Each listing's most recent photo set; `photoUrls[1]` is the cover photo. */
@@ -382,11 +382,17 @@ QUALIFY row_number() OVER (
 );
 
 /**
- * Current calendar rows, minus the future nights of retired listings.
+ * The current version of each night, minus the future nights of inactive
+ * listings.
  *
- * A retired listing's calendar is no longer fetched, so its future nights
+ * An inactive listing's calendar is no longer fetched, so its future nights
  * stay `is_current` for up to twelve months. Nights up to its `last_seen_date`
  * are real observations and are kept.
+ *
+ * A (listing, night) with no row here is not a zero: the listing had not been
+ * scraped yet, had retired, the night is past Airbnb's ~12-month window, or
+ * its calendar was never read. Only the second is a fact about the rental,
+ * and the missing row cannot say which applies.
  */
 export const calendarCurrent = pgView('calendar_current', {
   listingId: bigint('listing_id'),
@@ -414,7 +420,7 @@ export const calendarCurrent = pgView('calendar_current', {
     .where(
       and(
         eq(airbnbCalendarStatus.isCurrent, true),
-        sql`(${listingActivity.isCurrent} OR ${airbnbCalendarStatus.nightDate} <= ${listingActivity.lastSeenDate})`,
+        sql`(${listingActivity.isActive} OR ${airbnbCalendarStatus.nightDate} <= ${listingActivity.lastSeenDate})`,
       ),
     )}`,
 );
@@ -431,7 +437,7 @@ const IMPLIED_HOSTING_START = sql`(${airbnbHostObservations.scrapeDate} - to_mon
 ))::DATE`;
 
 /**
- * Per host: first and last seen, last card read, and whether current, on the
+ * Per host: first and last seen, last card read, and whether active, on the
  * same rule as `listingActivity`. `hosting_started_on` is the earliest start
  * date any reading implies, and `hosting_start_spread_days` how far the
  * readings disagree. Month rounding alone keeps the spread under about a
@@ -445,7 +451,7 @@ export const hostActivity = pgView('host_activity', {
   hostingStartedOn: day('hosting_started_on'),
   hostingStartSpreadDays: integer('hosting_start_spread_days'),
   yearsHosting: integer('years_hosting'),
-  isCurrent: boolean('is_current'),
+  isActive: boolean('is_active'),
 }).as(
   sql`${qb
     .select({
@@ -470,7 +476,7 @@ export const hostActivity = pgView('host_activity', {
         FILTER (WHERE ${airbnbHostObservations.profileReadOk} AND ${airbnbHostObservations.timeAsHostYears} IS NOT NULL)`.as(
         'years_hosting',
       ),
-      isCurrent: withinGrace(sql`max(${airbnbHostObservations.scrapeDate})`).as('is_current'),
+      isActive: withinGrace(sql`max(${airbnbHostObservations.scrapeDate})`).as('is_active'),
     })
     .from(airbnbHostObservations)
     .groupBy(airbnbHostObservations.hostId)}`,
@@ -545,7 +551,7 @@ FROM aggregated`,
 );
 
 /**
- * The host dimension. Join to `listings` on `hostId`; filter `isCurrent` for
+ * The host dimension. Join to `listings` on `hostId`; filter `isActive` for
  * one row per host.
  */
 export const hosts = pgView('hosts', {
@@ -563,7 +569,7 @@ export const hosts = pgView('hosts', {
   versionLastSeenDate: day('version_last_seen_date'),
   validFrom: day('valid_from'),
   validTo: day('valid_to'),
-  isCurrent: boolean('is_current'),
+  isActive: boolean('is_active'),
 }).as(
   sql`${qb
     .select({
@@ -583,8 +589,8 @@ export const hosts = pgView('hosts', {
       versionLastSeenDate: hostVersions.versionLastSeenDate,
       validFrom: hostVersions.validFrom,
       validTo: hostVersions.validTo,
-      isCurrent: sql`${hostVersions.validTo} IS NULL AND ${hostActivity.isCurrent}`.as(
-        'is_current',
+      isActive: sql`${hostVersions.validTo} IS NULL AND ${hostActivity.isActive}`.as(
+        'is_active',
       ),
     })
     .from(hostVersions)
@@ -592,11 +598,11 @@ export const hosts = pgView('hosts', {
 );
 
 /**
- * Listings per host per completed run date. Counts only: no threshold or
- * owner/operator label is stored; that line is drawn downstream.
+ * Listings per host per completed run date. Counts only: no threshold
+ * marking a commercial host is stored; that line is drawn downstream.
  *
- * listings_live       listings held by the host that were live on
- *                     scrape_date: the `listingActivity.isCurrent` rule
+ * listings_active     listings held by the host that were live on
+ *                     scrape_date: the `listingActivity.isActive` rule
  *                     evaluated as of that date.
  * listings_ever_seen  distinct listings observed under the host on or before
  *                     scrape_date, live or not.
@@ -604,16 +610,19 @@ export const hosts = pgView('hosts', {
  * A row exists for every run date from the host's first observation on, so a
  * portfolio winding down reads as zeros rather than missing rows. A listing's
  * host is carried forward past failed page fetches as in `listingVersions`,
- * so the latest date agrees with `listingsCurrent.hostId`. A listing whose
+ * so the latest date agrees with `listingsActive.hostId`. A listing whose
  * page was never read has no known host and is counted under nobody.
  *
- * Only listings in the Anchorage search area are counted, not a host's
- * listings elsewhere.
+ * An Anchorage host listing portfolio: only the host's listings inside the
+ * Municipality are counted, not the ones they hold elsewhere. That is a
+ * limit of the data and not the question anyone is asking — a host running
+ * forty units from Palmer is a large operator with two listings here — but
+ * nothing Airbnb publishes to us carries a host's total. See issue #34.
  */
-export const hostPortfolios = pgView('host_portfolios', {
+export const hostListingPortfolios = pgView('host_listing_portfolios', {
   hostId: bigint('host_id'),
   scrapeDate: day('scrape_date'),
-  listingsLive: integer('listings_live'),
+  listingsActive: integer('listings_active'),
   listingsEverSeen: integer('listings_ever_seen'),
 }).as(
   sql`WITH held AS (
@@ -650,7 +659,7 @@ live AS (
     ) = 1
 ),
 live_counts AS (
-    SELECT host_id, scrape_date, count(*) AS listings_live
+    SELECT host_id, scrape_date, count(*) AS listings_active
     FROM live
     WHERE host_id IS NOT NULL
     GROUP BY host_id, scrape_date
@@ -674,7 +683,7 @@ panel AS (
 SELECT
     p.host_id,
     p.scrape_date,
-    coalesce(l.listings_live, 0)::INTEGER AS listings_live,
+    coalesce(l.listings_active, 0)::INTEGER AS listings_active,
     sum(coalesce(n.listings_new, 0)) OVER (
         PARTITION BY p.host_id ORDER BY p.scrape_date
     )::INTEGER AS listings_ever_seen
@@ -684,38 +693,38 @@ LEFT JOIN newly_seen n USING (host_id, scrape_date)`,
 );
 
 /**
- * `listingsCurrent` plus the owning host's profile and portfolio as of the
- * latest run, so "is this Girdwood room part of a large portfolio?" needs no
+ * `listingsActive` plus the owning host's profile and portfolio as of the
+ * latest run, so "is this Girdwood listing part of a large one?" needs no
  * join. The host columns are NULL when the host is unknown.
  */
-export const listingsCurrentWithHost = pgView('listings_current_with_host', {
+export const listingsActiveWithHost = pgView('listings_active_with_host', {
   ...listingColumns,
   hostName: varchar('host_name'),
   hostYearsHosting: integer('host_years_hosting'),
   hostHostingStartedOn: day('host_hosting_started_on'),
-  hostListingsLive: integer('host_listings_live'),
+  hostListingsActive: integer('host_listings_active'),
   hostListingsEverSeen: integer('host_listings_ever_seen'),
 }).as(
   sql`${qb
     .select({
-      ...columnsOf(listingsCurrent),
+      ...columnsOf(listingsActive),
       hostName: sql`${hosts.name}`.as('host_name'),
       hostYearsHosting: sql`${hosts.yearsHosting}`.as('host_years_hosting'),
       hostHostingStartedOn: sql`${hosts.hostingStartedOn}`.as('host_hosting_started_on'),
-      hostListingsLive: sql`${hostPortfolios.listingsLive}`.as('host_listings_live'),
-      hostListingsEverSeen: sql`${hostPortfolios.listingsEverSeen}`.as('host_listings_ever_seen'),
+      hostListingsActive: sql`${hostListingPortfolios.listingsActive}`.as('host_listings_active'),
+      hostListingsEverSeen: sql`${hostListingPortfolios.listingsEverSeen}`.as('host_listings_ever_seen'),
     })
-    .from(listingsCurrent)
+    .from(listingsActive)
     .leftJoin(
       hosts,
-      and(eq(hosts.hostId, listingsCurrent.hostId), isNull(hosts.validTo)),
+      and(eq(hosts.hostId, listingsActive.hostId), isNull(hosts.validTo)),
     )
     .leftJoin(
-      hostPortfolios,
+      hostListingPortfolios,
       and(
-        eq(hostPortfolios.hostId, listingsCurrent.hostId),
+        eq(hostListingPortfolios.hostId, listingsActive.hostId),
         eq(
-          hostPortfolios.scrapeDate,
+          hostListingPortfolios.scrapeDate,
           qb.select({ scrapeDate: latestScrapeDate.scrapeDate }).from(latestScrapeDate),
         ),
       ),
@@ -737,9 +746,9 @@ export const latestRegistryDate = pgView('latest_registry_date', {
 
 /** The most recent read of each CityView license page. */
 export const licensePagesLatest = pgView('license_pages_latest', {
-  licenseId: integer('license_id'),
+  cityviewLicenseId: integer('cityview_license_id'),
   scrapeDate: day('scrape_date'),
-  licenseeNumber: varchar('licensee_number'),
+  licenseId: varchar('license_id'),
   businessName: varchar('business_name'),
   licenseType: varchar('license_type'),
   status: varchar('status'),
@@ -749,26 +758,26 @@ export const licensePagesLatest = pgView('license_pages_latest', {
 }).as(
   sql`SELECT * FROM ${muniLicensePageReads}
 QUALIFY row_number() OVER (
-    PARTITION BY ${muniLicensePageReads.licenseId}
+    PARTITION BY ${muniLicensePageReads.cityviewLicenseId}
     ORDER BY ${muniLicensePageReads.scrapeDate} DESC
 ) = 1`,
 );
 
-/** A registration's CityView licenseId, read from its `status_url`. */
-export const licenseIdSql = (statusUrl: Column): SQL<number | null> =>
+/** CityView's own row id for a registration's license, read from its `status_url`. */
+export const cityviewLicenseIdSql = (statusUrl: Column): SQL<number | null> =>
   sql`nullif(regexp_extract(${statusUrl}, '[?&]licenseId=(\\d+)', 1), '')::INTEGER`;
 
-/** `registrations` and `registrationsCurrent` share these columns. */
+/** `registrations` and `registrationsActive` share these columns. */
 const registrationColumns = {
-  registrationNumber: varchar('registration_number'),
-  applicationNumber: varchar('application_number'),
-  licenseId: integer('license_id'),
+  registrationId: varchar('registration_id'),
+  licenseId: varchar('license_id'),
+  cityviewLicenseId: integer('cityview_license_id'),
   status: varchar('status'),
   submittedDate: day('submitted_date'),
   issuedDate: day('issued_date'),
   expiresDate: day('expires_date'),
   businessName: varchar('business_name'),
-  location: varchar('location'),
+  registeredAddress: varchar('registered_address'),
   communityCouncil: varchar('community_council'),
   parcelType: varchar('parcel_type'),
   geocodedAddress: varchar('geocoded_address'),
@@ -785,10 +794,10 @@ const registrationColumns = {
   licenseAddresses: varcharList('license_addresses'),
   parcelId: varchar('parcel_id'),
   licenseIssuances: structList<LicenseIssuance>(LICENSE_ISSUANCES_TYPE)('license_issuances'),
-  airbnbListingsCurrent: integer('airbnb_listings_current'),
+  airbnbListingsActive: integer('airbnb_listings_active'),
   firstSeenDate: day('first_seen_date'),
   lastSeenDate: day('last_seen_date'),
-  isCurrent: boolean('is_current'),
+  isActive: boolean('is_active'),
 } as const;
 
 /** When and how often each registration has been published. */
@@ -796,7 +805,7 @@ const registrationActivity = qb
   .$with(
     'activity',
     derived('activity', {
-      registrationNumber: varchar('registration_number'),
+      registrationId: varchar('registration_id'),
       firstSeenDate: day('first_seen_date'),
       lastSeenDate: day('last_seen_date'),
     }),
@@ -804,73 +813,73 @@ const registrationActivity = qb
   .as(
     sql`${qb
       .select({
-        registrationNumber: muniStrRegistrationObservations.registrationNumber,
+        registrationId: muniStrRegistrationObservations.registrationId,
         firstSeenDate: sql`min(${muniStrRegistrationObservations.scrapeDate})`.as(
           'first_seen_date',
         ),
         lastSeenDate: sql`max(${muniStrRegistrationObservations.scrapeDate})`.as('last_seen_date'),
       })
       .from(muniStrRegistrationObservations)
-      .groupBy(muniStrRegistrationObservations.registrationNumber)}`,
+      .groupBy(muniStrRegistrationObservations.registrationId)}`,
   );
 
 /** Each registration as the layer last published it, with its license id. */
 const latestRegistration = qb
   .$with('latest', {
     ...getTableColumns(muniStrRegistrationObservations),
-    ...derived('latest', { licenseId: integer('license_id') }),
+    ...derived('latest', { cityviewLicenseId: integer('cityview_license_id') }),
   })
   .as(
-    sql`SELECT *, ${licenseIdSql(muniStrRegistrationObservations.statusUrl)} AS license_id
+    sql`SELECT *, ${cityviewLicenseIdSql(muniStrRegistrationObservations.statusUrl)} AS cityview_license_id
     FROM ${muniStrRegistrationObservations}
     QUALIFY row_number() OVER (
-        PARTITION BY ${muniStrRegistrationObservations.registrationNumber}
+        PARTITION BY ${muniStrRegistrationObservations.registrationId}
         ORDER BY ${muniStrRegistrationObservations.scrapeDate} DESC
     ) = 1`,
   );
 
-/** Current Airbnb listings per registration number they cite. */
+/** Active Airbnb listings per registration id they cite. */
 const citedByAirbnb = qb
   .$with(
     'airbnb',
     derived('airbnb', {
-      registrationNumber: varchar('registration_number'),
+      registrationId: varchar('registration_id'),
       listings: integer('listings'),
     }),
   )
   .as(
     sql`${qb
       .select({
-        registrationNumber: sql`${listingsCurrent.strRegistrationId}`.as('registration_number'),
+        registrationId: sql`${listingsActive.registrationId}`.as('registration_id'),
         listings: sql`count(*)::INTEGER`.as('listings'),
       })
-      .from(listingsCurrent)
-      .where(isNotNull(listingsCurrent.strRegistrationId))
-      .groupBy(listingsCurrent.strRegistrationId)}`,
+      .from(listingsActive)
+      .where(isNotNull(listingsActive.registrationId))
+      .groupBy(listingsActive.registrationId)}`,
   );
 
 /**
  * One row per registration ever published, with its latest published fields
- * and latest license page. A registration is current if it was in the latest
+ * and latest license page. A registration is active if it was in the latest
  * registry run's layer, which lists only active registrations.
  */
 export const registrations = pgView('registrations', registrationColumns).as(
   sql`${qb
     .with(registrationActivity, latestRegistration, citedByAirbnb)
     .select({
-      registrationNumber: latestRegistration.registrationNumber,
-      applicationNumber: latestRegistration.applicationNumber,
+      registrationId: latestRegistration.registrationId,
       licenseId: latestRegistration.licenseId,
+      cityviewLicenseId: latestRegistration.cityviewLicenseId,
       status: latestRegistration.status,
       submittedDate: latestRegistration.submittedDate,
       issuedDate: latestRegistration.issuedDate,
       expiresDate: latestRegistration.expiresDate,
       businessName: sql`nullif(${latestRegistration.businessName}, 'None')`.as('business_name'),
-      location: latestRegistration.location,
+      registeredAddress: latestRegistration.registeredAddress,
       communityCouncil: latestRegistration.communityCouncil,
       parcelType: latestRegistration.parcelType,
       geocodedAddress: latestRegistration.geocodedAddress,
-      // NULL where the geocoder found no match, instead of its placeholder point.
+      // NULL where the geocoder found no match, instead of its placeholder coordinate.
       geocodedLat:
         sql`CASE WHEN ${latestRegistration.geocodedAddress} IS DISTINCT FROM ${NO_MATCH_GEOCODED_ADDRESS}
              THEN ${latestRegistration.geocodedLat} END`.as('geocoded_lat'),
@@ -901,65 +910,65 @@ export const registrations = pgView('registrations', registrationColumns).as(
         'parcel_id',
       ),
       licenseIssuances: sql`${licensePagesLatest.issuances}`.as('license_issuances'),
-      airbnbListingsCurrent: sql`coalesce(${citedByAirbnb.listings}, 0)`.as(
-        'airbnb_listings_current',
+      airbnbListingsActive: sql`coalesce(${citedByAirbnb.listings}, 0)`.as(
+        'airbnb_listings_active',
       ),
       firstSeenDate: registrationActivity.firstSeenDate,
       lastSeenDate: registrationActivity.lastSeenDate,
-      isCurrent: sql`${registrationActivity.lastSeenDate} = (${qb
+      isActive: sql`${registrationActivity.lastSeenDate} = (${qb
         .select({ scrapeDate: latestRegistryDate.scrapeDate })
-        .from(latestRegistryDate)})`.as('is_current'),
+        .from(latestRegistryDate)})`.as('is_active'),
     })
     .from(latestRegistration)
     .innerJoin(
       registrationActivity,
-      eq(registrationActivity.registrationNumber, latestRegistration.registrationNumber),
+      eq(registrationActivity.registrationId, latestRegistration.registrationId),
     )
-    .leftJoin(licensePagesLatest, eq(licensePagesLatest.licenseId, latestRegistration.licenseId))
+    .leftJoin(licensePagesLatest, eq(licensePagesLatest.cityviewLicenseId, latestRegistration.cityviewLicenseId))
     .leftJoin(
       citedByAirbnb,
-      eq(citedByAirbnb.registrationNumber, latestRegistration.registrationNumber),
+      eq(citedByAirbnb.registrationId, latestRegistration.registrationId),
     )}`,
 );
 
 /** The registrations in the latest registry run: the Muni publishes only active ones. */
-export const registrationsCurrent = pgView('registrations_current', registrationColumns).as(
+export const registrationsActive = pgView('registrations_active', registrationColumns).as(
   sql`${qb
     .select(columnsOf(registrations))
     .from(registrations)
-    .where(eq(registrations.isCurrent, true))}`,
+    .where(eq(registrations.isActive, true))}`,
 );
 
 /**
- * `listingsCurrent` plus the registration its page cites. The registration
+ * `listingsActive` plus the registration its page cites. The registration
  * columns are NULL when the listing shows no number or the number is not in
  * the registry, which includes numbers issued since the layer's last publish.
  */
-export const listingsCurrentWithRegistration = pgView('listings_current_with_registration', {
+export const listingsActiveWithRegistration = pgView('listings_active_with_registration', {
   ...listingColumns,
   registrationFound: boolean('registration_found'),
-  registrationIsCurrent: boolean('registration_is_current'),
+  registrationIsActive: boolean('registration_is_active'),
   registrationBusinessName: varchar('registration_business_name'),
-  registrationLocation: varchar('registration_location'),
+  registrationAddress: varchar('registration_address'),
   registrationParcelId: varchar('registration_parcel_id'),
   registrationParcelType: varchar('registration_parcel_type'),
   registrationCommunityCouncil: varchar('registration_community_council'),
   registrationIssuedDate: day('registration_issued_date'),
   registrationExpiresDate: day('registration_expires_date'),
   registrationLicenseDescription: varchar('registration_license_description'),
-  registrationAirbnbListingsCurrent: integer('registration_airbnb_listings_current'),
+  registrationAirbnbListingsActive: integer('registration_airbnb_listings_active'),
 }).as(
   sql`${qb
     .select({
-      ...columnsOf(listingsCurrent),
-      registrationFound: sql`${registrations.registrationNumber} IS NOT NULL`.as(
+      ...columnsOf(listingsActive),
+      registrationFound: sql`${registrations.registrationId} IS NOT NULL`.as(
         'registration_found',
       ),
-      registrationIsCurrent: sql`${registrations.isCurrent}`.as('registration_is_current'),
+      registrationIsActive: sql`${registrations.isActive}`.as('registration_is_active'),
       registrationBusinessName: sql`${registrations.businessName}`.as(
         'registration_business_name',
       ),
-      registrationLocation: sql`${registrations.location}`.as('registration_location'),
+      registrationAddress: sql`${registrations.registeredAddress}`.as('registration_address'),
       registrationParcelId: sql`${registrations.parcelId}`.as('registration_parcel_id'),
       registrationParcelType: sql`${registrations.parcelType}`.as('registration_parcel_type'),
       registrationCommunityCouncil: sql`${registrations.communityCouncil}`.as(
@@ -970,14 +979,14 @@ export const listingsCurrentWithRegistration = pgView('listings_current_with_reg
       registrationLicenseDescription: sql`${registrations.licenseDescription}`.as(
         'registration_license_description',
       ),
-      registrationAirbnbListingsCurrent: sql`${registrations.airbnbListingsCurrent}`.as(
-        'registration_airbnb_listings_current',
+      registrationAirbnbListingsActive: sql`${registrations.airbnbListingsActive}`.as(
+        'registration_airbnb_listings_active',
       ),
     })
-    .from(listingsCurrent)
+    .from(listingsActive)
     .leftJoin(
       registrations,
-      eq(registrations.registrationNumber, listingsCurrent.strRegistrationId),
+      eq(registrations.registrationId, listingsActive.registrationId),
     )}`,
 );
 
@@ -990,17 +999,17 @@ export const VIEWS = [
   listingActivity,
   listingVersions,
   listings,
-  listingsCurrent,
+  listingsActive,
   listingPhotosCurrent,
   calendarCurrent,
   hostActivity,
   hostVersions,
   hosts,
-  hostPortfolios,
-  listingsCurrentWithHost,
+  hostListingPortfolios,
+  listingsActiveWithHost,
   latestRegistryDate,
   licensePagesLatest,
   registrations,
-  registrationsCurrent,
-  listingsCurrentWithRegistration,
+  registrationsActive,
+  listingsActiveWithRegistration,
 ] as const;

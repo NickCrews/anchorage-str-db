@@ -44,9 +44,9 @@ describe('appendRows', () => {
     const db = await freshDb();
     await db.appendRows(muniLicensePageReads, [
       {
-        licenseId: 13966,
+        cityviewLicenseId: 13966,
         scrapeDate: '2026-09-14',
-        licenseeNumber: 'LC260500349',
+        licenseId: 'LC260500349',
         locations: [{ label: 'Property', value: '00123456789', link: null }],
         issuances: [
           {
@@ -62,9 +62,9 @@ describe('appendRows', () => {
 
     expect(await db.rows('SELECT * FROM muni_license_page_reads')).toEqual([
       {
-        license_id: 13966,
+        cityview_license_id: 13966,
         scrape_date: '2026-09-14',
-        licensee_number: 'LC260500349',
+        license_id: 'LC260500349',
         business_name: null,
         license_type: null,
         status: null,

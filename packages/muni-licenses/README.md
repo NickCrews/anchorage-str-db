@@ -12,7 +12,7 @@ the registration layer lacks:
 
 | field | example |
 | --- | --- |
-| `licenseeNumber` | `LC260500349` (the layer's `ApplicationNumber`) |
+| `licenseId` | `LC260500349` (the layer's `ApplicationNumber`); one per license, not per licensee |
 | `businessName` | `Echo Ridge Mountain Retreat` |
 | `licenseType` | `Short-Term Rentals` |
 | `status` | `Active` |
@@ -20,9 +20,9 @@ the registration layer lacks:
 | `locations` | `Property` `07606227000` (parcel id), `Address` `257 ECHO RIDGE DR, GIRDWOOD, AK 99587` |
 | `issuances` | `STR Certificate`, issued 2026-05-04, expires 2027-04-30, `Active`, `STR20260309` |
 
-`fetchLicensePages(licenseIds)` reads pages at `REQUESTS_PER_SECOND` (2/s)
+`fetchLicensePages(cityviewLicenseIds)` reads pages at `REQUESTS_PER_SECOND` (2/s)
 and returns a result per id, with the error rather than a page when a read
-failed. `parseLicensePage(html, licenseId)` is the parser alone.
+failed. `parseLicensePage(html, cityviewLicenseId)` is the parser alone.
 
 ## Parsing
 
@@ -56,7 +56,7 @@ value, and an unlinked item just before it is its label. Every other item is
 a value with a null label. Each value keeps its `link`: a linked value comes
 from the Muni's property records (a parcel id, or the record's address, which
 is the registration layer's `Location`); an unlinked value is text the
-applicant typed that matched no record.
+registrant typed that matched no record.
 
 Plain `fetch` works through the portal's Cloudflare front. A page takes
 ~0.5s. A first batch of 1000 pages at 2/s had no failures; a second batch of

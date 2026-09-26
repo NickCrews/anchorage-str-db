@@ -9,9 +9,9 @@ import {
   calendarCurrent,
   latestRegistryDate,
   listings,
-  listingsCurrent,
-  listingsCurrentWithRegistration,
-  registrationsCurrent,
+  listingsActive,
+  listingsActiveWithRegistration,
+  registrationsActive,
 } from '@anchorage-str-db/db/viewSchema';
 import { useSql } from '@sqlrooms/duckdb';
 import {
@@ -54,13 +54,13 @@ const qb = new QueryBuilder();
 // column is read by is given where it is computed, so every reference to it
 // after that is the schema's rather than a string.
 
-/** Tonight's calendar: how many listings are bookable, and how many are not. */
+/** Tonight's calendar: how many listings have a row for tonight, and how many are not available. */
 const tonight = qb
   .select({
-    operatingTonight: sql<number>`count(*)::INT`.as('operatingTonight'),
-    bookedTonight:
+    withCalendarTonight: sql<number>`count(*)::INT`.as('withCalendarTonight'),
+    notAvailableTonight:
       sql<number>`count(*) FILTER (WHERE NOT ${calendarCurrent.available})::INT`.as(
-        'bookedTonight',
+        'notAvailableTonight',
       ),
   })
   .from(calendarCurrent)
@@ -70,14 +70,14 @@ const tonight = qb
 const active = qb
   .select({ activeListings: sql<number>`count(*)::INT`.as('activeListings') })
   .from(listings)
-  .where(eq(listings.isCurrent, true))
+  .where(eq(listings.isActive, true))
   .as('active');
 
 const lastYear = qb
   .select({
-    distinctStrsLastYear:
+    distinctListingsLastYear:
       sql<number>`count(DISTINCT ${airbnbListingObservations.listingId})::INT`.as(
-        'distinctStrsLastYear',
+        'distinctListingsLastYear',
       ),
   })
   .from(airbnbListingObservations)
@@ -96,8 +96,8 @@ const latestRun = qb
   .as('latest_run');
 
 const registry = qb
-  .select({ registrationsCurrent: sql<number>`count(*)::INT`.as('registrationsCurrent') })
-  .from(registrationsCurrent)
+  .select({ registrationsActive: sql<number>`count(*)::INT`.as('registrationsActive') })
+  .from(registrationsActive)
   .as('registry');
 
 const registryDate = qb
@@ -111,17 +111,17 @@ const registryDate = qb
 
 const registered = qb
   .select({ listingsRegistered: sql<number>`count(*)::INT`.as('listingsRegistered') })
-  .from(listingsCurrentWithRegistration)
-  .where(eq(listingsCurrentWithRegistration.registrationIsCurrent, true))
+  .from(listingsActiveWithRegistration)
+  .where(eq(listingsActiveWithRegistration.registrationIsActive, true))
   .as('registered');
 
 const KPI_FIELDS = {
   activeListings: active.activeListings,
-  operatingTonight: tonight.operatingTonight,
-  bookedTonight: tonight.bookedTonight,
-  distinctStrsLastYear: lastYear.distinctStrsLastYear,
+  withCalendarTonight: tonight.withCalendarTonight,
+  notAvailableTonight: tonight.notAvailableTonight,
+  distinctListingsLastYear: lastYear.distinctListingsLastYear,
   latestScrapeDate: latestRun.latestScrapeDate,
-  registrationsCurrent: registry.registrationsCurrent,
+  registrationsActive: registry.registrationsActive,
   listingsRegistered: registered.listingsRegistered,
   latestRegistryDate: registryDate.latestRegistryDate,
 };
@@ -137,18 +137,18 @@ const KPI_QUERY = qb
   .crossJoin(registryDate)
   .crossJoin(registered);
 
-const OCCUPANCY_FIELDS = {
+const AVAILABILITY_FIELDS = {
   nightDate: sql<number>`${calendarCurrent.nightDate}`.as('nightDate'),
-  booked: sql<number>`count(*) FILTER (WHERE NOT ${calendarCurrent.available})::INT`.as(
-    'booked',
+  notAvailable: sql<number>`count(*) FILTER (WHERE NOT ${calendarCurrent.available})::INT`.as(
+    'notAvailable',
   ),
-  vacant: sql<number>`count(*) FILTER (WHERE ${calendarCurrent.available})::INT`.as(
-    'vacant',
+  available: sql<number>`count(*) FILTER (WHERE ${calendarCurrent.available})::INT`.as(
+    'available',
   ),
 };
 
-const OCCUPANCY_QUERY = qb
-  .select(OCCUPANCY_FIELDS)
+const AVAILABILITY_QUERY = qb
+  .select(AVAILABILITY_FIELDS)
   .from(calendarCurrent)
   .where(
     sql`${calendarCurrent.nightDate} BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL 90 DAY`,
@@ -160,8 +160,8 @@ const STR_TREND_FIELDS = {
   month: sql<number>`date_trunc('month', ${airbnbListingObservations.scrapeDate})::DATE`.as(
     'month',
   ),
-  distinctStrs: sql<number>`count(DISTINCT ${airbnbListingObservations.listingId})::INT`.as(
-    'distinctStrs',
+  distinctListings: sql<number>`count(DISTINCT ${airbnbListingObservations.listingId})::INT`.as(
+    'distinctListings',
   ),
 };
 
@@ -176,10 +176,10 @@ const STR_TREND_QUERY = qb
  * that predates the first scrape, and is otherwise `first_seen_date`, which
  * makes a listing look newer than it may be.
  */
-const datedByReview = sql`coalesce(${listingsCurrent.firstReviewDate} <= ${listingsCurrent.firstSeenDate}, false)`;
+const datedByReview = sql`coalesce(${listingsActive.firstReviewDate} <= ${listingsActive.firstSeenDate}, false)`;
 
 const LISTING_AGE_FIELDS = {
-  year: sql<string>`year(${listingsCurrent.firstAvailableDateEst})::VARCHAR`.as('year'),
+  year: sql<string>`year(${listingsActive.firstAvailableDateEst})::VARCHAR`.as('year'),
   fromReview: sql<number>`count(*) FILTER (WHERE ${datedByReview})::INT`.as('fromReview'),
   fromFirstSeen: sql<number>`count(*) FILTER (WHERE NOT ${datedByReview})::INT`.as(
     'fromFirstSeen',
@@ -192,10 +192,10 @@ const LISTING_AGE_FIELDS = {
 
 const LISTING_AGE_QUERY = qb
   .select(LISTING_AGE_FIELDS)
-  .from(listingsCurrent)
+  .from(listingsActive)
   .leftJoin(
     airbnbListingFirstReviews,
-    eq(airbnbListingFirstReviews.listingId, listingsCurrent.listingId),
+    eq(airbnbListingFirstReviews.listingId, listingsActive.listingId),
   )
   .groupBy(sql`ALL`)
   .orderBy(sql`"year"`);
@@ -211,7 +211,7 @@ const BEDROOM_MIX_FIELDS = {
 const BEDROOM_MIX_QUERY = qb
   .select(BEDROOM_MIX_FIELDS)
   .from(listings)
-  .where(eq(listings.isCurrent, true))
+  .where(eq(listings.isActive, true))
   .groupBy(listings.bedrooms)
   .orderBy(
     sql`${listings.bedrooms} IS NULL`,
@@ -219,13 +219,16 @@ const BEDROOM_MIX_QUERY = qb
     asc(listings.bedrooms),
   );
 
-const occupancyConfig = {
-  booked: { label: 'Booked', color: 'hsl(var(--chart-1))' },
-  vacant: { label: 'Vacant', color: 'hsl(var(--chart-2))' },
+// "Not available" covers booked and host-blocked nights together, which is
+// all Airbnb's calendar publishes. Naming it "booked" would overstate
+// occupancy.
+const availabilityConfig = {
+  notAvailable: { label: 'Not available', color: 'hsl(var(--chart-1))' },
+  available: { label: 'Available', color: 'hsl(var(--chart-2))' },
 } satisfies ChartConfig;
 
 const strConfig = {
-  distinctStrs: { label: 'Distinct STRs', color: 'hsl(var(--chart-3))' },
+  distinctListings: { label: 'Distinct listings', color: 'hsl(var(--chart-3))' },
 } satisfies ChartConfig;
 
 const listingAgeConfig = {
@@ -245,9 +248,9 @@ export const OverviewView: FC = () => {
     WasmSelection<typeof KPI_FIELDS>
   >({ enabled, query: toSql(KPI_QUERY) });
 
-  const { data: occupancyData, isLoading: occupancyLoading } = useSql<
-    WasmSelection<typeof OCCUPANCY_FIELDS>
-  >({ enabled, query: toSql(OCCUPANCY_QUERY) });
+  const { data: availabilityData, isLoading: availabilityLoading } = useSql<
+    WasmSelection<typeof AVAILABILITY_FIELDS>
+  >({ enabled, query: toSql(AVAILABILITY_QUERY) });
 
   const { data: strTrendData, isLoading: strTrendLoading } = useSql<
     WasmSelection<typeof STR_TREND_FIELDS>
@@ -264,9 +267,11 @@ export const OverviewView: FC = () => {
   const kpi = kpiData?.toArray()[0];
   const listingAge = listingAgeData?.toArray() ?? [];
   const reviewsUnread = listingAge.reduce((sum, row) => sum + row.reviewsUnread, 0);
-  const pctBooked =
-    kpi?.operatingTonight && kpi.bookedTonight != null
-      ? Math.round((100 * kpi.bookedTonight) / kpi.operatingTonight)
+  // Not "booked": a night that is not available was taken by a guest or
+  // closed off by the host, and the calendar cannot tell the two apart.
+  const pctNotAvailable =
+    kpi?.withCalendarTonight && kpi.notAvailableTonight != null
+      ? Math.round((100 * kpi.notAvailableTonight) / kpi.withCalendarTonight)
       : null;
 
   return (
@@ -279,17 +284,17 @@ export const OverviewView: FC = () => {
           detail="Currently visible in Airbnb search"
         />
         <StatCard
-          label="Booked tonight"
-          value={kpiLoading ? '…' : (kpi?.bookedTonight ?? '—')}
+          label="Not available tonight"
+          value={kpiLoading ? '…' : (kpi?.notAvailableTonight ?? '—')}
           detail={
-            pctBooked != null
-              ? `${pctBooked}% of ${kpi?.operatingTonight} operating tonight`
+            pctNotAvailable != null
+              ? `${pctNotAvailable}% of ${kpi?.withCalendarTonight} on the calendar tonight — booked or host-blocked`
               : 'No calendar data for tonight'
           }
         />
         <StatCard
-          label="Distinct STRs, last 365 days"
-          value={kpiLoading ? '…' : (kpi?.distinctStrsLastYear ?? '—')}
+          label="Distinct listings, last 365 days"
+          value={kpiLoading ? '…' : (kpi?.distinctListingsLastYear ?? '—')}
           detail="Under-counts until the archive has run a full year"
         />
         <StatCard
@@ -308,12 +313,12 @@ export const OverviewView: FC = () => {
           }
         />
         <StatCard
-          label="Current Muni STR registrations"
-          value={kpiLoading ? '…' : (kpi?.registrationsCurrent ?? '—')}
+          label="Active Muni STR registrations"
+          value={kpiLoading ? '…' : (kpi?.registrationsActive ?? '—')}
           detail="Published by the Municipal Clerk"
         />
         <StatCard
-          label="Listings showing a current registration"
+          label="Listings showing an active registration"
           value={kpiLoading ? '…' : (kpi?.listingsRegistered ?? '—')}
           detail={
             kpi?.activeListings
@@ -330,15 +335,15 @@ export const OverviewView: FC = () => {
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-medium">
-            Booked vs. vacant, next 90 nights
+            Available vs. not, next 90 nights
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {occupancyLoading ? (
+          {availabilityLoading ? (
             <SpinnerPane className="h-64" />
           ) : (
-            <ChartContainer config={occupancyConfig} className="h-64 w-full">
-              <AreaChart data={occupancyData?.toArray() ?? []}>
+            <ChartContainer config={availabilityConfig} className="h-64 w-full">
+              <AreaChart data={availabilityData?.toArray() ?? []}>
                 <CartesianGrid vertical={false} />
                 <XAxis
                   dataKey="nightDate"
@@ -360,19 +365,19 @@ export const OverviewView: FC = () => {
                   }
                 />
                 <Area
-                  dataKey="booked"
+                  dataKey="notAvailable"
                   type="monotone"
                   stackId="a"
-                  fill="var(--color-booked)"
-                  stroke="var(--color-booked)"
+                  fill="var(--color-notAvailable)"
+                  stroke="var(--color-notAvailable)"
                   fillOpacity={0.5}
                 />
                 <Area
-                  dataKey="vacant"
+                  dataKey="available"
                   type="monotone"
                   stackId="a"
-                  fill="var(--color-vacant)"
-                  stroke="var(--color-vacant)"
+                  fill="var(--color-available)"
+                  stroke="var(--color-available)"
                   fillOpacity={0.5}
                 />
               </AreaChart>
@@ -385,7 +390,7 @@ export const OverviewView: FC = () => {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium">
-              Distinct STRs operating, by month
+              Distinct listings seen, by month
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -414,8 +419,8 @@ export const OverviewView: FC = () => {
                     }
                   />
                   <Bar
-                    dataKey="distinctStrs"
-                    fill="var(--color-distinctStrs)"
+                    dataKey="distinctListings"
+                    fill="var(--color-distinctListings)"
                     radius={4}
                   />
                 </BarChart>
@@ -427,7 +432,7 @@ export const OverviewView: FC = () => {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium">
-              Current listings by year first available
+              Active listings by year first available
             </CardTitle>
             <CardDescription className="text-xs">
               The year of a listing's first review, or of the first scrape that
@@ -465,7 +470,7 @@ export const OverviewView: FC = () => {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium">
-              Bedroom-size mix, current inventory
+              Bedroom-size mix, active listings
             </CardTitle>
           </CardHeader>
           <CardContent>

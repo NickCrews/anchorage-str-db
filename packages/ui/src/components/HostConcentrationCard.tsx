@@ -1,6 +1,6 @@
 import type { WasmSelection } from '@anchorage-str-db/db/rows';
 import { toSql } from '@anchorage-str-db/db/sql';
-import { hostPortfolios, listingsCurrent } from '@anchorage-str-db/db/viewSchema';
+import { hostListingPortfolios, listingsActive } from '@anchorage-str-db/db/viewSchema';
 import { useSql } from '@sqlrooms/duckdb';
 import {
   Bar,
@@ -32,7 +32,7 @@ import { pct, shortDate } from '../format';
 import { useRoomStore } from '../store';
 
 /**
- * Display cutoffs for "hosts with at least N live listings". The database
+ * Display cutoffs for "hosts with at least N active listings". The database
  * stores counts only; where an owner ends and an operator begins is left to
  * the reader, and the card says so.
  */
@@ -49,24 +49,24 @@ const trendConfig = {
 /** Builds queries without a connection; `toSql` renders them for SQLRooms. */
 const qb = new QueryBuilder();
 
-/** The latest date `host_portfolios` has counts for. */
+/** The latest date `host_listing_portfolios` has counts for. */
 const latestPortfolioDate = qb
-  .select({ scrapeDate: sql<number>`max(${hostPortfolios.scrapeDate})`.as('scrape_date') })
-  .from(hostPortfolios);
+  .select({ scrapeDate: sql<number>`max(${hostListingPortfolios.scrapeDate})`.as('scrape_date') })
+  .from(hostListingPortfolios);
 
 /**
- * Each host with live listings at the latest run: `host_portfolios` cut down
+ * Each host with active listings at the latest run: `host_listing_portfolios` cut down
  * to one date. Selected through the query builder, so the rows are still that
  * view's columns and the queries below read them as such under the name
  * `latest`.
  */
 const latest = qb
   .select()
-  .from(hostPortfolios)
+  .from(hostListingPortfolios)
   .where(
     and(
-      eq(hostPortfolios.scrapeDate, latestPortfolioDate),
-      gt(hostPortfolios.listingsLive, 0),
+      eq(hostListingPortfolios.scrapeDate, latestPortfolioDate),
+      gt(hostListingPortfolios.listingsActive, 0),
     ),
   )
   .as('latest');
@@ -75,32 +75,32 @@ const latest = qb
 const ranked = qb.$with('ranked').as(
   qb
     .select({
-      listingsLive: latest.listingsLive,
-      rnk: sql<number>`row_number() OVER (ORDER BY ${latest.listingsLive} DESC, ${latest.hostId})`.as(
+      listingsActive: latest.listingsActive,
+      rnk: sql<number>`row_number() OVER (ORDER BY ${latest.listingsActive} DESC, ${latest.hostId})`.as(
         'rnk',
       ),
     })
     .from(latest),
 );
 
-/** Current listings whose page was never read, so no host is known. */
+/** Active listings whose page was never read, so no host is known. */
 const unknownHosts = qb
   .select({ unknownHost: sql<number>`count(*)::INT`.as('unknownHost') })
-  .from(listingsCurrent)
-  .where(isNull(listingsCurrent.hostId));
+  .from(listingsActive)
+  .where(isNull(listingsActive.hostId));
 
 const summaryFields = (cutoff: number) => ({
   hosts: sql<number>`count(*)::INT`.as('hosts'),
-  hostsAtCutoff: sql<number>`count(*) FILTER (WHERE ${ranked.listingsLive} >= ${cutoff})::INT`.as(
+  hostsAtCutoff: sql<number>`count(*) FILTER (WHERE ${ranked.listingsActive} >= ${cutoff})::INT`.as(
     'hostsAtCutoff',
   ),
-  attributed: sql<number>`coalesce(sum(${ranked.listingsLive}), 0)::INT`.as('attributed'),
+  attributed: sql<number>`coalesce(sum(${ranked.listingsActive}), 0)::INT`.as('attributed'),
   heldAtCutoff:
-    sql<number>`coalesce(sum(${ranked.listingsLive}) FILTER (WHERE ${ranked.listingsLive} >= ${cutoff}), 0)::INT`.as(
+    sql<number>`coalesce(sum(${ranked.listingsActive}) FILTER (WHERE ${ranked.listingsActive} >= ${cutoff}), 0)::INT`.as(
       'heldAtCutoff',
     ),
   heldByTop10:
-    sql<number>`coalesce(sum(${ranked.listingsLive}) FILTER (WHERE ${ranked.rnk} <= 10), 0)::INT`.as(
+    sql<number>`coalesce(sum(${ranked.listingsActive}) FILTER (WHERE ${ranked.rnk} <= 10), 0)::INT`.as(
       'heldByTop10',
     ),
   unknownHost: sql<number>`${unknownHosts}`.as('unknownHost'),
@@ -113,29 +113,29 @@ const summaryQuery = (cutoff: number) =>
 
 const DISTRIBUTION_FIELDS = {
   bucket: sql<string>`CASE
-        WHEN ${latest.listingsLive} >= 20 THEN '20+'
-        WHEN ${latest.listingsLive} >= 10 THEN '10–19'
-        WHEN ${latest.listingsLive} >= 5 THEN '5–9'
-        WHEN ${latest.listingsLive} >= 3 THEN '3–4'
-        ELSE ${latest.listingsLive}::VARCHAR
+        WHEN ${latest.listingsActive} >= 20 THEN '20+'
+        WHEN ${latest.listingsActive} >= 10 THEN '10–19'
+        WHEN ${latest.listingsActive} >= 5 THEN '5–9'
+        WHEN ${latest.listingsActive} >= 3 THEN '3–4'
+        ELSE ${latest.listingsActive}::VARCHAR
       END`.as('bucket'),
-  listings: sql<number>`sum(${latest.listingsLive})::INT`.as('listings'),
+  listings: sql<number>`sum(${latest.listingsActive})::INT`.as('listings'),
 };
 
 const DISTRIBUTION_QUERY = qb
   .select(DISTRIBUTION_FIELDS)
   .from(latest)
   .groupBy(sql`"bucket"`)
-  .orderBy(sql`min(${latest.listingsLive})`);
+  .orderBy(sql`min(${latest.listingsActive})`);
 
 const trendFields = (cutoff: number) => ({
-  scrapeDate: sql<number>`${hostPortfolios.scrapeDate}`.as('scrapeDate'),
+  scrapeDate: sql<number>`${hostListingPortfolios.scrapeDate}`.as('scrapeDate'),
   pctHeld: sql<number | null>`round(
         100.0 * coalesce(
-          sum(${hostPortfolios.listingsLive})
-            FILTER (WHERE ${hostPortfolios.listingsLive} >= ${cutoff}),
+          sum(${hostListingPortfolios.listingsActive})
+            FILTER (WHERE ${hostListingPortfolios.listingsActive} >= ${cutoff}),
           0
-        ) / nullif(sum(${hostPortfolios.listingsLive}), 0),
+        ) / nullif(sum(${hostListingPortfolios.listingsActive}), 0),
         1
       )::DOUBLE`.as('pctHeld'),
 });
@@ -145,9 +145,9 @@ type TrendRow = WasmSelection<ReturnType<typeof trendFields>>;
 const trendQuery = (cutoff: number) =>
   qb
     .select(trendFields(cutoff))
-    .from(hostPortfolios)
-    .groupBy(hostPortfolios.scrapeDate)
-    .orderBy(asc(hostPortfolios.scrapeDate));
+    .from(hostListingPortfolios)
+    .groupBy(hostListingPortfolios.scrapeDate)
+    .orderBy(asc(hostListingPortfolios.scrapeDate));
 
 export const HostConcentrationCard: FC = () => {
   const enabled = useRoomStore((s) => s.dataInit.status) === 'ready';
@@ -189,14 +189,16 @@ export const HostConcentrationCard: FC = () => {
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
-            <span className="text-muted-foreground">live listings</span>
+            <span className="text-muted-foreground">active listings</span>
           </div>
         </div>
         <CardDescription className="text-xs">
           The cutoff is a display choice: the database stores each host's
-          listing counts and no owner/operator threshold. Counts cover only
-          listings in the Anchorage search area, and a host is an Airbnb
-          account, so one property manager's account can list for many owners.
+          listing counts and no commercial-host threshold. These are Anchorage
+          listing portfolios: they cover only listings inside the
+          Municipality, so a host with listings elsewhere is undercounted
+          here. A host is an Airbnb account, so one property manager's
+          account can list for many owners.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -215,7 +217,7 @@ export const HostConcentrationCard: FC = () => {
             {s.unknownHost > 0 ? (
               <span className="text-muted-foreground">
                 {' '}
-                {s.unknownHost} current listings have no known host and are left out.
+                {s.unknownHost} active listings have no known host and are left out.
               </span>
             ) : null}
           </p>
@@ -224,7 +226,7 @@ export const HostConcentrationCard: FC = () => {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div>
             <div className="text-muted-foreground mb-1 text-xs">
-              Live listings held, by the host's portfolio size
+              Active listings held, by the host's portfolio size
             </div>
             {distributionLoading ? (
               <SpinnerPane className="h-56" />

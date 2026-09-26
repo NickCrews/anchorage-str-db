@@ -17,7 +17,7 @@ const OPERATION_ID = '80c7889b4b0027d99ffea830f6c0d4911a6e863a957cbe1044823f0fc7
 
 export interface PriceQuoteQuery {
   apiKey: string;
-  roomId: string;
+  listingId: string;
   /** ISO `YYYY-MM-DD`. */
   checkIn: string;
   checkOut: string;
@@ -39,15 +39,15 @@ export interface PriceQuoteResponse {
   breakdown: string[];
 }
 
-function encodeId(typeName: string, roomId: string): string {
-  return Buffer.from(`${typeName}:${roomId}`).toString('base64');
+function encodeId(typeName: string, listingId: string): string {
+  return Buffer.from(`${typeName}:${listingId}`).toString('base64');
 }
 
 /** One request. */
 export async function fetchPriceQuote(query: PriceQuoteQuery): Promise<unknown> {
   const variables = {
-    id: encodeId('StayListing', query.roomId),
-    demandStayListingId: encodeId('DemandStayListing', query.roomId),
+    id: encodeId('StayListing', query.listingId),
+    demandStayListingId: encodeId('DemandStayListing', query.listingId),
     pdpSectionsRequest: {
       adults: '1',
       layouts: ['SIDEBAR', 'SINGLE_COLUMN'],

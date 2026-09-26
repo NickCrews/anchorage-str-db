@@ -15,7 +15,7 @@ third-party library belongs in the package that uses it.
 | `pace` | `TokenBucket` and `Pacer`: a request rate per remote service, halved after a streak of timeouts |
 | `retry` | `withRetries`: the paced attempt loop, given the service's pacer and what counts as its rate limit |
 | `http` | `fetchText`: a GET with a timeout that throws on a non-2xx response |
-| `muni_geography` | `MUNICIPALITY_BOUNDARY`: the Municipality's boundary as GeoJSON, which `municipality.sql` builds; `MUNICIPALITY_BOUNDING_BOX` is its extent; `inMunicipality` tests a point against it and `boundingBox` finds any collection's extent. A folder, imported as `@anchorage-str-db/utils/muni_geography` |
+| `muni_geography` | `MUNICIPALITY_BOUNDARY`: the Municipality's boundary as GeoJSON, which `municipality.sql` builds; `MUNICIPALITY_BOUNDING_BOX` is its extent; `inMunicipality` tests a coordinate against it and `boundingBox` finds any collection's extent. A folder, imported as `@anchorage-str-db/utils/muni_geography` |
 
 Import by module path:
 

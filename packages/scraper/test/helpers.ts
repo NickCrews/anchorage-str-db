@@ -3,13 +3,13 @@ import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
 /** One listing, one night — the smallest thing `mergeCalendar` will take. */
 export function calendarResultFor(
-  roomId: string,
+  listingId: string,
   nightDate: IsoDate,
   available: boolean,
   minNights: number | null,
 ): CalendarResult {
   return {
-    roomId,
+    listingId,
     nights: [
       {
         nightDate,

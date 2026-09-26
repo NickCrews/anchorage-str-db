@@ -2,9 +2,9 @@ import type {WasmSelection} from '@anchorage-str-db/db/rows';
 import {airbnbListingObservations} from '@anchorage-str-db/db/schema';
 import {toSql} from '@anchorage-str-db/db/sql';
 import {
-  listingsCurrentWithRegistration as currentListings,
+  listingsActiveWithRegistration as activeListings,
   registrations,
-  registrationsCurrent,
+  registrationsActive,
 } from '@anchorage-str-db/db/viewSchema';
 import {
   buildColorScaleLegend,
@@ -57,94 +57,94 @@ const wkbPoint = (lng: SQLWrapper, lat: SQLWrapper) =>
   sql<Uint8Array>`ST_AsWKB(ST_Point(${lng}, ${lat}))`;
 
 /**
- * A listing's point: the Muni's geocoding of the registration it cites when
+ * A listing's coordinate: the Muni's geocoding of the registration it cites when
  * there is one, otherwise Airbnb's pin.
  */
-const listingLng = sql`coalesce(${registrations.geocodedLng}, ${currentListings.locationLng})`;
-const listingLat = sql`coalesce(${registrations.geocodedLat}, ${currentListings.locationLat})`;
+const listingLng = sql`coalesce(${registrations.geocodedLng}, ${activeListings.locationLng})`;
+const listingLat = sql`coalesce(${registrations.geocodedLat}, ${activeListings.locationLat})`;
 
 /**
- * Every current Airbnb listing. The keys are the column names the query
+ * Every active Airbnb listing. The keys are the column names the query
  * emits, which is what the map layers and the tooltip read it by.
  */
 const AIRBNB_RENTAL_FIELDS = {
-  name: currentListings.name,
-  bedrooms: currentListings.bedrooms,
-  room_type: currentListings.roomType,
+  name: activeListings.name,
+  bedrooms: activeListings.bedrooms,
+  listing_type: activeListings.listingType,
   rating_value: latest.ratingValue,
   review_count: latest.reviewCount,
   price_hint_per_night: latest.priceHintPerNight,
-  registration_status: registrationStatusSql(currentListings).as('registration_status'),
-  str_registration_id: currentListings.strRegistrationId,
-  registration_location: currentListings.registrationLocation,
+  registration_status: registrationStatusSql(activeListings).as('registration_status'),
+  registration_id: activeListings.registrationId,
+  registration_address: activeListings.registrationAddress,
   location_source: sql<string>`CASE
       WHEN ${registrations.geocodedLat} IS NOT NULL THEN 'License address'
-      WHEN ${currentListings.locationIsExact} THEN 'Exact Airbnb pin'
+      WHEN ${activeListings.locationIsExact} THEN 'Exact Airbnb pin'
       ELSE 'Approximate Airbnb pin'
     END`.as('location_source'),
   // True for a geocoded license address or an exact Airbnb pin; false for an
-  // Airbnb pin shifted by up to a few hundred meters, which is drawn as a ring.
+  // Airbnb pin jittered by up to a few hundred meters, which is drawn as a ring.
   is_precise: sql<boolean>`${registrations.geocodedLat} IS NOT NULL
-    OR coalesce(${currentListings.locationIsExact}, false)`.as('is_precise'),
+    OR coalesce(${activeListings.locationIsExact}, false)`.as('is_precise'),
   geometry: wkbPoint(listingLng, listingLat).as('geometry'),
 };
 
 const airbnbRentals = qb
   .select(AIRBNB_RENTAL_FIELDS)
-  .from(currentListings)
+  .from(activeListings)
   .leftJoin(
     registrations,
     and(
-      eq(registrations.registrationNumber, currentListings.strRegistrationId),
+      eq(registrations.registrationId, activeListings.registrationId),
       isNotNull(registrations.geocodedLat),
       isNotNull(registrations.geocodedLng),
     ),
   )
-  .leftJoin(latest, eq(latest.listingId, currentListings.listingId))
+  .leftJoin(latest, eq(latest.listingId, activeListings.listingId))
   .where(and(isNotNull(listingLng), isNotNull(listingLat)));
 
 /** A column the Airbnb half has and a registration does not. */
 const missing = <TValue,>(name: string) => sql<TValue | null>`NULL`.as(name);
 
 /**
- * Every current Muni registration that no current Airbnb listing cites:
- * rentals listed elsewhere, such as VRBO, or not listed.
+ * Every active Muni registration that no active Airbnb listing cites:
+ * units listed elsewhere, such as VRBO, or not listed.
  *
  * `UNION ALL` takes its column names from the first half and lines the second
  * up with it by position, so this emits the same columns in the same order;
  * `satisfies` is what holds it to the same set of them.
  */
 const REGISTERED_ONLY_FIELDS = {
-  name: registrationsCurrent.businessName,
+  name: registrationsActive.businessName,
   bedrooms: missing<string>('bedrooms'),
-  room_type: missing<string>('room_type'),
+  listing_type: missing<string>('listing_type'),
   rating_value: missing<number>('rating_value'),
   review_count: missing<number>('review_count'),
   price_hint_per_night: missing<number>('price_hint_per_night'),
   registration_status: sql<string>`${NOT_ON_AIRBNB}`.as('registration_status'),
-  str_registration_id: registrationsCurrent.registrationNumber,
-  registration_location: registrationsCurrent.location,
+  registration_id: registrationsActive.registrationId,
+  registration_address: registrationsActive.registeredAddress,
   location_source: sql<string>`'License address'`.as('location_source'),
   is_precise: sql<boolean>`true`.as('is_precise'),
   geometry: wkbPoint(
-    registrationsCurrent.geocodedLng,
-    registrationsCurrent.geocodedLat,
+    registrationsActive.geocodedLng,
+    registrationsActive.geocodedLat,
   ).as('geometry'),
 } satisfies Record<keyof typeof AIRBNB_RENTAL_FIELDS, SQLWrapper>;
 
 const registeredOnly = qb
   .select(REGISTERED_ONLY_FIELDS)
-  .from(registrationsCurrent)
+  .from(registrationsActive)
   .where(
     and(
-      eq(registrationsCurrent.airbnbListingsCurrent, 0),
-      isNotNull(registrationsCurrent.geocodedLat),
-      isNotNull(registrationsCurrent.geocodedLng),
+      eq(registrationsActive.airbnbListingsActive, 0),
+      isNotNull(registrationsActive.geocodedLat),
+      isNotNull(registrationsActive.geocodedLng),
     ),
   );
 
 /**
- * One point per short-term rental we know of, as WKB geometry for
+ * One coordinate per short-term rental we know of, as WKB geometry for
  * `@sqlrooms/deck` (needs the spatial extension loaded in `store.ts`).
  * Registrations the Muni's geocoder could not place are left out.
  *
@@ -189,7 +189,7 @@ const FILL_COLOR = {
 } as const;
 
 // Every color-scale accessor gets its own legend, so the rings are not a
-// second colored layer: approximate points are drawn as full dots and a
+// second colored layer: jittered coordinates are drawn as full dots and a
 // basemap-colored disc is drawn over their centers.
 const createLayers = (colorMode: ColorMode) => [
   {
@@ -224,7 +224,7 @@ type RentalRow =
 const rentalTooltip = (row: RentalRow): string[] => {
   const lines: string[] = [];
   if (row.name) lines.push(row.name);
-  const size = [row.room_type, row.bedrooms].filter(Boolean).join(', ');
+  const size = [row.listing_type, row.bedrooms].filter(Boolean).join(', ');
   if (size) lines.push(size);
   if (row.price_hint_per_night != null) {
     lines.push(`~$${Math.round(row.price_hint_per_night)}/night`);
@@ -237,13 +237,13 @@ const rentalTooltip = (row: RentalRow): string[] => {
   }
   if (row.registration_status) {
     lines.push(
-      row.str_registration_id
-        ? `${row.registration_status}: ${row.str_registration_id}`
+      row.registration_id
+        ? `${row.registration_status}: ${row.registration_id}`
         : row.registration_status,
     );
   }
-  if (row.registration_location) {
-    lines.push(`Registered at ${row.registration_location}`);
+  if (row.registration_address) {
+    lines.push(`Registered at ${row.registration_address}`);
   }
   lines.push(`Location: ${row.location_source}`);
   return lines;
@@ -365,13 +365,13 @@ export const MapView: FC = () => {
         <div className="pointer-events-none absolute inset-0 z-20">
           <div className="bg-background/90 pointer-events-auto absolute top-3 left-3 w-72 rounded-md border shadow-lg backdrop-blur">
             <div className="border-b px-3 py-2">
-              <p className="text-sm font-medium">Current short-term rentals</p>
+              <p className="text-sm font-medium">Active short-term rentals</p>
               <p className="text-muted-foreground mt-0.5 text-[11px] leading-tight">
-                Every current Airbnb listing, plus every current Muni
+                Every active Airbnb listing, plus every active Muni
                 registration no Airbnb listing cites. Filled dots are at a
-                known location: the registered license address, or an exact
-                Airbnb pin. Rings are Airbnb pins shifted by up to a few
-                hundred meters, so read them as a neighborhood, not an address.
+                known coordinate: the registered address, or an exact Airbnb pin.
+                Rings are Airbnb pins jittered by up to a few hundred
+                meters, so read them as a neighborhood, not an address.
               </p>
             </div>
             <div className="space-y-1.5 px-3 py-2">

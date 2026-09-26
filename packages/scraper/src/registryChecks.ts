@@ -6,8 +6,8 @@
 import type { Database } from '@anchorage-str-db/db/database';
 import { muniStrRegistrationObservations, muniStrRegistryRuns } from '@anchorage-str-db/db/schema';
 import {
-  listingsCurrent,
-  listingsCurrentWithRegistration,
+  listingsActive,
+  listingsActiveWithRegistration,
   registrations,
 } from '@anchorage-str-db/db/viewSchema';
 import type { LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
@@ -33,7 +33,7 @@ const MAX_REGISTRATION_DEPARTURE_SHARE = 0.1;
 const MAX_LICENSE_PAGE_FAILURE_RATE = 0.25;
 
 /**
- * Warn when fewer than this share of the registration numbers on current
+ * Warn when fewer than this share of the registration ids on current
  * Airbnb listings appear in the registry. 1860 of 1879 matched on
  * 2026-09-13; the rest were issued after the layer's last publish.
  */
@@ -62,7 +62,7 @@ export async function runRegistryChecks(
     await db.orm
       .select({
         registrationsSeen: muniStrRegistryRuns.registrationsSeen,
-        registrationsDeparted: muniStrRegistryRuns.registrationsDeparted,
+        registrationsLapsed: muniStrRegistryRuns.registrationsLapsed,
         licensePageAttempted: muniStrRegistryRuns.licensePageAttempted,
         licensePageFailed: muniStrRegistryRuns.licensePageFailed,
       })
@@ -85,31 +85,31 @@ export async function runRegistryChecks(
     `${seen} registrations in the layer, expected [${lo}, ${hi}]`,
   );
 
-  // Airbnb's registration numbers have this shape, so another one would not
+  // Airbnb's registration ids have this shape, so another one would not
   // join to listings.
   const malformed = await db.orm.$count(
     muniStrRegistrationObservations,
     and(
       eq(muniStrRegistrationObservations.scrapeDate, scrapeDate),
-      sql`NOT regexp_full_match(${muniStrRegistrationObservations.registrationNumber}, 'STR\\d{8}')`,
+      sql`NOT regexp_full_match(${muniStrRegistrationObservations.registrationId}, 'STR\\d{8}')`,
     ),
   );
   check(
-    'registration_number_format',
+    'registration_id_format',
     'warn',
     malformed === 0,
-    `${malformed} registration numbers today are not STR followed by 8 digits`,
+    `${malformed} registration ids today are not STR followed by 8 digits`,
   );
 
   const withoutLicense = await db.orm.$count(
     registrations,
-    and(eq(registrations.isCurrent, true), isNull(registrations.licenseId)),
+    and(eq(registrations.isActive, true), isNull(registrations.cityviewLicenseId)),
   );
   check(
     'registration_license_id_present',
     'warn',
     withoutLicense === 0,
-    `${withoutLicense} current registrations have no licenseId in status_url, so their ` +
+    `${withoutLicense} active registrations have no cityviewLicenseId in status_url, so their ` +
       'license page is never read',
   );
 
@@ -130,14 +130,14 @@ export async function runRegistryChecks(
         .orderBy(desc(muniStrRegistryRuns.scrapeDate), desc(muniStrRegistryRuns.runStartedAt))
         .limit(1)
     )[0]?.registrationsSeen ?? 0;
-  const departed = run.registrationsDeparted ?? 0;
+  const lapsed = run.registrationsLapsed ?? 0;
   if (previousSeen) {
-    const share = departed / previousSeen;
+    const share = lapsed / previousSeen;
     check(
-      'registrations_departed_share',
+      'registrations_lapsed_share',
       'warn',
       share <= MAX_REGISTRATION_DEPARTURE_SHARE,
-      `${departed}/${previousSeen} of the previous run's registrations are gone ` +
+      `${lapsed}/${previousSeen} of the previous run's registrations are gone ` +
         `(${percent(share)}, max ${percent(MAX_REGISTRATION_DEPARTURE_SHARE)})`,
     );
   }
@@ -173,23 +173,23 @@ export async function runRegistryChecks(
 
   const cited = (
     await db.orm
-      .select({ n: countDistinct(listingsCurrent.strRegistrationId) })
-      .from(listingsCurrent)
-      .where(isNotNull(listingsCurrent.strRegistrationId))
+      .select({ n: countDistinct(listingsActive.registrationId) })
+      .from(listingsActive)
+      .where(isNotNull(listingsActive.registrationId))
   )[0]!.n;
   if (cited) {
     const matched = (
       await db.orm
-        .select({ n: countDistinct(listingsCurrentWithRegistration.strRegistrationId) })
-        .from(listingsCurrentWithRegistration)
-        .where(eq(listingsCurrentWithRegistration.registrationFound, true))
+        .select({ n: countDistinct(listingsActiveWithRegistration.registrationId) })
+        .from(listingsActiveWithRegistration)
+        .where(eq(listingsActiveWithRegistration.registrationFound, true))
     )[0]!.n;
     const share = matched / cited;
     check(
       'airbnb_registration_match',
       'warn',
       share >= MIN_AIRBNB_REGISTRATION_MATCH_SHARE,
-      `${matched}/${cited} registration numbers on current Airbnb listings are in the registry ` +
+      `${matched}/${cited} registration ids on active Airbnb listings are in the registry ` +
         `(${percent(share)}, min ${percent(MIN_AIRBNB_REGISTRATION_MATCH_SHARE)})`,
     );
   }

@@ -96,13 +96,13 @@ export async function recordObservations(
   pages: readonly ListingPage[] = [],
   quotes: readonly PriceQuote[] = [],
 ): Promise<ObservationStats> {
-  const byRoom = new Map<bigint, ListingPage>();
+  const byListing = new Map<bigint, ListingPage>();
   for (const page of pages) {
-    if (!page.error) byRoom.set(BigInt(page.roomId), page);
+    if (!page.error) byListing.set(BigInt(page.listingId), page);
   }
-  const quoteByRoom = new Map<bigint, PriceQuote>();
+  const quoteByListing = new Map<bigint, PriceQuote>();
   for (const quote of quotes) {
-    if (!quote.error) quoteByRoom.set(BigInt(quote.roomId), quote);
+    if (!quote.error) quoteByListing.set(BigInt(quote.listingId), quote);
   }
 
   await db.orm
@@ -120,8 +120,8 @@ export async function recordObservations(
   await db.appendRows(
     airbnbListingObservations,
     parsed.map((listing) => {
-      const page = byRoom.get(listing.listingId);
-      const quote = quoteByRoom.get(listing.listingId);
+      const page = byListing.get(listing.listingId);
+      const quote = quoteByListing.get(listing.listingId);
       return {
         listingId: listing.listingId,
         scrapeDate,
@@ -140,9 +140,9 @@ export async function recordObservations(
         locationExactAddress: page?.locationExactAddress ?? null,
         locationSubtitle: page?.locationSubtitle ?? null,
         locationVerified: page?.locationVerified ?? null,
-        strRegistrationId: page?.strRegistrationId ?? null,
+        registrationId: page?.registrationId ?? null,
         hostId: page?.hostId == null ? null : BigInt(page.hostId),
-        roomType: page?.roomType ?? null,
+        listingType: page?.listingType ?? null,
         guestCapacity: page?.guestCapacity ?? null,
         beds: page?.beds ?? null,
         bedrooms: page?.bedrooms ?? null,
@@ -160,7 +160,7 @@ export async function recordObservations(
     db,
     scrapeDate,
     parsed.flatMap((listing) => {
-      const urls = byRoom.get(listing.listingId)?.photoUrls;
+      const urls = byListing.get(listing.listingId)?.photoUrls;
       return urls ? [{ listingId: listing.listingId, urls }] : [];
     }),
   );
@@ -233,11 +233,11 @@ async function recordPhotos(
 }
 
 /**
- * How many listings became retired on this date: those last observed
+ * How many listings retired on this date: those last observed
  * exactly `grace + 1` days ago.
  *
  * Assumes daily runs. A gap shifts which run reports the retirement but not
- * whether the listing is current.
+ * whether the listing is active.
  */
 export async function countNewlyRetired(
   db: Database,
@@ -269,7 +269,7 @@ export interface PageFetchStats {
   exactLocated: number;
   registered: number;
   withHostId: number;
-  withRoomType: number;
+  withListingType: number;
   withGuestCapacity: number;
   withBeds: number;
   withBedrooms: number;
@@ -291,7 +291,7 @@ export function emptyPageStats(): PageFetchStats {
     exactLocated: 0,
     registered: 0,
     withHostId: 0,
-    withRoomType: 0,
+    withListingType: 0,
     withGuestCapacity: 0,
     withBeds: 0,
     withBedrooms: 0,
@@ -314,9 +314,9 @@ export function summarizePages(pages: readonly ListingPage[]): PageFetchStats {
     attempted: pages.length,
     failed: pages.length - ok.length,
     exactLocated: ok.filter((page) => page.locationIsExact === true).length,
-    registered: ok.filter((page) => page.strRegistrationId !== null).length,
+    registered: ok.filter((page) => page.registrationId !== null).length,
     withHostId: ok.filter((page) => page.hostId !== null).length,
-    withRoomType: ok.filter((page) => page.roomType !== null).length,
+    withListingType: ok.filter((page) => page.listingType !== null).length,
     withGuestCapacity: ok.filter((page) => page.guestCapacity !== null).length,
     withBeds: ok.filter((page) => page.beds !== null).length,
     withBedrooms: ok.filter((page) => page.bedrooms !== null).length,
@@ -351,7 +351,7 @@ export function summarizeQuotes(quotes: readonly PriceQuote[]): QuoteStats {
 // hosts
 
 export interface HostProfileStats {
-  /** Distinct hosts owning a listing observed today. */
+  /** Distinct hosts of a listing observed today. */
   attempted: number;
   /** Of those, how many had no card read today. */
   failed: number;
@@ -360,7 +360,7 @@ export interface HostProfileStats {
 }
 
 /**
- * Write one day's host observations: a row for every host owning a listing
+ * Write one day's host observations: a row for every host of a listing
  * observed today, whether or not their card was read.
  *
  * Runs after `recordObservations` for the same date, in the same transaction:
@@ -450,7 +450,7 @@ export async function mergeCalendar(
     stgCalendar,
     usable.flatMap((result) =>
       result.nights.map((night) => ({
-        listingId: BigInt(result.roomId),
+        listingId: BigInt(result.listingId),
         nightDate: night.nightDate,
         available: night.available,
         minNights: night.minNights,
@@ -546,7 +546,7 @@ export async function pendingFirstReviews(
     .filter((listing) => !resolved.has(listing.listingId))
     .sort((a, b) => (a.listingId < b.listingId ? -1 : a.listingId > b.listingId ? 1 : 0))
     .map((listing) => ({
-      roomId: String(listing.listingId),
+      listingId: String(listing.listingId),
       reviewCountHint: listing.reviewCount,
     }));
 }
@@ -582,7 +582,7 @@ export async function recordFirstReviews(
   await db.appendRows(
     airbnbListingFirstReviews,
     ok.map((result) => ({
-      listingId: BigInt(result.roomId),
+      listingId: BigInt(result.listingId),
       firstReviewDate: result.firstReviewDate,
       resolvedDate: scrapeDate,
     })),

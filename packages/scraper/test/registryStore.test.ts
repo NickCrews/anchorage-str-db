@@ -37,17 +37,17 @@ async function freshDb(): Promise<Database> {
   return db;
 }
 
-function registration(number: string, licenseId: number, overrides: Partial<Registration> = {}): Registration {
+function registration(number: string, cityviewLicenseId: number, overrides: Partial<Registration> = {}): Registration {
   return {
-    registrationNumber: number,
-    applicationNumber: `LC${number.slice(3)}0`,
+    registrationId: number,
+    licenseId: `LC${number.slice(3)}0`,
     submittedDate: '2026-05-01',
     issuedDate: '2026-05-01',
     expiresDate: '2027-04-30',
-    location: '257 ECHO RIDGE DR, GIRDWOOD, AK 99587',
+    registeredAddress: '257 ECHO RIDGE DR, GIRDWOOD, AK 99587',
     businessName: 'Echo Ridge Mountain Retreat',
     status: 'Active',
-    statusUrl: `https://www.muni.org/CityViewPortal/License/Status?licenseId=${licenseId}&category=B`,
+    statusUrl: `https://www.muni.org/CityViewPortal/License/Status?licenseId=${cityviewLicenseId}&category=B`,
     communityCouncil: 'Girdwood',
     parcelType: 'Residential',
     geocodedAddress: '257 Echo Ridge Dr, Girdwood, Alaska, 99587',
@@ -58,10 +58,10 @@ function registration(number: string, licenseId: number, overrides: Partial<Regi
   };
 }
 
-function licensePage(licenseId: number, overrides: Partial<LicensePage> = {}): LicensePage {
+function licensePage(cityviewLicenseId: number, overrides: Partial<LicensePage> = {}): LicensePage {
   return {
-    licenseId,
-    licenseeNumber: 'LC260500349',
+    cityviewLicenseId,
+    licenseId: 'LC260500349',
     businessName: 'Echo Ridge Mountain Retreat',
     licenseType: 'Short-Term Rentals',
     status: 'Active',
@@ -107,7 +107,7 @@ async function registryRun(
     layerDataEditedAt: '2026-09-07 00:15:52',
     registrationsSeen: stats.seen,
     registrationsNew: stats.new,
-    registrationsDeparted: stats.departed,
+    registrationsLapsed: stats.lapsed,
     licensePageAttempted: pages.length,
     licensePageFailed: 0,
     errorSummary: null,
@@ -127,8 +127,8 @@ describe('recordRegistrations', () => {
       registration('STR20260003', 3),
     ]);
 
-    expect(first).toEqual({ seen: 2, new: 2, departed: 0 });
-    expect(second).toEqual({ seen: 2, new: 1, departed: 1 });
+    expect(first).toEqual({ seen: 2, new: 2, lapsed: 0 });
+    expect(second).toEqual({ seen: 2, new: 1, lapsed: 1 });
   });
 
   it('replaces a day that is recorded again, not counting its own earlier rows', async () => {
@@ -136,16 +136,16 @@ describe('recordRegistrations', () => {
     await registryRun(db, '2026-09-10', [registration('STR20260001', 1)]);
     const again = await recordRegistrations(db, '2026-09-10', [registration('STR20260001', 1)]);
 
-    expect(again).toEqual({ seen: 1, new: 1, departed: 0 });
+    expect(again).toEqual({ seen: 1, new: 1, lapsed: 0 });
     expect(await db.count('SELECT count(*) FROM muni_str_registration_observations')).toBe(1);
   });
 
-  it('rejects a layer that repeats a registration number', async () => {
+  it('rejects a layer that repeats a registration id', async () => {
     const db = await freshDb();
 
     await expect(
       recordRegistrations(db, '2026-09-10', [registration('STR20260001', 1), registration('STR20260001', 1)]),
-    ).rejects.toThrow(/repeats 1 registration numbers/);
+    ).rejects.toThrow(/repeats 1 registration ids/);
   });
 });
 
@@ -155,17 +155,17 @@ describe('registrations view', () => {
     await registryRun(db, '2026-09-10', [registration('STR20260001', 1), registration('STR20260002', 2)]);
     await registryRun(db, '2026-09-11', [registration('STR20260002', 2)]);
 
-    const rows = await db.rows<{ registration_number: string; is_current: boolean; last_seen_date: string }>(
-      'SELECT registration_number, is_current, last_seen_date FROM registrations ORDER BY 1',
+    const rows = await db.rows<{ registration_id: string; is_active: boolean; last_seen_date: string }>(
+      'SELECT registration_id, is_active, last_seen_date FROM registrations ORDER BY 1',
     );
 
     expect(rows).toEqual([
-      { registration_number: 'STR20260001', is_current: false, last_seen_date: '2026-09-10' },
-      { registration_number: 'STR20260002', is_current: true, last_seen_date: '2026-09-11' },
+      { registration_id: 'STR20260001', is_active: false, last_seen_date: '2026-09-10' },
+      { registration_id: 'STR20260002', is_active: true, last_seen_date: '2026-09-11' },
     ]);
   });
 
-  it("cleans the 'None' business name and the no-match placeholder point", async () => {
+  it("cleans the 'None' business name and the no-match placeholder coordinate", async () => {
     const db = await freshDb();
     await registryRun(db, '2026-09-10', [
       registration('STR20260126', 1, {
@@ -191,12 +191,12 @@ describe('registrations view', () => {
     await registryRun(db, '2026-09-11', [registration('STR20260309', 13923)], [licensePage(13923)]);
 
     const [row] = await db.rows(
-      'SELECT license_id, license_read_date, license_description, parcel_id, ' +
+      'SELECT cityview_license_id, license_read_date, license_description, parcel_id, ' +
         'license_parcel_ids, license_addresses FROM registrations',
     );
 
     expect(row).toEqual({
-      license_id: 13923,
+      cityview_license_id: 13923,
       license_read_date: '2026-09-11',
       license_description: 'Provides short term rentals, logistics, meeting space and overnight lodging.',
       parcel_id: '07606227000',
@@ -222,7 +222,7 @@ describe('registrations view', () => {
   });
 });
 
-describe('listings_current_with_registration', () => {
+describe('listings_active_with_registration', () => {
   it('joins listings to the registration their page cites', async () => {
     const db = await freshDb();
     await recordObservations(
@@ -230,16 +230,16 @@ describe('listings_current_with_registration', () => {
       '2026-09-10',
       [makeListing(1, 'Echo Ridge'), makeListing(2, 'Echo Ridge loft'), makeListing(3, 'Unregistered')],
       [
-        { ...emptyListingPage('1'), strRegistrationId: 'STR20260309' },
-        { ...emptyListingPage('2'), strRegistrationId: 'STR20260309' },
-        { ...emptyListingPage('3'), strRegistrationId: 'STR20269999' },
+        { ...emptyListingPage('1'), registrationId: 'STR20260309' },
+        { ...emptyListingPage('2'), registrationId: 'STR20260309' },
+        { ...emptyListingPage('3'), registrationId: 'STR20269999' },
       ],
     );
     await registryRun(db, '2026-09-10', [registration('STR20260309', 13923)], [licensePage(13923)]);
 
     const rows = await db.rows(
       'SELECT listing_id, registration_found, registration_parcel_id, ' +
-        'registration_airbnb_listings_current FROM listings_current_with_registration ORDER BY 1',
+        'registration_airbnb_listings_active FROM listings_active_with_registration ORDER BY 1',
     );
 
     expect(rows).toEqual([
@@ -247,19 +247,19 @@ describe('listings_current_with_registration', () => {
         listing_id: '1',
         registration_found: true,
         registration_parcel_id: '07606227000',
-        registration_airbnb_listings_current: 2,
+        registration_airbnb_listings_active: 2,
       },
       {
         listing_id: '2',
         registration_found: true,
         registration_parcel_id: '07606227000',
-        registration_airbnb_listings_current: 2,
+        registration_airbnb_listings_active: 2,
       },
       {
         listing_id: '3',
         registration_found: false,
         registration_parcel_id: null,
-        registration_airbnb_listings_current: null,
+        registration_airbnb_listings_active: null,
       },
     ]);
   });
@@ -271,11 +271,11 @@ describe('recordLicensePages', () => {
     await recordLicensePages(db, '2026-09-10', [licensePage(1), licensePage(2, { status: 'Active' })]);
     await recordLicensePages(db, '2026-09-10', [licensePage(2, { status: 'Revoked' })]);
 
-    const rows = await db.rows('SELECT license_id, status FROM muni_license_page_reads ORDER BY 1');
+    const rows = await db.rows('SELECT cityview_license_id, status FROM muni_license_page_reads ORDER BY 1');
 
     expect(rows).toEqual([
-      { license_id: 1, status: 'Active' },
-      { license_id: 2, status: 'Revoked' },
+      { cityview_license_id: 1, status: 'Active' },
+      { cityview_license_id: 2, status: 'Revoked' },
     ]);
   });
 
@@ -298,7 +298,7 @@ describe('chooseLicensePages', () => {
     max: 100,
   };
 
-  it('reads unread licenses, then departed ones, then stale ones oldest first', () => {
+  it('reads unread licenses, then lapsed ones, then stale ones oldest first', () => {
     const chosen = chooseLicensePages({
       ...base,
       today: new Set([10, 11, 12, 13, 14]),
@@ -306,14 +306,14 @@ describe('chooseLicensePages', () => {
         [11, '2026-09-19'], // fresh
         [12, '2026-09-13'], // exactly refreshDays old
         [13, '2026-09-01'], // stalest
-        [20, '2026-09-01'], // departed, read before it left
-        [21, '2026-09-18'], // departed, already read after it left
+        [20, '2026-09-01'], // lapsed, read before it left
+        [21, '2026-09-18'], // lapsed, already read after it left
       ]),
       lastSeen: new Map([
         [10, '2026-09-19'],
         [20, '2026-09-15'],
         [21, '2026-09-15'],
-        [22, '2026-09-15'], // departed, never read
+        [22, '2026-09-15'], // lapsed, never read
       ]),
     });
 
@@ -349,5 +349,17 @@ describe('pendingLicensePages', () => {
 
     // 2 left the layer and was never read; 1 was read yesterday.
     expect(pending).toEqual([2]);
+  });
+
+  it('re-reads a license whose latest read is refreshDays old', async () => {
+    const db = await freshDb();
+    await registryRun(db, '2026-09-01', [registration('STR20260001', 1)], [licensePage(1)]);
+
+    const pending = await pendingLicensePages(db, '2026-09-08', [registration('STR20260001', 1)], {
+      refreshDays: 7,
+      max: 100,
+    });
+
+    expect(pending).toEqual([1]);
   });
 });

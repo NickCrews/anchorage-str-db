@@ -4,23 +4,23 @@ A [SQLRooms](https://sqlrooms.org) app for browsing `anchorage_str.duckdb`.
 Queries run in the browser with
 [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview); there is no server.
 
-- **Overview**: active listings, booked tonight, distinct STRs over the last
-  year, current Muni registrations and how many listings show one,
-  registration status by room type and community council, host
-  concentration, near-term booked/vacant nights, monthly distinct-STR trend,
-  current listings by year first available, and bedroom mix.
-- **Map**: every current Airbnb listing plus every current registration no
+- **Overview**: active listings, nights not available tonight, distinct
+  listings over the last year, current Muni registrations and how many
+  listings show one, registration status by listing type and community council,
+  host concentration, near-term available vs. not, monthly distinct-listing
+  trend, active listings by year first available, and bedroom mix.
+- **Map**: every current Airbnb listing plus every active registration no
   Airbnb listing cites, colored by registration status or price. A listing is
   placed at its registration's geocoded license address when it has one,
   otherwise at Airbnb's pin; filled dots are known locations and rings are
   Airbnb's approximate pins.
-- **Listings**: a searchable table of current listings with a cover-photo
-  thumbnail, room type, their latest rating, review count and price quote,
+- **Listings**: a searchable table of active listings with a cover-photo
+  thumbnail, listing type, their latest rating, review count and price quote,
   host name, years hosting, the host's portfolio size, registration status
   with the registered address and parcel, and estimated first-available date.
   Filters by registration status.
-- **Hosts**: a searchable table of Airbnb hosts with current listings: listing
-  count, distinct registration numbers, listings per registration status, and
+- **Hosts**: a searchable table of Airbnb hosts with active listings: listing
+  count, distinct registration ids, listings per registration status, and
   the business names on the registrations their listings cite. Filters to
   hosts with 2+ listings or with listings that show no number.
 - **Registrations**: a searchable table of the Muni's STR registrations with
@@ -29,9 +29,9 @@ Queries run in the browser with
   longer published.
 
 Registration status compares the number a listing page shows with the
-registry: `Registered`, `Registration not current` (no longer published),
-`Number not in registry` (includes numbers issued since the Muni's last
-publish), or `No number shown`.
+registry: `Registered`, `Registration lapsed` (no longer published),
+`Id not in registry` (includes numbers issued since the Muni's last
+publish), or `No id shown`.
 
 ## Running locally
 
@@ -72,7 +72,7 @@ selection:
 ```ts
 import type {WasmSelection} from '@anchorage-str-db/db/rows';
 import {toSql} from '@anchorage-str-db/db/sql';
-import {hosts, listingsCurrent} from '@anchorage-str-db/db/viewSchema';
+import {hosts, listingsActive} from '@anchorage-str-db/db/viewSchema';
 import {eq, sql} from 'drizzle-orm';
 import {QueryBuilder} from 'drizzle-orm/pg-core';
 
@@ -88,8 +88,8 @@ const fields = {
 
 const query = qb
   .select(fields)
-  .from(listingsCurrent)
-  .innerJoin(hosts, eq(hosts.hostId, listingsCurrent.hostId))
+  .from(listingsActive)
+  .innerJoin(hosts, eq(hosts.hostId, listingsActive.hostId))
   .groupBy(hosts.name);
 
 toSql(query);
@@ -115,12 +115,12 @@ qb.select({
 ```
 
 The same goes for a relation the builder cannot express. A subquery built
-with `.as(name)` carries its columns — `latest.listingsLive` below is
+with `.as(name)` carries its columns — `latest.listingsActive` below is
 checked, and so is anything that reads it later — and `qb.$with(name, columns)`
 does the same for a CTE whose body has to be raw DuckDB SQL:
 
 ```ts
-const latest = qb.select().from(hostPortfolios).where(...).as('latest');
+const latest = qb.select().from(hostListingPortfolios).where(...).as('latest');
 const recent = qb
   .$with('recent', {listingId: bigint('listing_id'), scrapeDate: day('scrape_date')})
   .as(sql`SELECT listing_id, scrape_date FROM ${from(airbnbListingObservations)}

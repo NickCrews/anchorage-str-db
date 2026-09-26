@@ -21,7 +21,7 @@ behind Akamai, which fingerprints the TLS ClientHello and refuses Node's own
 
 In the `search.ts` standardizer:
 
-- **`roomId` is a `bigint`.** Newer listing ids are 19 digits, beyond what a
+- **`listingId` is a `bigint`.** Newer listing ids are 19 digits, beyond what a
   JS number holds exactly.
 - **A missing coordinate is `null`, not `0`.** A `0` default would place the
   listing at (0, 0) and look like a real position downstream.

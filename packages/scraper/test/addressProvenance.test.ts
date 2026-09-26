@@ -5,7 +5,7 @@
  * - A license tied to a Muni property record shows its parcel id and address
  *   as links to the portal's property search, and the layer's `Location` is
  *   that address.
- * - A license with no property record shows the applicant's typed text,
+ * - A license with no property record shows the registrant's typed text,
  *   unlinked, and `Location` is that text.
  * - The layer's geocoded fields are derived from `Location`, so a property
  *   record address can still fail to geocode, and a license with a parcel
@@ -24,14 +24,14 @@ import {
 } from '@anchorage-str-db/muni-licenses/licensePage';
 import {
   fetchRegistrations,
-  licenseIdFromStatusUrl,
+  cityviewLicenseIdFromStatusUrl,
   NO_MATCH_GEOCODED_ADDRESS,
   type Registration,
 } from '@anchorage-str-db/scraper-muni-str/registrationLayers';
 
 const PROPERTY_SEARCH = 'https://www.muni.org/CityViewPortal/Property/PropertyReview?';
 
-/** Registration number to CityView license id. */
+/** Registration id to CityView license id. */
 const FROM_PROPERTY_RECORDS = {
   STR20260309: 13923, // 257 ECHO RIDGE DR
   STR20260428: 13640, // two parcels and an address
@@ -41,9 +41,9 @@ const FROM_PROPERTY_RECORDS = {
 } as const;
 
 /** A property record address whose label the portal replaced with its own lookup error. */
-const LOOKUP_ERROR = { number: 'STR20260352', licenseId: 13966 } as const;
+const LOOKUP_ERROR = { registrationId: 'STR20260352', cityviewLicenseId: 13966 } as const;
 
-const TYPED_BY_APPLICANT = {
+const TYPED_BY_REGISTRANT = {
   STR20262410: 15993,
   STR20260057: 13664,
 } as const;
@@ -53,22 +53,22 @@ const pages = new Map<number, LicensePage>();
 
 beforeAll(async () => {
   const { registrations: all } = await fetchRegistrations();
-  for (const r of all) registrations.set(r.registrationNumber, r);
+  for (const r of all) registrations.set(r.registrationId, r);
 
   const ids = [
     ...Object.values(FROM_PROPERTY_RECORDS),
-    ...Object.values(TYPED_BY_APPLICANT),
-    LOOKUP_ERROR.licenseId,
+    ...Object.values(TYPED_BY_REGISTRANT),
+    LOOKUP_ERROR.cityviewLicenseId,
   ];
   for (const result of await fetchLicensePages(ids)) {
-    if (!result.page) throw new Error(`license ${result.licenseId}: ${result.error}`);
-    pages.set(result.licenseId, result.page);
+    if (!result.page) throw new Error(`license ${result.cityviewLicenseId}: ${result.error}`);
+    pages.set(result.cityviewLicenseId, result.page);
   }
 });
 
-function layer(number: string): Registration {
-  const found = registrations.get(number);
-  if (!found) throw new Error(`${number} is not in the layer`);
+function layer(registrationId: string): Registration {
+  const found = registrations.get(registrationId);
+  if (!found) throw new Error(`${registrationId} is not in the layer`);
   return found;
 }
 
@@ -79,34 +79,34 @@ function linked(page: LicensePage, label: string): LicenseLocation[] {
 describe('registration addresses', () => {
   it.each(Object.entries(FROM_PROPERTY_RECORDS))(
     '%s: Location is the address the license page links to a property record',
-    (number, licenseId) => {
-      const registration = layer(number);
-      const page = pages.get(licenseId)!;
+    (registrationId, cityviewLicenseId) => {
+      const registration = layer(registrationId);
+      const page = pages.get(cityviewLicenseId)!;
 
-      expect(licenseIdFromStatusUrl(registration.statusUrl)).toBe(licenseId);
-      expect(linked(page, 'Address').map((l) => l.value)).toEqual([registration.location]);
+      expect(cityviewLicenseIdFromStatusUrl(registration.statusUrl)).toBe(cityviewLicenseId);
+      expect(linked(page, 'Address').map((l) => l.value)).toEqual([registration.registeredAddress]);
     },
   );
 
-  it.each(Object.entries(TYPED_BY_APPLICANT))(
+  it.each(Object.entries(TYPED_BY_REGISTRANT))(
     '%s: Location is the unlinked text on a license page with no property record',
-    (number, licenseId) => {
-      const registration = layer(number);
-      const page = pages.get(licenseId)!;
+    (registrationId, cityviewLicenseId) => {
+      const registration = layer(registrationId);
+      const page = pages.get(cityviewLicenseId)!;
 
-      expect(licenseIdFromStatusUrl(registration.statusUrl)).toBe(licenseId);
+      expect(cityviewLicenseIdFromStatusUrl(registration.statusUrl)).toBe(cityviewLicenseId);
       expect(page.locations.filter((l) => l.link !== null)).toEqual([]);
-      expect(page.locations.map((l) => l.value)).toEqual([registration.location]);
+      expect(page.locations.map((l) => l.value)).toEqual([registration.registeredAddress]);
     },
   );
 
   it('keeps Location when the portal prints a lookup error in place of the label', () => {
-    const page = pages.get(LOOKUP_ERROR.licenseId)!;
+    const page = pages.get(LOOKUP_ERROR.cityviewLicenseId)!;
 
     expect(page.locations).toEqual([
       {
         label: "Error: Syntax error: Missing operand after 'SWAY' operator.",
-        value: layer(LOOKUP_ERROR.number).location,
+        value: layer(LOOKUP_ERROR.registrationId).registeredAddress,
         link: expect.stringMatching(/^https:\/\/www\.muni\.org\/CityViewPortal\/Property\/PropertyReview\?/),
       },
     ]);

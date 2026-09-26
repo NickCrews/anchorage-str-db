@@ -26,7 +26,7 @@ export interface CalendarNight {
 }
 
 export interface CalendarResult {
-  roomId: string;
+  listingId: string;
   nights: CalendarNight[];
   error: string | null;
 }
@@ -50,30 +50,30 @@ export function toNights(days: readonly CalendarDay[], minDate: IsoDate): Calend
 }
 
 /** One listing's calendar. A per-listing failure is reported, not thrown. */
-export type FetchOneCalendar = (roomId: string, minDate: IsoDate) => Promise<CalendarResult>;
+export type FetchOneCalendar = (listingId: string, minDate: IsoDate) => Promise<CalendarResult>;
 
 export function liveCalendarFetcher(apiKey: string): FetchOneCalendar {
-  return async (roomId, minDate) => {
+  return async (listingId, minDate) => {
     try {
       const days = await withRetries(
         () =>
           fetchCalendar({
             apiKey,
-            roomId,
+            listingId,
             currency: 'USD',
             language: 'en',
           }),
         {
-          label: `calendar for room ${roomId}`,
+          label: `calendar for listing ${listingId}`,
           attempts: CALENDAR_MAX_RETRIES,
           backoffMs: RETRY_BACKOFF_MS,
         },
       );
-      return { roomId, nights: toNights(days, minDate), error: null };
+      return { listingId, nights: toNights(days, minDate), error: null };
     } catch (err) {
       // A rate limit aborts the pass; other errors are recorded per listing.
       if (err instanceof RateLimitedError) throw err;
-      return { roomId, nights: [], error: describeError(rootCause(err)) };
+      return { listingId, nights: [], error: describeError(rootCause(err)) };
     }
   };
 }
@@ -89,17 +89,17 @@ export interface FetchCalendarsOptions {
  * `toNights`). A `RateLimitedError` from any listing aborts the pass.
  */
 export async function fetchCalendars(
-  roomIds: readonly string[],
+  listingIds: readonly string[],
   options: FetchCalendarsOptions,
 ): Promise<CalendarResult[]> {
   const results = await mapWithConcurrency(
-    roomIds,
+    listingIds,
     options.concurrency ?? CALENDAR_CONCURRENCY,
-    (roomId) => options.fetchOne(roomId, options.minDate),
+    (listingId) => options.fetchOne(listingId, options.minDate),
   );
   for (const result of results) {
     if (result.error) {
-      log.warn(`calendar fetch failed for room ${result.roomId}: ${result.error}`);
+      log.warn(`calendar fetch failed for listing ${result.listingId}: ${result.error}`);
     }
   }
   return results;

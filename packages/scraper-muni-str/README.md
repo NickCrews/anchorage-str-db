@@ -40,15 +40,15 @@ as HTTP 200 with an `error` body; those are thrown and retried.
   to the portal's property search), `Location` is that record's address in
   the parcel-address style: `7730 MAYFAIR DR, Unit:APT 1, ANCHORAGE, AK
   99502`, or `311 MELODY PL` when the record has no city. Otherwise it is
-  the applicant's typed text: `525 w 3rd Ave #501, anchorage AK 99501`.
+  the registrant's typed text: `525 w 3rd Ave #501, anchorage AK 99501`.
   Several registrations can share one address (units of a building).
 - `BusinessName` is the string `'None'` when none was given.
-- `GeocodedAddress`, the point, `CommunityCouncil` and `ParcelType` are
-  derived from `Location` by the Muni, not given by the applicant.
+- `GeocodedAddress`, the coordinate, `CommunityCouncil` and `ParcelType` are
+  derived from `Location` by the Muni, not given by the registrant.
   `GeocodedAddress` is the geocoder's reading in its own style (`7821 Mayfair
   Dr, Apartment C, Anchorage, Alaska, 99502`), and it rewrites typed text
   too (`#501` becomes `Apartment 501`). A `Location` with no city or zip
-  gets `'Incomplete address provided. No Match.'`, the placeholder point
+  gets `'Incomplete address provided. No Match.'`, the placeholder coordinate
   (-150.20935, 61.153442), and no council or parcel type (11 registrations).
   `CommunityCouncil` is null exactly for those. `ParcelType` can also be null
   for an address that geocoded and a license that names its parcel.

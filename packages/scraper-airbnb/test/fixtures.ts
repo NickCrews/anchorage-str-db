@@ -3,12 +3,12 @@
 import type { SearchListing } from '../src/api/search.ts';
 
 export function makeSearchListing(
-  roomId: number | bigint,
+  listingId: number | bigint,
   overrides: Partial<SearchListing> = {},
 ): SearchListing {
   return {
-    roomId: BigInt(roomId),
-    name: `Cabin ${roomId}`,
+    listingId: BigInt(listingId),
+    name: `Cabin ${listingId}`,
     title: 'Home in Anchorage',
     latitude: 61.19,
     longitude: -149.89,

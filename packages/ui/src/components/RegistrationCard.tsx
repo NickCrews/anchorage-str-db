@@ -2,8 +2,8 @@ import type { WasmSelection } from '@anchorage-str-db/db/rows';
 import { toSql } from '@anchorage-str-db/db/sql';
 import {
   latestRegistryDate,
-  listingsCurrentWithRegistration,
-  registrationsCurrent,
+  listingsActiveWithRegistration,
+  registrationsActive,
 } from '@anchorage-str-db/db/viewSchema';
 import { useSql } from '@sqlrooms/duckdb';
 import {
@@ -41,26 +41,26 @@ const COUNCILS_SHOWN = 15;
 
 const statusConfig = {
   registered: { label: 'Registered', color: 'hsl(var(--chart-2))' },
-  notCurrent: { label: 'Registration not current', color: 'hsl(var(--chart-4))' },
-  notInRegistry: { label: 'Number not in registry', color: 'hsl(var(--chart-5))' },
-  noNumber: { label: 'No number shown', color: 'hsl(var(--chart-1))' },
+  lapsed: { label: 'Registration lapsed', color: 'hsl(var(--chart-4))' },
+  notInRegistry: { label: 'Id not in registry', color: 'hsl(var(--chart-5))' },
+  noId: { label: 'No id shown', color: 'hsl(var(--chart-1))' },
 } satisfies ChartConfig;
 
 const councilConfig = {
-  registrations: { label: 'Current registrations', color: 'hsl(var(--chart-3))' },
+  registrations: { label: 'Active registrations', color: 'hsl(var(--chart-3))' },
   listings: { label: 'Airbnb listings citing them', color: 'hsl(var(--chart-2))' },
 } satisfies ChartConfig;
 
 /** Builds queries without a connection; `toSql` renders them for SQLRooms. */
 const qb = new QueryBuilder();
 
-/** Every current listing with how its registration number matched. */
+/** Every active listing with how its registration id matched. */
 const listingsWithStatus = qb
   .select({
-    roomType: listingsCurrentWithRegistration.roomType,
-    status: registrationStatusSql(listingsCurrentWithRegistration).as('status'),
+    listingType: listingsActiveWithRegistration.listingType,
+    status: registrationStatusSql(listingsActiveWithRegistration).as('status'),
   })
-  .from(listingsCurrentWithRegistration)
+  .from(listingsActiveWithRegistration)
   .as('listings');
 
 /** `status` is the subquery's own column, so both queries below count it. */
@@ -69,14 +69,14 @@ const listingsWith = (status: RegistrationStatus) =>
 
 const STATUS_COUNTS = {
   registered: listingsWith('Registered').as('registered'),
-  notCurrent: listingsWith('Registration not current').as('notCurrent'),
-  notInRegistry: listingsWith('Number not in registry').as('notInRegistry'),
-  noNumber: listingsWith('No number shown').as('noNumber'),
+  lapsed: listingsWith('Registration lapsed').as('lapsed'),
+  notInRegistry: listingsWith('Id not in registry').as('notInRegistry'),
+  noId: listingsWith('No id shown').as('noId'),
 };
 
 const registrations = qb
   .select({ registrations: sql<number>`count(*)::INT`.as('registrations') })
-  .from(registrationsCurrent);
+  .from(registrationsActive);
 
 const registrationsWithoutListing = qb
   .select({
@@ -84,8 +84,8 @@ const registrationsWithoutListing = qb
       'registrationsWithoutListing',
     ),
   })
-  .from(registrationsCurrent)
-  .where(eq(registrationsCurrent.airbnbListingsCurrent, 0));
+  .from(registrationsActive)
+  .where(eq(registrationsActive.airbnbListingsActive, 0));
 
 const registryDate = qb
   .select({ registryDate: sql<number | null>`${latestRegistryDate.scrapeDate}`.as('registryDate') })
@@ -103,34 +103,34 @@ const SUMMARY_FIELDS = {
 
 const SUMMARY_QUERY = qb.select(SUMMARY_FIELDS).from(listingsWithStatus);
 
-const BY_ROOM_TYPE_FIELDS = {
-  roomType: sql<string>`coalesce(${listingsWithStatus.roomType}, 'Not listed')`.as(
-    'roomType',
+const BY_LISTING_TYPE_FIELDS = {
+  listingType: sql<string>`coalesce(${listingsWithStatus.listingType}, 'Not listed')`.as(
+    'listingType',
   ),
   ...STATUS_COUNTS,
 };
 
-const BY_ROOM_TYPE_QUERY = qb
-  .select(BY_ROOM_TYPE_FIELDS)
+const BY_LISTING_TYPE_QUERY = qb
+  .select(BY_LISTING_TYPE_FIELDS)
   .from(listingsWithStatus)
-  .groupBy(listingsWithStatus.roomType)
+  .groupBy(listingsWithStatus.listingType)
   .orderBy(sql`count(*) DESC`);
 
 const COUNCIL_FIELDS = {
-  council: sql<string>`coalesce(${registrationsCurrent.communityCouncil}, 'Address not geocoded')`.as(
+  council: sql<string>`coalesce(${registrationsActive.communityCouncil}, 'Address not geocoded')`.as(
     'council',
   ),
   registrations: sql<number>`count(*)::INT`.as('registrations'),
-  listings: sql<number>`sum(${registrationsCurrent.airbnbListingsCurrent})::INT`.as(
+  listings: sql<number>`sum(${registrationsActive.airbnbListingsActive})::INT`.as(
     'listings',
   ),
 };
 
 const COUNCIL_QUERY = qb
   .select(COUNCIL_FIELDS)
-  .from(registrationsCurrent)
-  .groupBy(registrationsCurrent.communityCouncil)
-  .orderBy(desc(sql`count(*)`), asc(registrationsCurrent.communityCouncil))
+  .from(registrationsActive)
+  .groupBy(registrationsActive.communityCouncil)
+  .orderBy(desc(sql`count(*)`), asc(registrationsActive.communityCouncil))
   .limit(COUNCILS_SHOWN);
 
 export const RegistrationCard: FC = () => {
@@ -140,9 +140,9 @@ export const RegistrationCard: FC = () => {
     WasmSelection<typeof SUMMARY_FIELDS>
   >({ enabled, query: toSql(SUMMARY_QUERY) });
 
-  const { data: byRoomTypeData, isLoading: byRoomTypeLoading } = useSql<
-    WasmSelection<typeof BY_ROOM_TYPE_FIELDS>
-  >({ enabled, query: toSql(BY_ROOM_TYPE_QUERY) });
+  const { data: byListingTypeData, isLoading: byListingTypeLoading } = useSql<
+    WasmSelection<typeof BY_LISTING_TYPE_FIELDS>
+  >({ enabled, query: toSql(BY_LISTING_TYPE_QUERY) });
 
   const { data: councilData, isLoading: councilLoading } = useSql<
     WasmSelection<typeof COUNCIL_FIELDS>
@@ -156,7 +156,7 @@ export const RegistrationCard: FC = () => {
       <CardHeader className="gap-2">
         <CardTitle className="text-sm font-medium">Municipal STR registration</CardTitle>
         <CardDescription className="text-xs">
-          Matches the registration number on each Airbnb listing page to the
+          Matches the registration id on each Airbnb listing page to the
           Municipal Clerk's published registrations
           {s?.registryDate ? ` as of ${shortDate(s.registryDate)}` : ''}. The Muni
           publishes only active registrations, and a number issued since its last
@@ -174,15 +174,15 @@ export const RegistrationCard: FC = () => {
         ) : s ? (
           <p className="text-sm">
             <span className="font-semibold tabular-nums">{pct(s.registered, s.listings)}</span>{' '}
-            ({s.registered} of {s.listings}) of current listings show a current
-            registration. {s.notInRegistry} show a number not in the registry,{' '}
-            {s.notCurrent} a registration no longer published, and {s.noNumber} no
-            number. Of <span className="tabular-nums">{s.registrations}</span> current
+            ({s.registered} of {s.listings}) of active listings show an active
+            registration. {s.notInRegistry} show an id not in the registry,{' '}
+            {s.lapsed} a lapsed registration, and {s.noId} no id. Of{' '}
+            <span className="tabular-nums">{s.registrations}</span> active
             registrations,{' '}
             <span className="font-semibold tabular-nums">
               {s.registrationsWithoutListing}
             </span>{' '}
-            are cited by no current Airbnb listing; they may list on other platforms
+            are cited by no active Airbnb listing; they may list on other platforms
             or not be operating.
           </p>
         ) : null}
@@ -190,15 +190,15 @@ export const RegistrationCard: FC = () => {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div>
             <div className="text-muted-foreground mb-1 text-xs">
-              Current listings by room type and registration status
+              Active listings by listing type and registration status
             </div>
-            {byRoomTypeLoading ? (
+            {byListingTypeLoading ? (
               <SpinnerPane className="h-72" />
             ) : (
               <ChartContainer config={statusConfig} className="h-72 w-full">
-                <BarChart data={byRoomTypeData?.toArray() ?? []}>
+                <BarChart data={byListingTypeData?.toArray() ?? []}>
                   <CartesianGrid vertical={false} />
-                  <XAxis dataKey="roomType" tickLine={false} axisLine={false} />
+                  <XAxis dataKey="listingType" tickLine={false} axisLine={false} />
                   <YAxis tickLine={false} axisLine={false} width={40} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <ChartLegend content={<ChartLegendContent />} />
@@ -211,7 +211,7 @@ export const RegistrationCard: FC = () => {
           </div>
           <div>
             <div className="text-muted-foreground mb-1 text-xs">
-              Community councils with the most current registrations (top{' '}
+              Community councils with the most active registrations (top{' '}
               {COUNCILS_SHOWN})
             </div>
             {councilLoading ? (
