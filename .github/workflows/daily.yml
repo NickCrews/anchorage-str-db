@@ -98,18 +98,26 @@ jobs:
               --notes "The most recent successful daily scrape, replaced on every run. See airbnb_scrape_runs in the database for run history."
           fi
 
-      # Sundays (UTC), plus every manual run.
+      # When the newest backup is 7+ days old, plus every manual run. Keyed on
+      # the newest backup rather than the weekday, so a run that fails on the
+      # backup day doesn't skip the whole week: the next success catches up.
       - name: Weekly dated backup
         run: |
-          if [ "$(date -u +%u)" != 7 ] && [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
-            echo "no backup today"
-            exit 0
+          today=$(date -u +%Y-%m-%d)
+          newest=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName \
+                     --jq '[.[].tagName | select(test("^backup-[0-9]{4}-[0-9]{2}-[0-9]{2}$"))] | sort | last // ""')
+          if [ -n "$newest" ] && [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
+            age=$(( ($(date -u -d "$today" +%s) - $(date -u -d "${newest#backup-}" +%s)) / 86400 ))
+            if [ "$age" -lt 7 ]; then
+              echo "no backup today: newest is $newest, $age days old"
+              exit 0
+            fi
           fi
-          tag="backup-$(date -u +%Y-%m-%d)"
+          tag="backup-$today"
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release create "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" \
               --latest=false \
-              --title "Backup $(date -u +%Y-%m-%d)" \
+              --title "Backup $today" \
               --notes "Dated snapshot, kept indefinitely (unlike latest-data, which is overwritten daily)."
           fi
 
