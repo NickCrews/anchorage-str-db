@@ -267,8 +267,17 @@ database from the `latest-data` release, scrapes, and re-uploads it if the
 
 A failed registry run doesn't stop the Airbnb scrape or the upload: it rolled
 back its own writes, and the Airbnb day can't be scraped later. The job
-fails after uploading, which opens the outage issue. A `backup-YYYY-MM-DD` release
-is created every Sunday and kept indefinitely.
+fails after uploading, which opens the outage issue.
+
+A successful run also creates a `backup-YYYY-MM-DD` release when the newest
+one is 7 or more days old, and a manual run always creates one. The rule keys
+on the newest backup, not the weekday, so a failed run on backup day doesn't
+skip the week. After an outage, the next success catches up.
+
+Backups are kept indefinitely. At ~17 MB each (September 2026) that is ~0.9
+GB a year. GitHub puts no cap on total release storage, only 2 GiB per asset,
+and an old backup is often the only copy of history from before a breaking
+schema change. Revisit if the asset grows past a few hundred MB.
 
 A failed run opens a `pipeline-down` issue; the next successful run closes
 it. If `latest-data` has no database, the run fails unless dispatched with
