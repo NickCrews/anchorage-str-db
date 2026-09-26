@@ -4,6 +4,43 @@ Every name in this repo — table, column, identifier, comment, UI string —
 comes from [CONTEXT.md](./CONTEXT.md). Read it before adding a concept, and
 add the term there before using it.
 
+## Record what the source said, derive the rest
+
+Assume that when a source changes under the scraper, nobody will fix the
+code for weeks. The archive is the only copy, and a day that wasn't recorded
+can't be scraped later. So, for anything new:
+
+- **Store every field the source sent, not only the ones used today.** As
+  typed columns when every field fits them, since columns compress well and
+  JSON text barely does; and the payload verbatim when something doesn't
+  fit. Derive the numbers people use in views (`packages/db/src/views.ts`),
+  so a fix is a view edit that re-runs over the whole archive.
+- **An unparseable response is still stored.** A response the parser can't
+  read, or that carries a field the columns have no place for, is kept
+  verbatim so a later parser can backfill from it. A shape change shows up
+  as a stored payload and a warning, not as a gap.
+- **A failed request records why.** Store the error text (the HTTP status
+  and the start of the body, or the network error), not only a flag, so a
+  later reader can tell an outage from a block from a removed page.
+- **A broken source degrades its own columns; it doesn't stop the run.**
+  Checks on a pass whose raw data is kept are warnings. Error severity is
+  for what would make the day itself wrong or missing, such as the search
+  or the listing count. Failing the run withholds that day's calendars,
+  which can't be fetched after the fact.
+- **Size is the counterweight.** The viewer downloads the published file
+  whole, so store change-only where a payload repeats from day to day, as
+  `airbnb_calendar_status`, `airbnb_listing_photos` and
+  `airbnb_host_profile_listings` do, and measure before storing text
+  verbatim every day: a long string costs about its own length in the file.
+  `airbnb_host_profile_listings` is the worked example: the verbatim
+  responses would be 3.7 MB a day, the same fields as columns change-only
+  about 70 KB (see
+  [`docs/research/airbnb-host-listings.md`](docs/research/airbnb-host-listings.md)).
+
+Older passes predate this rule: listing pages, calendars and search results
+are parsed in memory and only their fields are stored. Moving them to raw
+storage is open work, not a precedent to follow.
+
 ## Setup
 
 ```sh
@@ -187,24 +224,39 @@ the run's pages to one card per distinct host (about 2 listings per host),
 and `recordHostObservations` writes a row for every host with a listing
 observed that day, including hosts whose only page failed.
 
-The same row stores `listings_on_airbnb`: how many listings the host's
-profile shows, anywhere on Airbnb (`hostListings.ts`). This is the one part
-of the host pass that makes requests, one per distinct host rather than per
-listing. `hostsToRead` picks the same hosts `recordHostObservations` will
-write, before the write phase: the host each read page names, and the
-carried-forward host of each listing whose page failed. The profile endpoint
-has no total, so the pass pages 100 at a time until a short page; only
-managers with over 100 listings need a second request. A failed read stores
-`listings_on_airbnb_read_ok = false` and `host_listing_portfolios` carries
-the last read forward, dated by `listings_on_airbnb_read_date`. Only the
-count is stored, not the ids: they carry no location, so they join to
-nothing here. See
+The host pass also reads every listing on each host's Airbnb profile,
+wherever it is (`hostListings.ts`): how many listings the host holds, which
+search can't tell us. This is the one part of the host pass that makes
+requests, one per distinct host rather than per listing. `hostsToRead`
+picks the same hosts `recordHostObservations` will write, before the write
+phase: the host each read page names, and the carried-forward host of each
+listing whose page failed. The endpoint has no total, so the pass pages
+1000 at a time until a short page; one hotel chain needs two pages.
+
+What each host's read records, on their `airbnb_host_observations` row:
+
+| outcome | `profile_listings_fetch_ok` | `profile_listings_error` | stored |
+| --- | --- | --- | --- |
+| read and parsed | true | NULL | changed listings in `airbnb_host_profile_listings` |
+| read, but the parser can't hold it (not JSON, GraphQL errors, no listing list, an unknown field or value type) | true | what the parser couldn't read | the responses verbatim in `profile_listings_responses` |
+| a request failed after 3 attempts (an HTTP error status, a timeout, a dropped connection), or paging never ended | false | the error: HTTP status and the start of the body, or the network error | nothing |
+| not requested (no host known before the write phase) | false | `not requested this run` | nothing |
+
+A 429 is not a per-host failure: it aborts the run, like every other pass.
+
+`airbnb_host_profile_listings` is change-only per (host, listing): a row
+when a listing first appears on a profile or any of its fields changes, and
+a `listed = false` row when it leaves. Only a clean read writes to it, so a
+failed or unparsed day changes nothing there, and `host_listing_portfolios`
+carries the last clean read forward, dated by `listings_read_date`. A
+response kept verbatim can be parsed later and its rows backfilled. See
 [`docs/research/airbnb-host-listings.md`](docs/research/airbnb-host-listings.md).
 
 A host id no account has comes back as an empty list, like a host with
 nothing listed, so a broken request would read as zeros rather than errors.
-`host_listings_cover_anchorage` fails the run when more than 5% of the day's
-profiles list fewer listings than search saw under the host that day.
+`host_listings_cover_search` warns when more than 5% of the day's profiles
+list fewer listings than search saw under the host that day. All three
+profile-listings checks are warnings, per the rule at the top of this file.
 
 ### Request budget
 
@@ -212,10 +264,9 @@ A run makes about `3N + H + 200` requests for N listings and H distinct
 hosts: a page, a calendar and a price quote per listing, a profile-listings
 request per host, plus one `StaysSearch` request per price band (see
 [`docs/research/airbnb-search-pagination.md`](docs/research/airbnb-search-pagination.md)
-for why the search never paginates) and a second profile page for each of
-the few hosts with over 100 listings. At ~2600 listings and ~1200 hosts that
-is ~9300 requests and about 87 minutes; the host requests are ~1250 of them,
-about 12 minutes. The first-review pass adds about one request per
+for why the search never paginates). At ~2600 listings and ~1200 hosts that
+is ~9200 requests and about 86 minutes; the host requests are ~1210 of them,
+measured at 11 minutes. The first-review pass adds about one request per
 unresolved listing, at most ~1030 (~10 minutes) while backfilling and a handful
 once caught up. The per-listing passes dominate. The worst case, backfilling
 first reviews, is about 97 minutes against the workflow's 120-minute
@@ -336,12 +387,10 @@ Every run fails with `LegacySchemaError` until someone:
   `HOST_START_MAX_SPREAD_DAYS`. The host checks are warnings because the
   views carry every host's last read forward.
 - **Portfolio size is counts, not a classification.** `host_listing_portfolios`
-  derives `listings_active` and `listings_ever_seen` from
-  `airbnb_listing_observations.host_id`, as a time series. Those count only
-  listings inside the Municipality, so they are an Anchorage listing
-  portfolio and undercount a host who also lists elsewhere; the view carries
-  `listings_on_airbnb` from the host's profile beside them for the whole
-  portfolio. Where an owner ends and an operator begins is left to
+  sizes each host by every listing on their Airbnb profile (`listings`),
+  wherever it is, as a time series, beside how many of those are active in
+  the Municipality (`listings_in_muni`), which weights a host by the
+  listings they run here. Where an owner ends and an operator begins is left to
   downstream users, so no threshold is stored; the viewer's cutoff is a
   labelled display choice.
 - **Listings are never UPDATEd.** `first_seen_date`, `last_seen_date` and

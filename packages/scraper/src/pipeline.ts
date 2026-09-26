@@ -116,15 +116,14 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
     const hostListings = await fetchHostListings(hostIds, {
       fetchPage: liveHostListingsPageFetcher(apiKey),
     });
-    const listingsOnAirbnb = new Map<string, number>();
-    for (const result of hostListings) {
-      if (result.listingIds) listingsOnAirbnb.set(result.hostId, result.listingIds.length);
-    }
-    const hostListingsFailed = hostListings.length - listingsOnAirbnb.size;
+    const profileListings = new Map(hostListings.map((result) => [result.hostId, result]));
+    const hostListingsFailed = hostListings.filter((result) => !result.fetchOk).length;
     log.info(
       `host profile listings: ${hostListings.length} hosts requested, ${hostListingsFailed} ` +
-        `failed, ${[...listingsOnAirbnb.values()].reduce((a, b) => a + b, 0)} listings on their ` +
-        `profiles`,
+        `failed, ${hostListings.filter((result) => result.fetchOk && !result.listings).length} ` +
+        `kept verbatim (unparsed), ` +
+        `${hostListings.reduce((sum, result) => sum + (result.listings?.length ?? 0), 0)} listings ` +
+        `on their profiles`,
     );
 
     const calendarResults = await fetchCalendars(listingIds, {
@@ -159,7 +158,7 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
     const stats = await db.transaction(async () => {
       const listingStats = await recordObservations(db, scrapeDate, parsed, pages, quotes);
       // After the listings: it reads today's owners back from them.
-      const hostStats = await recordHostObservations(db, scrapeDate, hostCards, listingsOnAirbnb);
+      const hostStats = await recordHostObservations(db, scrapeDate, hostCards, profileListings);
       const calendarStats = await mergeCalendar(db, scrapeDate, calendarResults);
       await recordFirstReviews(db, scrapeDate, firstReviews);
       await logRun(db, {

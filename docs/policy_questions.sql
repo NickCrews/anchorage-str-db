@@ -464,52 +464,56 @@ ORDER BY
     hosting_started_on;
 
 -- ============================================================
--- Host listing portfolios. `host_listing_portfolios` stores counts only; the cutoffs below
--- are choices, swept rather than fixed.
--- Scope: `listings_active` and `listings_ever_seen` are an Anchorage listing
--- portfolio -- only listings inside the Municipality are counted.
--- `listings_on_airbnb` is every listing on the host's profile, wherever it is.
--- A `host_id` is an Airbnb account, so a property manager's account can list
--- for many owners. Listings with no known host are left out.
+-- Host listing portfolios. `host_listing_portfolios` stores counts only; the
+-- cutoffs below are choices, swept rather than fixed.
+-- `listings` is every listing on the host's Airbnb profile, wherever it is:
+-- how big the host is. `listings_in_muni` is how many of those are active
+-- here: the listings they run in Anchorage, which the shares below weight
+-- by. A `host_id` is an Airbnb account, so a property manager's account can
+-- list for many owners. Listings with no known host, and hosts whose profile
+-- hasn't been read, are left out.
 -- ============================================================
--- Q: How many listings does each host hold right now?
+-- Q: How big are the hosts running Anchorage's listings?
 SELECT
-    listings_active AS listings_per_host,
+    listings AS listings_per_host,
     count(*) AS hosts,
-    sum(listings_active) AS listings,
-    round(100.0 * sum(listings_active) / sum(sum(listings_active)) OVER (), 1) AS pct_of_attributed_listings
+    sum(listings_in_muni) AS listings_here,
+    round(100.0 * sum(listings_in_muni) / sum(sum(listings_in_muni)) OVER (), 1) AS pct_of_attributed_listings
 FROM
     host_listing_portfolios
 WHERE
     scrape_date = (SELECT scrape_date FROM latest_scrape_date)
-    AND listings_active > 0
+    AND listings_in_muni > 0
+    AND listings IS NOT NULL
 GROUP BY
     ALL
 ORDER BY
     listings_per_host;
 
 -- ============================================================
--- Q: What share of current inventory is held by hosts with N or more listings?
+-- Q: What share of active listings here is run by hosts with N or more listings?
 -- ============================================================
 WITH now AS (
     SELECT
-        listings_active
+        listings,
+        listings_in_muni
     FROM
         host_listing_portfolios
     WHERE
         scrape_date = (SELECT scrape_date FROM latest_scrape_date)
-        AND listings_active > 0
+        AND listings_in_muni > 0
+        AND listings IS NOT NULL
 ),
 cutoffs AS (
-    SELECT unnest([1, 2, 3, 5, 10, 20]) AS n
+    SELECT unnest([1, 2, 3, 5, 10, 20, 100]) AS n
 )
 SELECT
     c.n AS min_listings,
-    count(*) FILTER (WHERE now.listings_active >= c.n) AS hosts,
-    coalesce(sum(now.listings_active) FILTER (WHERE now.listings_active >= c.n), 0) AS listings_held,
+    count(*) FILTER (WHERE now.listings >= c.n) AS hosts,
+    coalesce(sum(now.listings_in_muni) FILTER (WHERE now.listings >= c.n), 0) AS listings_here,
     round(
-        100.0 * coalesce(sum(now.listings_active) FILTER (WHERE now.listings_active >= c.n), 0)
-        / sum(now.listings_active),
+        100.0 * coalesce(sum(now.listings_in_muni) FILTER (WHERE now.listings >= c.n), 0)
+        / sum(now.listings_in_muni),
         1
     ) AS pct_of_attributed_listings
 FROM
@@ -522,66 +526,69 @@ ORDER BY
 
 -- ============================================================
 -- Q: How has that concentration moved over the observed period?
+-- Dates before the profile-listings pass began have no host sizes.
 -- ============================================================
 SELECT
     scrape_date,
-    count(*) FILTER (WHERE listings_active > 0) AS hosts_with_live_listings,
-    sum(listings_active) AS attributed_live_listings,
-    round(100.0 * sum(listings_active) FILTER (WHERE listings_active >= 2) / nullif(sum(listings_active), 0), 1) AS pct_held_by_2_plus,
-    round(100.0 * sum(listings_active) FILTER (WHERE listings_active >= 5) / nullif(sum(listings_active), 0), 1) AS pct_held_by_5_plus,
-    round(100.0 * sum(listings_active) FILTER (WHERE listings_active >= 10) / nullif(sum(listings_active), 0), 1) AS pct_held_by_10_plus
+    count(*) FILTER (WHERE listings_in_muni > 0) AS hosts_with_listings_here,
+    sum(listings_in_muni) AS attributed_listings_here,
+    round(100.0 * sum(listings_in_muni) FILTER (WHERE listings >= 2) / nullif(sum(listings_in_muni), 0), 1) AS pct_run_by_2_plus,
+    round(100.0 * sum(listings_in_muni) FILTER (WHERE listings >= 5) / nullif(sum(listings_in_muni), 0), 1) AS pct_run_by_5_plus,
+    round(100.0 * sum(listings_in_muni) FILTER (WHERE listings >= 10) / nullif(sum(listings_in_muni), 0), 1) AS pct_run_by_10_plus
 FROM
     host_listing_portfolios
+WHERE
+    listings IS NOT NULL
 GROUP BY
     ALL
 ORDER BY
     scrape_date;
 
 -- ============================================================
--- Q: Which hosts are larger than their Anchorage listings show?
--- `listings_on_airbnb` counts every listing on the host's profile; the
--- difference is roughly what they list outside the Municipality (roughly:
--- the profile drops a deactivated listing the same day, `listings_active`
--- keeps it through the grace period).
+-- Q: Which hosts run mostly outside the Municipality?
+-- Roughly: the profile drops a deactivated listing the same day, while
+-- `listings_in_muni` keeps it through the retirement grace period.
 -- ============================================================
 SELECT
     host_id,
-    listings_active AS listings_in_muni,
-    listings_on_airbnb,
-    listings_on_airbnb - listings_active AS listings_elsewhere_approx,
-    listings_on_airbnb_read_date
+    listings,
+    listings_in_muni,
+    listings - listings_in_muni AS listings_elsewhere_approx,
+    listings_read_date
 FROM
     host_listing_portfolios
 WHERE
     scrape_date = (SELECT scrape_date FROM latest_scrape_date)
-    AND listings_active > 0
-    AND listings_on_airbnb IS NOT NULL
+    AND listings_in_muni > 0
+    AND listings IS NOT NULL
 ORDER BY
     listings_elsewhere_approx DESC,
-    listings_on_airbnb DESC
+    listings DESC
 LIMIT
     25;
 
--- Hosts whose live portfolio grew the most since first observed.
+-- Hosts who grew the most since first observed.
 SELECT
     host_id,
-    min(scrape_date) AS first_seen,
-    arg_min(listings_active, scrape_date) AS live_at_first_sight,
-    arg_max(listings_active, scrape_date) AS live_now,
-    max(listings_ever_seen) AS ever_seen
+    min(scrape_date) FILTER (WHERE listings IS NOT NULL) AS first_read,
+    arg_min(listings, scrape_date) FILTER (WHERE listings IS NOT NULL) AS listings_at_first_read,
+    arg_max(listings, scrape_date) FILTER (WHERE listings IS NOT NULL) AS listings_now
 FROM
     host_listing_portfolios
 GROUP BY
     host_id
+HAVING
+    listings_now IS NOT NULL
 ORDER BY
-    live_now - live_at_first_sight DESC,
-    live_now DESC
+    listings_now - listings_at_first_read DESC,
+    listings_now DESC
 LIMIT
     25;
 
 -- ============================================================
 -- Q: Is this Girdwood listing part of a large portfolio?
--- NULL host columns mean the host is unknown, not a portfolio of one.
+-- NULL host columns mean the host is unknown, or their profile unread; not
+-- a portfolio of one.
 -- ============================================================
 SELECT
     listing_id,
@@ -589,14 +596,11 @@ SELECT
     url,
     host_name,
     host_years_hosting,
-    host_listings_active,
-    host_listings_ever_seen,
-    host_listings_on_airbnb
+    host_listings
 FROM
     listings_active_with_host
 WHERE
     location_subtitle ILIKE 'Girdwood%'
 ORDER BY
-    host_listings_on_airbnb DESC NULLS LAST,
-    host_listings_active DESC NULLS LAST,
+    host_listings DESC NULLS LAST,
     host_id;

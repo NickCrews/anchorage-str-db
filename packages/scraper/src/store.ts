@@ -8,6 +8,7 @@ import type { Database } from '@anchorage-str-db/db/database';
 import {
   airbnbCalendarStatus,
   airbnbHostObservations,
+  airbnbHostProfileListings,
   airbnbListingFirstReviews,
   airbnbListingObservations,
   airbnbListingPhotos,
@@ -16,6 +17,8 @@ import {
 import { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views';
 import type { CalendarResult } from '@anchorage-str-db/scraper-airbnb/calendars';
 import type { FirstReviewCandidate, FirstReviewResult } from '@anchorage-str-db/scraper-airbnb/firstReviews';
+import type { ProfileListing } from '@anchorage-str-db/scraper-airbnb/api/hostListings';
+import type { HostListingsResult } from '@anchorage-str-db/scraper-airbnb/hostListings';
 import type { HostCard, Layer, ListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
 import { LAYERS } from '@anchorage-str-db/scraper-airbnb/listingPage';
 import type { ParsedListing } from '@anchorage-str-db/scraper-airbnb/parse';
@@ -289,7 +292,7 @@ export interface HostProfileStats {
   attempted: number;
   /** Of those, how many had no card read today. */
   failed: number;
-  /** Of those, how many had no profile listings read today. */
+  /** Of those, how many had a profile-listings request fail, or none made. */
   listingsFailed: number;
   new: number;
   changed: number;
@@ -328,15 +331,17 @@ export async function hostsToRead(db: Database, pages: readonly ListingPage[]): 
  * today's owners are read back from `listings`, so a listing whose page failed
  * today still names its owner through the carried-forward `host_id`.
  *
- * `cards` is `collectHostCards`' output, and `listingsOnAirbnb` each host's
- * profile listing count from the profile-listings pass; a host missing from
- * either is recorded as unread for it. Idempotent per scrape date.
+ * `cards` is `collectHostCards`' output, and `profileListings` the
+ * profile-listings pass's result per host. A host missing from `cards` is
+ * recorded as unread; one missing from `profileListings` as a failed fetch.
+ * Their responses go to `airbnb_host_profile_listings`, change-only.
+ * Idempotent per scrape date.
  */
 export async function recordHostObservations(
   db: Database,
   scrapeDate: IsoDate,
   cards: ReadonlyMap<string, HostCard>,
-  listingsOnAirbnb: ReadonlyMap<string, number> = new Map(),
+  profileListings: ReadonlyMap<string, HostListingsResult> = new Map(),
 ): Promise<HostProfileStats> {
   await db.run('DELETE FROM airbnb_host_observations WHERE scrape_date = CAST(? AS DATE)', [scrapeDate]);
   const previouslySeen = new Set(
@@ -357,6 +362,7 @@ export async function recordHostObservations(
     airbnbHostObservations,
     hostIds.map((hostId) => {
       const card = cards.get(hostId);
+      const read = profileListings.get(hostId);
       return {
         hostId: BigInt(hostId),
         scrapeDate,
@@ -365,22 +371,116 @@ export async function recordHostObservations(
         about: card?.about ?? null,
         timeAsHostYears: card?.timeAsHostYears ?? null,
         timeAsHostMonths: card?.timeAsHostMonths ?? null,
-        listingsOnAirbnbReadOk: listingsOnAirbnb.has(hostId),
-        listingsOnAirbnb: listingsOnAirbnb.get(hostId) ?? null,
+        profileListingsFetchOk: read?.fetchOk ?? false,
+        profileListingsError: read ? read.error : 'not requested this run',
+        // Verbatim only when the columns couldn't take them.
+        profileListingsResponses: read?.fetchOk && read.listings === null ? [...read.responses] : null,
       };
+    }),
+  );
+  await recordProfileListings(
+    db,
+    scrapeDate,
+    hostIds.flatMap((hostId) => {
+      // Only a complete read can say a listing left the profile.
+      const read = profileListings.get(hostId);
+      return read?.fetchOk && read.listings ? [{ hostId, listings: read.listings }] : [];
     }),
   );
 
   return {
     attempted: hostIds.length,
     failed: hostIds.filter((hostId) => !cards.has(hostId)).length,
-    listingsFailed: hostIds.filter((hostId) => !listingsOnAirbnb.has(hostId)).length,
+    listingsFailed: hostIds.filter((hostId) => !profileListings.get(hostId)?.fetchOk).length,
     new: hostIds.filter((hostId) => !previouslySeen.has(hostId)).length,
     changed: await db.count(
       'SELECT count(*) FROM host_versions WHERE valid_from = CAST(? AS DATE)',
       [scrapeDate],
     ),
   };
+}
+
+/** The columns whose change writes a new `airbnb_host_profile_listings` row. */
+const PROFILE_LISTING_FIELDS_SQL = `{
+    'listed': listed,
+    'name': name,
+    'photo_url': photo_url,
+    'building_type': building_type,
+    'listing_type': listing_type,
+    'listing_type_key': listing_type_key,
+    'rating_value': rating_value,
+    'review_count': review_count,
+    'is_superhost': is_superhost,
+    'is_new_listing': is_new_listing
+}`;
+
+/**
+ * Write the changes in each read host's profile listings: a row for each
+ * listing that is new to the host's profile or whose fields changed, and a
+ * `listed = false` row for each that left it. A host absent from `reads`
+ * writes nothing, so their last rows stay current. Idempotent per scrape
+ * date.
+ */
+async function recordProfileListings(
+  db: Database,
+  scrapeDate: IsoDate,
+  reads: ReadonlyArray<{ hostId: string; listings: readonly ProfileListing[] }>,
+): Promise<void> {
+  await db.run('DELETE FROM airbnb_host_profile_listings WHERE valid_from = CAST(? AS DATE)', [scrapeDate]);
+  if (reads.length === 0) return;
+
+  await db.run('CREATE OR REPLACE TEMP TABLE stg_profile_listings AS FROM airbnb_host_profile_listings LIMIT 0');
+  await db.appendRows(
+    airbnbHostProfileListings,
+    reads.flatMap((read) =>
+      read.listings.map((listing) => ({
+        hostId: BigInt(read.hostId),
+        listingId: BigInt(listing.listingId),
+        validFrom: scrapeDate,
+        listed: true,
+        name: listing.name,
+        photoUrl: listing.photoUrl,
+        buildingType: listing.buildingType,
+        listingType: listing.listingType,
+        listingTypeKey: listing.listingTypeKey,
+        ratingValue: listing.ratingValue,
+        reviewCount: listing.reviewCount,
+        isSuperhost: listing.isSuperhost,
+        isNewListing: listing.isNewListing,
+      })),
+    ),
+    { into: 'stg_profile_listings' },
+  );
+
+  await db.run(
+    `
+    INSERT INTO airbnb_host_profile_listings
+    WITH prev AS (
+        SELECT * FROM airbnb_host_profile_listings
+        WHERE valid_from < CAST(? AS DATE)
+        QUALIFY row_number() OVER (PARTITION BY host_id, listing_id ORDER BY valid_from DESC) = 1
+    ),
+    read_hosts AS (
+        SELECT unnest(string_split(?, ','))::BIGINT AS host_id
+    )
+    -- New to the profile, or changed.
+    SELECT s.*
+    FROM stg_profile_listings s
+    LEFT JOIN prev p USING (host_id, listing_id)
+    WHERE ${PROFILE_LISTING_FIELDS_SQL.replaceAll(': ', ': p.')} IS DISTINCT FROM
+          ${PROFILE_LISTING_FIELDS_SQL.replaceAll(': ', ': s.')}
+    UNION ALL
+    -- Gone from a profile that was read.
+    SELECT p.host_id, p.listing_id, CAST(? AS DATE), false,
+           NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+    FROM prev p
+    JOIN read_hosts USING (host_id)
+    ANTI JOIN stg_profile_listings s USING (host_id, listing_id)
+    WHERE p.listed
+    `,
+    [scrapeDate, reads.map((read) => read.hostId).join(','), scrapeDate],
+  );
+  await db.run('DROP TABLE stg_profile_listings');
 }
 
 // --------------------------------------------------------------------------

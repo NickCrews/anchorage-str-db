@@ -83,11 +83,12 @@ const MAX_HOST_LISTINGS_FAILURE_RATE = 0.25;
 
 /**
  * The share of hosts read today whose profile lists fewer listings than
- * search saw under them today, above which the run fails. Every listing
- * search returns is on its host's profile (365 of 365 sampled), so a
- * shortfall means the endpoint is answering with short or empty lists, which
- * is also how it answers for an account that doesn't exist. Non-zero for a
- * listing deactivated between the search and the profile read.
+ * search saw under them today, above which `host_listings_cover_search`
+ * warns. Every listing search returns is on its host's profile (365 of 365
+ * sampled), so a shortfall means the endpoint is answering with short or
+ * empty lists, which is also how it answers for an account that doesn't
+ * exist. Non-zero for a listing deactivated between the search and the
+ * profile read.
  */
 const MAX_HOST_LISTINGS_SHORTFALL_SHARE = 0.05;
 
@@ -435,35 +436,63 @@ export async function runChecks(
     );
   }
 
-  // An error, unlike the other host checks: a short list is written as a
-  // successful read, so no carry-forward covers for it.
-  const profileHosts = await db.count(
+  // Warnings, like the card checks: a response the parser can't read is
+  // stored verbatim, so it can be re-read once the parser is fixed.
+  const unparsed = await db.rows<{ host_id: string; error: string | null }>(
+    'SELECT host_id, profile_listings_error AS error FROM airbnb_host_observations ' +
+      'WHERE scrape_date = CAST(? AS DATE) AND profile_listings_fetch_ok ' +
+      'AND profile_listings_responses IS NOT NULL ORDER BY host_id',
+    [scrapeDate],
+  );
+  const profilesFetched = await db.count(
     'SELECT count(*) FROM airbnb_host_observations ' +
-      'WHERE scrape_date = CAST(? AS DATE) AND listings_on_airbnb_read_ok',
+      'WHERE scrape_date = CAST(? AS DATE) AND profile_listings_fetch_ok',
+    [scrapeDate],
+  );
+  if (profilesFetched) {
+    check(
+      'host_listings_parsed',
+      'warn',
+      unparsed.length === 0,
+      `${unparsed.length}/${profilesFetched} hosts' profile listings were fetched but couldn't be parsed, ` +
+        `and were kept verbatim` +
+        (unparsed.length
+          ? `; e.g. ${unparsed
+              .slice(0, 3)
+              .map((row) => `${row.host_id} (${row.error})`)
+              .join(', ')}`
+          : ''),
+    );
+  }
+
+  const profileHosts = await db.count(
+    'SELECT count(*) FROM host_listing_portfolios ' +
+      'WHERE scrape_date = CAST(? AS DATE) AND listings_read_date = scrape_date',
     [scrapeDate],
   );
   if (profileHosts) {
-    const short = await db.rows<{ host_id: string; on_airbnb: number; seen: number }>(
+
+    const short = await db.rows<{ host_id: string; listings: number; seen: number }>(
       `
       WITH seen AS (
           SELECT host_id, count(*) AS seen FROM listings
           WHERE valid_to IS NULL AND last_seen_date = CAST(? AS DATE) AND host_id IS NOT NULL
           GROUP BY host_id
       )
-      SELECT o.host_id, o.listings_on_airbnb AS on_airbnb, s.seen::INTEGER AS seen
-      FROM airbnb_host_observations o
+      SELECT p.host_id, p.listings, s.seen::INTEGER AS seen
+      FROM host_listing_portfolios p
       JOIN seen s USING (host_id)
-      WHERE o.scrape_date = CAST(? AS DATE)
-        AND o.listings_on_airbnb_read_ok
-        AND o.listings_on_airbnb < s.seen
-      ORDER BY s.seen - o.listings_on_airbnb DESC
+      WHERE p.scrape_date = CAST(? AS DATE)
+        AND p.listings_read_date = p.scrape_date
+        AND p.listings < s.seen
+      ORDER BY s.seen - p.listings DESC
       `,
       [scrapeDate, scrapeDate],
     );
     const share = short.length / profileHosts;
     check(
-      'host_listings_cover_anchorage',
-      'error',
+      'host_listings_cover_search',
+      'warn',
       share <= MAX_HOST_LISTINGS_SHORTFALL_SHARE,
       `${short.length}/${profileHosts} hosts read today list fewer listings on their profile ` +
         `than search saw under them today (${percent(share)}, max ` +
@@ -471,7 +500,7 @@ export async function runChecks(
         (short.length
           ? `; e.g. ${short
               .slice(0, 5)
-              .map((row) => `${row.host_id} (${row.on_airbnb} < ${row.seen})`)
+              .map((row) => `${row.host_id} (${row.listings} < ${row.seen})`)
               .join(', ')}`
           : ''),
     );

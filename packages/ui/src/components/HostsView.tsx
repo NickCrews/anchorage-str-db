@@ -16,8 +16,8 @@ const HOSTS_QUERY = `
     l.host_name,
     l.host_id,
     any_value(l.host_years_hosting) AS host_years_hosting,
-    count(*)::INT AS listings_active,
-    any_value(l.host_listings_ever_seen) AS host_listings_ever_seen,
+    any_value(l.host_listings) AS listings,
+    count(*)::INT AS listings_in_muni,
     count(DISTINCT l.registration_id)::INT AS registration_ids,
     count(*) FILTER (WHERE status = 'Registered')::INT AS listings_registered,
     count(*) FILTER (WHERE status = 'Registration lapsed')::INT AS listings_registration_lapsed,
@@ -44,7 +44,7 @@ type Scope = keyof typeof SCOPES;
 
 const SCOPE_FILTER: Record<Scope, string | null> = {
   all: null,
-  multi: 'listings_active >= 2',
+  multi: 'listings >= 2',
   noId: 'listings_no_id_shown > 0',
 };
 
@@ -61,7 +61,7 @@ export const HostsView: FC = () => {
     const where = filters.map((f) => `\n  AND ${f}`).join('');
     return (
       `SELECT * EXCLUDE (search_text)\nFROM (${HOSTS_QUERY})\nWHERE true${where}` +
-      `\nORDER BY listings_active DESC, host_name`
+      `\nORDER BY listings DESC NULLS LAST, listings_in_muni DESC, host_name`
     );
   }, [search, scope]);
 

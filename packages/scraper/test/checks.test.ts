@@ -7,6 +7,7 @@ import { afterEach, expect, it } from 'vitest';
 import { connect } from '@anchorage-str-db/db/connect';
 import type { Database } from '@anchorage-str-db/db/database';
 import { collectHostCards, emptyListingPage, type ListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
+import type { HostListingsResult } from '@anchorage-str-db/scraper-airbnb/hostListings';
 import type { ParsedListing } from '@anchorage-str-db/scraper-airbnb/parse';
 import { emptyAudit, PriceBand, type CoverageAudit, type SearchResult } from '@anchorage-str-db/scraper-airbnb/search';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
@@ -21,7 +22,7 @@ import {
   recordObservations,
 } from '../src/store.ts';
 import { makeListing } from './fixtures.ts';
-import { calendarResultFor } from './helpers.ts';
+import { calendarResultFor, profileRead, profileReads } from './helpers.ts';
 
 const DAY: IsoDate = '2026-08-18';
 
@@ -41,7 +42,7 @@ async function seedMinimal(
   pages: readonly ListingPage[] = [],
   firstReviews: { attempted: number; failed: number } = { attempted: 0, failed: 0 },
   extra: readonly ParsedListing[] = [],
-  listingsOnAirbnb: ReadonlyMap<string, number> = new Map(),
+  profileListings: ReadonlyMap<string, HostListingsResult> = new Map(),
 ): Promise<Database> {
   const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
   temporary.push(dir);
@@ -51,7 +52,7 @@ async function seedMinimal(
   const [floor] = PLAUSIBLE_LISTING_COUNT;
   const listings = [...[...Array(floor).keys()].map((i) => makeListing(i, `Cabin ${i}`)), ...extra];
   await recordObservations(db, DAY, listings, pages);
-  const hostStats = await recordHostObservations(db, DAY, collectHostCards(pages), listingsOnAirbnb);
+  const hostStats = await recordHostObservations(db, DAY, collectHostCards(pages), profileListings);
   await logRun(db, {
     scrapeDate: DAY,
     runStartedAt: `${DAY} 00:00:00`,
@@ -71,8 +72,8 @@ async function seedMinimal(
     quoteFetchFailed: null,
     hostProfileAttempted: hostStats.attempted,
     hostProfileFailed: hostStats.failed,
-    hostListingsFetchAttempted: listingsOnAirbnb.size ? hostStats.attempted : null,
-    hostListingsFetchFailed: listingsOnAirbnb.size ? hostStats.listingsFailed : null,
+    hostListingsFetchAttempted: profileListings.size ? hostStats.attempted : null,
+    hostListingsFetchFailed: profileListings.size ? hostStats.listingsFailed : null,
     errorSummary: null,
   });
   return db;
@@ -362,9 +363,25 @@ it('warns, without failing the run, when host cards stop being read', async () =
   expect(report(all)).toBe(true);
 });
 
-/** Profile listing counts for the first `read` of `pagesRead`'s hosts, `count` each. */
-function profileCounts(read: number, count = 3): Map<string, number> {
-  return new Map([...Array(read).keys()].map((i) => [String(1000 + i), count]));
+/**
+ * Profile reads for the first `read` of `pagesRead`'s hosts. Each host's
+ * profile holds its one listing here plus `elsewhere` more, or `raw`.
+ */
+function profileCounts(
+  read: number,
+  elsewhere = 2,
+  raw?: string,
+): Map<string, HostListingsResult> {
+  return profileReads(
+    [...Array(read).keys()].map((i) => {
+      const listings = elsewhere < 0 ? [] : [String(i), ...listingIds(elsewhere, 900_000 + 10 * i)];
+      return profileRead(String(1000 + i), listings, raw === undefined ? {} : { raw });
+    }),
+  );
+}
+
+function listingIds(count: number, from: number): string[] {
+  return [...Array(count).keys()].map((i) => String(from + i));
 }
 
 it('passes the profile-listings checks when every host’s profile covers what search saw', async () => {
@@ -373,7 +390,8 @@ it('passes the profile-listings checks when every host’s profile covers what s
 
   const { byName } = await check(db);
   expect(byName['host_listings_failure_rate']!.passed).toBe(true);
-  expect(byName['host_listings_cover_anchorage']!.passed).toBe(true);
+  expect(byName['host_listings_parsed']!.passed).toBe(true);
+  expect(byName['host_listings_cover_search']!.passed).toBe(true);
 });
 
 it('warns, without failing the run, when profile listings stop being read', async () => {
@@ -383,21 +401,36 @@ it('warns, without failing the run, when profile listings stop being read', asyn
   const { byName, all } = await check(db);
   expect(byName['host_listings_failure_rate']!.passed).toBe(false);
   expect(byName['host_listings_failure_rate']!.severity).toBe('warn');
-  expect(byName['host_listings_cover_anchorage']!.passed).toBe(true);
+  expect(byName['host_listings_cover_search']!.passed).toBe(true);
   expect(report(all)).toBe(true);
 });
 
-it('fails the run when profiles list fewer listings than search saw', async () => {
+it('warns, without failing the run, when profiles list fewer listings than search saw', async () => {
   // Every host has one listing here, and every profile reads as empty: what
   // the endpoint returns for an unknown account.
   const [floor] = PLAUSIBLE_LISTING_COUNT;
-  const db = await seedMinimal(pagesRead(floor), undefined, [], profileCounts(floor, 0));
+  const db = await seedMinimal(pagesRead(floor), undefined, [], profileCounts(floor, -1));
 
   const { byName, all } = await check(db);
-  expect(byName['host_listings_cover_anchorage']!.passed).toBe(false);
-  expect(byName['host_listings_cover_anchorage']!.severity).toBe('error');
-  expect(byName['host_listings_cover_anchorage']!.detail).toContain('(0 < 1)');
-  expect(report(all)).toBe(false);
+  expect(byName['host_listings_cover_search']!.passed).toBe(false);
+  expect(byName['host_listings_cover_search']!.severity).toBe('warn');
+  expect(byName['host_listings_cover_search']!.detail).toContain('(0 < 1)');
+  expect(report(all)).toBe(true);
+});
+
+it('warns, without failing the run, when stored profiles cannot be parsed', async () => {
+  const [floor] = PLAUSIBLE_LISTING_COUNT;
+  const changed = JSON.stringify({ data: { beehive: { listingsV2: { edges: [] } } } });
+  const db = await seedMinimal(pagesRead(floor), undefined, [], profileCounts(floor, 0, changed));
+
+  const { byName, all } = await check(db);
+  expect(byName['host_listings_parsed']!.passed).toBe(false);
+  expect(byName['host_listings_parsed']!.severity).toBe('warn');
+  // The responses are kept for a later parser.
+  expect(
+    await db.count('SELECT count(*) FROM airbnb_host_observations WHERE profile_listings_responses IS NOT NULL'),
+  ).toBe(floor);
+  expect(report(all)).toBe(true);
 });
 
 it('skips the profile-listings checks on a run without the pass', async () => {
@@ -405,7 +438,8 @@ it('skips the profile-listings checks on a run without the pass', async () => {
 
   const { byName } = await check(db);
   expect(byName['host_listings_failure_rate']).toBeUndefined();
-  expect(byName['host_listings_cover_anchorage']).toBeUndefined();
+  expect(byName['host_listings_parsed']).toBeUndefined();
+  expect(byName['host_listings_cover_search']).toBeUndefined();
 });
 
 it('warns when a host’s start date moves', async () => {
@@ -413,7 +447,7 @@ it('warns when a host’s start date moves', async () => {
   const db = await seedMinimal(pagesWithCards(floor));
   // An earlier reading a year off from today's.
   await db.run(
-    'INSERT INTO airbnb_host_observations VALUES (1000, CAST(? AS DATE) - 1, true, \'Rachel\', NULL, 8, 7, NULL, NULL)',
+    'INSERT INTO airbnb_host_observations VALUES (1000, CAST(? AS DATE) - 1, true, \'Rachel\', NULL, 8, 7, NULL, NULL, NULL)',
     [DAY],
   );
 

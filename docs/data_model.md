@@ -89,10 +89,9 @@ Every listing has one primary host. On 2026-09-14, 1,286 hosts ran the 2,619
 active listings; 369 hosts had 2 or more and 28 had 10 or more.
 
 Those counts are listings inside the Municipality. A host's profile lists
-every listing they hold, wherever it is, and
-`host_listing_portfolios.listings_on_airbnb` stores that count beside the
-Anchorage ones: Evolve's account held 50 listings here and 207 on Airbnb on
-2026-09-25 (see
+every listing they hold, wherever it is, and `host_listing_portfolios.listings`
+is that count: Evolve's account held 50 listings here and 207 on Airbnb on
+2026-09-25, and 479 of 1210 hosts held 2 or more (see
 [`research/airbnb-host-listings.md`](research/airbnb-host-listings.md)).
 
 ### Host ↔ registration: many-to-many, through listings

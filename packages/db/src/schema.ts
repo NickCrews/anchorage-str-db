@@ -24,7 +24,9 @@
  *   previous one.
  * - `airbnb_host_observations`: append-only, one row per (host, scrape date)
  *   for every host of a listing observed that day: the host card from
- *   the listing page, and the count of listings on the host's profile.
+ *   the listing page, and whether the host's profile listings were read.
+ * - `airbnb_host_profile_listings`: the listings on each host's profile,
+ *   wherever they are, change-only per (host, listing).
  * - `airbnb_scrape_runs`: one row per daily run.
  *
  * `airbnb_calendar_status` is stored change-only because a daily snapshot
@@ -194,7 +196,7 @@ export const airbnbScrapeRuns = pgTable('airbnb_scrape_runs', {
   hostProfileAttempted: integer('host_profile_attempted'),
   hostProfileFailed: integer('host_profile_failed'),
   // Hosts whose profile listings were requested this run, and how many of
-  // those requests failed.
+  // them had a request fail.
   hostListingsFetchAttempted: integer('host_listings_fetch_attempted'),
   hostListingsFetchFailed: integer('host_listings_fetch_failed'),
 });
@@ -233,15 +235,58 @@ export const airbnbHostObservations = pgTable(
     // date; `host_activity` derives one.
     timeAsHostYears: integer('time_as_host_years'),
     timeAsHostMonths: integer('time_as_host_months'),
-    // Whether the host's profile listings were read today. NULL on rows
-    // written before the profile-listings pass existed.
-    listingsOnAirbnbReadOk: boolean('listings_on_airbnb_read_ok'),
-    // Every listing on the host's profile, wherever it is: the host listing
-    // portfolio. Not the Anchorage count, which `host_listing_portfolios`
-    // derives from the listings we observe.
-    listingsOnAirbnb: integer('listings_on_airbnb'),
+    // Whether every request for the host's profile listings succeeded
+    // today. NULL on rows written before the profile-listings pass existed.
+    profileListingsFetchOk: boolean('profile_listings_fetch_ok'),
+    // Why the read was not clean, or NULL: without profile_listings_fetch_ok,
+    // the failed request's error (HTTP status and the start of the body, or
+    // the network error); with it, what the parser couldn't read.
+    profileListingsError: varchar('profile_listings_error'),
+    // The responses verbatim, one per page, on a day whose responses didn't
+    // fit `airbnb_host_profile_listings` (a changed shape, a new field), so a
+    // later parser can read them. NULL on a day that did.
+    profileListingsResponses: varcharList('profile_listings_responses'),
   },
   (t) => [primaryKey({ columns: [t.hostId, t.scrapeDate] })],
+);
+
+/**
+ * The listings on each host's Airbnb profile, wherever they are, with every
+ * field the profile shows for them. Change-only per (host, listing): a row is
+ * written when a listing first appears on the host's profile, when any of its
+ * fields changes, and, with `listed` false, when it leaves. Per listing rather
+ * than per host, because a large host's profile has some listing with a new
+ * review nearly every day.
+ *
+ * Written only from a day whose responses were read cleanly; otherwise the
+ * responses are kept on `airbnb_host_observations`. `host_profile_listings`
+ * adds `valid_to`.
+ */
+export const airbnbHostProfileListings = pgTable(
+  'airbnb_host_profile_listings',
+  {
+    hostId: id('host_id').notNull(),
+    listingId: id('listing_id').notNull(),
+    validFrom: day('valid_from').notNull(),
+    // False on the row recording that the listing left the profile; the
+    // fields below are NULL then.
+    listed: boolean('listed').notNull(),
+    // The listing's title (`nameOrPlaceholderName`).
+    name: varchar('name'),
+    // The cover photo (`pictureUrl`).
+    photoUrl: varchar('photo_url'),
+    // Airbnb's `propertyTypeName`, verbatim: 'Chalet', 'Hotel'.
+    buildingType: varchar('building_type'),
+    // Airbnb's `localizedRoomType`, verbatim: 'Entire home/apt'.
+    listingType: varchar('listing_type'),
+    // Airbnb's `roomTypeCategory`, its key for the same: 'entire_home'.
+    listingTypeKey: varchar('listing_type_key'),
+    ratingValue: doublePrecision('rating_value'),
+    reviewCount: integer('review_count'),
+    isSuperhost: boolean('is_superhost'),
+    isNewListing: boolean('is_new_listing'),
+  },
+  (t) => [primaryKey({ columns: [t.hostId, t.listingId, t.validFrom] })],
 );
 
 // --------------------------------------------------------------------------

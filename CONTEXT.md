@@ -50,6 +50,13 @@ whole makes the others unavailable. See
 [rental-units](./docs/research/rental-units/README.md) §1 and §3.
 _Avoid_: room, rental, ad, property, STR, unit
 
+**Building type**:
+What kind of building Airbnb says a listing is in, `building_type`: Airbnb's
+`propertyTypeName` on a host's profile, stored verbatim (`Chalet`, `Hotel`,
+`Cabin`). Only listings read from host profiles have one. Not a listing
+type, which is how much of the unit a listing covers.
+_Avoid_: property type, home type
+
 **Listing type**:
 How much of a unit a listing covers, `listing_type`. The values are Airbnb's
 display text, stored verbatim: `Entire home/apt`, `Private room`, `Shared
@@ -108,15 +115,11 @@ forty units from Palmer has a portfolio of forty, and that is the number an
 operator question wants. No threshold separating a hobbyist from a commercial
 operator is stored — that line is drawn downstream.
 
-`host_listing_portfolios` holds both numbers, and they are not
-interchangeable. `listings_on_airbnb` is the host listing portfolio: every
+`host_listing_portfolios.listings` is the host listing portfolio: every
 listing on the host's Airbnb profile, read once a run, wherever the listings
-are. `listings_active` and `listings_ever_seen` count only the listings we
-scrape, which are the ones inside the Municipality: call that an **Anchorage
-host listing portfolio**, and never a portfolio unqualified. Name columns so
-the scope is readable: `_on_airbnb` for the whole portfolio; the Anchorage
-counts keep the names every other listing count here uses, because every
-count here is a count inside the Muni unless it says otherwise.
+are. "Listings per host" means this number. How many of them are in the
+Muni (`listings_in_muni`) is not a portfolio; it weights a host by the
+listings they run here.
 _Avoid_: empire, holdings, inventory, tycoon
 
 ### The Municipality

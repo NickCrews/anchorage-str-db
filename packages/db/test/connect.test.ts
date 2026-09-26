@@ -161,14 +161,14 @@ describe('connect', () => {
     expect(
       await db.rows('SELECT listing_type FROM listings WHERE is_active'),
     ).toEqual([{ listing_type: 'Entire home/apt' }]);
-    // 0004: a host read before the profile-listings pass has no count, and
-    // no read to carry forward.
+    // 0004: a host read before the profile-listings pass has no fetch to
+    // report, and no listing count.
     expect(
       await db.rows(
-        'SELECT h.name, o.listings_on_airbnb_read_ok, o.listings_on_airbnb FROM airbnb_host_observations o ' +
-          'JOIN hosts h USING (host_id)',
+        'SELECT h.name, o.profile_listings_fetch_ok, p.listings FROM airbnb_host_observations o ' +
+          'JOIN hosts h USING (host_id) LEFT JOIN host_listing_portfolios p USING (host_id)',
       ),
-    ).toEqual([{ name: 'Rachel', listings_on_airbnb_read_ok: null, listings_on_airbnb: null }]);
+    ).toEqual([{ name: 'Rachel', profile_listings_fetch_ok: null, listings: null }]);
   });
 
   it('rejects a database with listings as a table', async () => {

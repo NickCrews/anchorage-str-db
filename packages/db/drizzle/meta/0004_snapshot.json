@@ -1,5 +1,5 @@
 {
-  "id": "b000b672-0400-4685-b60e-fbde2d94c65c",
+  "id": "333341f1-1d77-42d1-b49a-49634d4e110b",
   "prevId": "62a44966-b929-4a8a-b9b1-28ca0602b131",
   "version": "7",
   "dialect": "postgresql",
@@ -111,15 +111,21 @@
           "primaryKey": false,
           "notNull": false
         },
-        "listings_on_airbnb_read_ok": {
-          "name": "listings_on_airbnb_read_ok",
+        "profile_listings_fetch_ok": {
+          "name": "profile_listings_fetch_ok",
           "type": "boolean",
           "primaryKey": false,
           "notNull": false
         },
-        "listings_on_airbnb": {
-          "name": "listings_on_airbnb",
-          "type": "integer",
+        "profile_listings_error": {
+          "name": "profile_listings_error",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_listings_responses": {
+          "name": "profile_listings_responses",
+          "type": "VARCHAR[]",
           "primaryKey": false,
           "notNull": false
         }
@@ -132,6 +138,106 @@
           "columns": [
             "host_id",
             "scrape_date"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.airbnb_host_profile_listings": {
+      "name": "airbnb_host_profile_listings",
+      "schema": "",
+      "columns": {
+        "host_id": {
+          "name": "host_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "listing_id": {
+          "name": "listing_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valid_from": {
+          "name": "valid_from",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "listed": {
+          "name": "listed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "photo_url": {
+          "name": "photo_url",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "building_type": {
+          "name": "building_type",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "listing_type": {
+          "name": "listing_type",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "listing_type_key": {
+          "name": "listing_type_key",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rating_value": {
+          "name": "rating_value",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "review_count": {
+          "name": "review_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_superhost": {
+          "name": "is_superhost",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_new_listing": {
+          "name": "is_new_listing",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "airbnb_host_profile_listings_host_id_listing_id_valid_from_pk": {
+          "name": "airbnb_host_profile_listings_host_id_listing_id_valid_from_pk",
+          "columns": [
+            "host_id",
+            "listing_id",
+            "valid_from"
           ]
         }
       },

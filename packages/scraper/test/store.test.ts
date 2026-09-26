@@ -14,6 +14,7 @@ import {
   type HostCard,
   type ListingPage,
 } from '@anchorage-str-db/scraper-airbnb/listingPage';
+import type { HostListingsResult } from '@anchorage-str-db/scraper-airbnb/hostListings';
 import type { PriceQuote } from '@anchorage-str-db/scraper-airbnb/priceQuotes';
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 
@@ -28,6 +29,7 @@ import {
   type RunRow,
 } from '../src/store.ts';
 import { makeListing } from './fixtures.ts';
+import { profileRead, profileReads } from './helpers.ts';
 
 const temporary: string[] = [];
 const open: Database[] = [];
@@ -675,7 +677,7 @@ async function recordDay(
   db: Database,
   day: IsoDate,
   held: readonly Held[],
-  listingsOnAirbnb: ReadonlyMap<string, number> = new Map(),
+  profileListings: ReadonlyMap<string, HostListingsResult> = new Map(),
 ): Promise<void> {
   const pages = held.map(({ listingId, hostId, page: outcome }) =>
     outcome === 'failed'
@@ -688,7 +690,7 @@ async function recordDay(
     held.map(({ listingId }) => makeListing(listingId, `Cabin ${listingId}`)),
     pages,
   );
-  await recordHostObservations(db, day, collectHostCards(pages), listingsOnAirbnb);
+  await recordHostObservations(db, day, collectHostCards(pages), profileListings);
   await logRun(db, runRow(day, { listingsSeen: held.length }));
 }
 
@@ -839,37 +841,208 @@ describe('hosts', () => {
 // host listing portfolios
 
 describe('host_listing_portfolios', () => {
-  it('counts a multi-listing host', async () => {
+  /** A profile holding `count` listings, ids from `from`. */
+  const holding = (count: number, from = 1): string[] =>
+    [...Array(count).keys()].map((i) => String(from + i));
+
+  it('sizes a host by their whole profile, beside what they run here', async () => {
     const { db } = await freshDb();
-    await recordDay(db, '2026-08-01', [
-      { listingId: 1, hostId: '100', page: card('100') },
-      { listingId: 2, hostId: '100', page: card('100') },
-      { listingId: 3, hostId: '100', page: 'no-card' },
-      { listingId: 4, hostId: '200', page: card('200') },
-    ]);
+    await recordDay(
+      db,
+      '2026-08-01',
+      [
+        { listingId: 1, hostId: '100', page: card('100') },
+        { listingId: 2, hostId: '100', page: card('100') },
+        { listingId: 3, hostId: '200', page: card('200') },
+      ],
+      profileReads([profileRead('100', holding(42)), profileRead('200', ['3'])]),
+    );
 
     expect(
       await db.rows(
-        'SELECT host_id, listings_active, listings_ever_seen FROM host_listing_portfolios ORDER BY host_id',
+        'SELECT host_id, listings, listings_read_date, listings_in_muni ' +
+          'FROM host_listing_portfolios ORDER BY host_id',
       ),
     ).toEqual([
-      { host_id: '100', listings_active: 3, listings_ever_seen: 3 },
-      { host_id: '200', listings_active: 1, listings_ever_seen: 1 },
+      { host_id: '100', listings: 42, listings_read_date: '2026-08-01', listings_in_muni: 2 },
+      { host_id: '200', listings: 1, listings_read_date: '2026-08-01', listings_in_muni: 1 },
     ]);
     expect(
       await db.rows(
-        'SELECT listing_id, host_name, host_years_hosting, host_listings_active ' +
+        'SELECT listing_id, host_name, host_years_hosting, host_listings ' +
           'FROM listings_active_with_host ORDER BY listing_id',
       ),
     ).toEqual([
-      { listing_id: '1', host_name: 'Rachel', host_years_hosting: 9, host_listings_active: 3 },
-      { listing_id: '2', host_name: 'Rachel', host_years_hosting: 9, host_listings_active: 3 },
-      { listing_id: '3', host_name: 'Rachel', host_years_hosting: 9, host_listings_active: 3 },
-      { listing_id: '4', host_name: 'Rachel', host_years_hosting: 9, host_listings_active: 1 },
+      { listing_id: '1', host_name: 'Rachel', host_years_hosting: 9, host_listings: 42 },
+      { listing_id: '2', host_name: 'Rachel', host_years_hosting: 9, host_listings: 42 },
+      { listing_id: '3', host_name: 'Rachel', host_years_hosting: 9, host_listings: 1 },
     ]);
   });
 
-  it('drops inactive listings from the live count but not from ever seen', async () => {
+  it('stores every field, writing a row only for what changed', async () => {
+    const { db } = await freshDb();
+    const held: Held[] = [{ listingId: 1, hostId: '100', page: card('100') }];
+    await recordDay(db, '2026-08-01', held, profileReads([profileRead('100', ['1', '2'])]));
+    // Unchanged: no rows.
+    await recordDay(db, '2026-08-02', held, profileReads([profileRead('100', ['1', '2'])]));
+    // Listing 1 leaves, listing 2 gets a review, listing 3 is new.
+    await recordDay(
+      db,
+      '2026-08-03',
+      held,
+      profileReads([
+        {
+          ...profileRead('100', ['2', '3']),
+          listings: [
+            profileRead('100', ['2'], { fields: { reviewCount: 13 } }).listings![0]!,
+            profileRead('100', ['3']).listings![0]!,
+          ],
+        },
+      ]),
+    );
+
+    expect(
+      await db.rows(
+        'SELECT listing_id, valid_from, valid_to, listed, name, review_count FROM host_profile_listings ' +
+          'ORDER BY listing_id, valid_from',
+      ),
+    ).toEqual([
+      { listing_id: '1', valid_from: '2026-08-01', valid_to: '2026-08-03', listed: true, name: 'Cabin 1', review_count: 12 },
+      { listing_id: '1', valid_from: '2026-08-03', valid_to: null, listed: false, name: null, review_count: null },
+      { listing_id: '2', valid_from: '2026-08-01', valid_to: '2026-08-03', listed: true, name: 'Cabin 2', review_count: 12 },
+      { listing_id: '2', valid_from: '2026-08-03', valid_to: null, listed: true, name: 'Cabin 2', review_count: 13 },
+      { listing_id: '3', valid_from: '2026-08-03', valid_to: null, listed: true, name: 'Cabin 3', review_count: 12 },
+    ]);
+    expect(
+      await db.rows('SELECT scrape_date, listings, listings_read_date FROM host_listing_portfolios ORDER BY scrape_date'),
+    ).toEqual([
+      { scrape_date: '2026-08-01', listings: 2, listings_read_date: '2026-08-01' },
+      { scrape_date: '2026-08-02', listings: 2, listings_read_date: '2026-08-02' },
+      { scrape_date: '2026-08-03', listings: 2, listings_read_date: '2026-08-03' },
+    ]);
+    // Re-running a day replaces its rows rather than adding to them.
+    await recordDay(db, '2026-08-02', held, profileReads([profileRead('100', ['1', '2'])]));
+    expect(await db.count('SELECT count(*) FROM airbnb_host_profile_listings')).toBe(5);
+  });
+
+  it('records a listing that moves to another host as leaving one profile and joining the other', async () => {
+    const { db } = await freshDb();
+    const held: Held[] = [
+      { listingId: 1, hostId: '100', page: card('100') },
+      { listingId: 2, hostId: '200', page: card('200') },
+    ];
+    await recordDay(db, '2026-08-01', held, profileReads([profileRead('100', ['1', '9']), profileRead('200', ['2'])]));
+    await recordDay(db, '2026-08-02', held, profileReads([profileRead('100', ['1']), profileRead('200', ['2', '9'])]));
+
+    expect(
+      await db.rows(
+        "SELECT host_id, listed FROM host_profile_listings WHERE listing_id = 9 ORDER BY valid_from, host_id",
+      ),
+    ).toEqual([
+      { host_id: '100', listed: true },
+      { host_id: '100', listed: false },
+      { host_id: '200', listed: true },
+    ]);
+  });
+
+  it('records why a read failed, and carries the last read forward', async () => {
+    const { db } = await freshDb();
+    const held: Held[] = [{ listingId: 1, hostId: '100', page: card('100') }];
+    await recordDay(db, '2026-08-01', held, profileReads([profileRead('100', holding(40))]));
+    await recordDay(
+      db,
+      '2026-08-02',
+      held,
+      profileReads([
+        profileRead('100', [], { responses: [], fetchOk: false, listings: null, error: 'HttpError: HTTP 503 for https://…' }),
+      ]),
+    );
+    // Not requested at all, e.g. a host the pass didn't know about.
+    await recordDay(db, '2026-08-03', held);
+
+    expect(
+      await db.rows(
+        'SELECT scrape_date, profile_listings_fetch_ok, profile_listings_error ' +
+          'FROM airbnb_host_observations ORDER BY scrape_date',
+      ),
+    ).toEqual([
+      { scrape_date: '2026-08-01', profile_listings_fetch_ok: true, profile_listings_error: null },
+      {
+        scrape_date: '2026-08-02',
+        profile_listings_fetch_ok: false,
+        profile_listings_error: 'HttpError: HTTP 503 for https://…',
+      },
+      { scrape_date: '2026-08-03', profile_listings_fetch_ok: false, profile_listings_error: 'not requested this run' },
+    ]);
+    expect(
+      await db.rows('SELECT scrape_date, listings, listings_read_date FROM host_listing_portfolios ORDER BY scrape_date'),
+    ).toEqual([
+      { scrape_date: '2026-08-01', listings: 40, listings_read_date: '2026-08-01' },
+      { scrape_date: '2026-08-02', listings: 40, listings_read_date: '2026-08-01' },
+      { scrape_date: '2026-08-03', listings: 40, listings_read_date: '2026-08-01' },
+    ]);
+  });
+
+  it('takes nothing as having left the profile on a failed read', async () => {
+    const { db } = await freshDb();
+    const held: Held[] = [{ listingId: 1, hostId: '100', page: card('100') }];
+    await recordDay(db, '2026-08-01', held, profileReads([profileRead('100', holding(3))]));
+    // A partial read: its listings are incomplete, so they must not be used.
+    await recordDay(db, '2026-08-02', held, profileReads([{ ...profileRead('100', ['1']), fetchOk: false }]));
+
+    expect(await db.count('SELECT count(*) FROM airbnb_host_profile_listings WHERE NOT listed')).toBe(0);
+  });
+
+  it('keeps a response it cannot parse verbatim, and carries the last parsed read forward', async () => {
+    const { db } = await freshDb();
+    const held: Held[] = [{ listingId: 1, hostId: '100', page: card('100') }];
+    await recordDay(db, '2026-08-01', held, profileReads([profileRead('100', holding(4))]));
+    const changed = JSON.stringify({ data: { beehive: { listingsV2: { edges: [{ node: { id: '1' } }] } } } });
+    await recordDay(db, '2026-08-02', held, profileReads([profileRead('100', [], { raw: changed })]));
+
+    expect(
+      await db.rows(
+        'SELECT profile_listings_fetch_ok, profile_listings_error, profile_listings_responses ' +
+          "FROM airbnb_host_observations WHERE scrape_date = '2026-08-02'",
+      ),
+    ).toEqual([
+      {
+        profile_listings_fetch_ok: true,
+        profile_listings_error: 'Error: profile listings response has no listings list',
+        profile_listings_responses: [changed],
+      },
+    ]);
+    // Nothing is taken as having left the profile.
+    expect(await db.count('SELECT count(*) FROM airbnb_host_profile_listings')).toBe(4);
+    expect(
+      await db.rows("SELECT listings, listings_read_date FROM host_listing_portfolios WHERE scrape_date = '2026-08-02'"),
+    ).toEqual([{ listings: 4, listings_read_date: '2026-08-01' }]);
+    // A clean read keeps nothing verbatim.
+    expect(
+      await db.rows(
+        "SELECT profile_listings_responses FROM airbnb_host_observations WHERE scrape_date = '2026-08-01'",
+      ),
+    ).toEqual([{ profile_listings_responses: null }]);
+  });
+
+  it('stores a read of zero listings as zero, not as unread', async () => {
+    const { db } = await freshDb();
+    const held: Held[] = [{ listingId: 1, hostId: '100', page: card('100') }];
+    await recordDay(db, '2026-08-01', held, profileReads([profileRead('100', [])]));
+
+    expect(await db.rows('SELECT listings FROM host_listing_portfolios')).toEqual([{ listings: 0 }]);
+  });
+
+  it('is NULL for a host whose profile has never been read', async () => {
+    const { db } = await freshDb();
+    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card('100') }]);
+
+    expect(await db.rows('SELECT listings, listings_read_date FROM host_listing_portfolios')).toEqual([
+      { listings: null, listings_read_date: null },
+    ]);
+  });
+
+  it('drops a listing that goes inactive here from listings_in_muni', async () => {
     const { db } = await freshDb();
     const start = '2026-08-01';
     const both: Held[] = [
@@ -882,48 +1055,21 @@ describe('host_listing_portfolios', () => {
       await recordDay(db, addDays(start, i), both.slice(0, 1));
     }
 
-    const rows = await db.rows<{ scrape_date: string; listings_active: number; listings_ever_seen: number }>(
-      "SELECT scrape_date, listings_active, listings_ever_seen FROM host_listing_portfolios WHERE host_id = 100 ORDER BY scrape_date",
+    const rows = await db.rows<{ scrape_date: string; listings_in_muni: number }>(
+      'SELECT scrape_date, listings_in_muni FROM host_listing_portfolios WHERE host_id = 100 ORDER BY scrape_date',
     );
-    expect(rows[RETIREMENT_GRACE_DAYS]).toEqual({
-      scrape_date: addDays(start, RETIREMENT_GRACE_DAYS),
-      listings_active: 2,
-      listings_ever_seen: 2,
-    });
-    expect(rows.at(-1)).toEqual({
-      scrape_date: addDays(start, RETIREMENT_GRACE_DAYS + 1),
-      listings_active: 1,
-      listings_ever_seen: 2,
-    });
+    expect(rows[RETIREMENT_GRACE_DAYS]).toEqual({ scrape_date: addDays(start, RETIREMENT_GRACE_DAYS), listings_in_muni: 2 });
+    expect(rows.at(-1)).toEqual({ scrape_date: addDays(start, RETIREMENT_GRACE_DAYS + 1), listings_in_muni: 1 });
   });
 
-  it('tracks a host who gains listings over time', async () => {
-    const { db } = await freshDb();
-    const holding = (n: number): Held[] =>
-      [...Array(n).keys()].map((i) => ({ listingId: i + 1, hostId: '100', page: card('100') }));
-    await recordDay(db, '2026-08-01', holding(1));
-    await recordDay(db, '2026-08-02', holding(3));
-    await recordDay(db, '2026-08-03', holding(14));
-
-    expect(
-      await db.rows(
-        'SELECT scrape_date, listings_active, listings_ever_seen FROM host_listing_portfolios ORDER BY scrape_date',
-      ),
-    ).toEqual([
-      { scrape_date: '2026-08-01', listings_active: 1, listings_ever_seen: 1 },
-      { scrape_date: '2026-08-02', listings_active: 3, listings_ever_seen: 3 },
-      { scrape_date: '2026-08-03', listings_active: 14, listings_ever_seen: 14 },
-    ]);
-  });
-
-  it('keeps a listing in its host’s portfolio past a failed page fetch', async () => {
+  it('keeps a listing with its host past a failed page fetch', async () => {
     const { db } = await freshDb();
     await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card('100') }]);
     await recordDay(db, '2026-08-02', [{ listingId: 1, hostId: '100', page: 'failed' }]);
 
     expect(
-      await db.rows("SELECT listings_active FROM host_listing_portfolios WHERE scrape_date = '2026-08-02'"),
-    ).toEqual([{ listings_active: 1 }]);
+      await db.rows("SELECT listings_in_muni FROM host_listing_portfolios WHERE scrape_date = '2026-08-02'"),
+    ).toEqual([{ listings_in_muni: 1 }]);
   });
 
   it('moves a listing that changes hands', async () => {
@@ -933,16 +1079,16 @@ describe('host_listing_portfolios', () => {
 
     expect(
       await db.rows(
-        "SELECT host_id, listings_active, listings_ever_seen FROM host_listing_portfolios " +
+        'SELECT host_id, listings_in_muni FROM host_listing_portfolios ' +
           "WHERE scrape_date = '2026-08-02' ORDER BY host_id",
       ),
     ).toEqual([
-      { host_id: '100', listings_active: 0, listings_ever_seen: 1 },
-      { host_id: '200', listings_active: 1, listings_ever_seen: 1 },
+      { host_id: '100', listings_in_muni: 0 },
+      { host_id: '200', listings_in_muni: 1 },
     ]);
   });
 
-  it('stores counts only, with the scope caveat in the file', async () => {
+  it('stores counts only, with their scope in the file', async () => {
     const { db } = await freshDb();
 
     expect(
@@ -953,100 +1099,13 @@ describe('host_listing_portfolios', () => {
     ).toEqual([
       { column_name: 'host_id' },
       { column_name: 'scrape_date' },
-      { column_name: 'listings_active' },
-      { column_name: 'listings_ever_seen' },
-      { column_name: 'listings_on_airbnb' },
-      { column_name: 'listings_on_airbnb_read_date' },
+      { column_name: 'listings' },
+      { column_name: 'listings_read_date' },
+      { column_name: 'listings_in_muni' },
     ]);
     expect(
       await db.value("SELECT comment FROM duckdb_views() WHERE view_name = 'host_listing_portfolios'"),
-    ).toMatch(/Anchorage host listing portfolio.*reads 2 and 42/s);
-  });
-
-  it('puts the count on the host’s profile beside the Anchorage count', async () => {
-    const { db } = await freshDb();
-    await recordDay(
-      db,
-      '2026-08-01',
-      [
-        { listingId: 1, hostId: '100', page: card('100') },
-        { listingId: 2, hostId: '100', page: card('100') },
-        { listingId: 3, hostId: '200', page: card('200') },
-      ],
-      new Map([
-        ['100', 42],
-        ['200', 1],
-      ]),
-    );
-
-    expect(
-      await db.rows(
-        'SELECT host_id, listings_active, listings_on_airbnb, listings_on_airbnb_read_date ' +
-          'FROM host_listing_portfolios ORDER BY host_id',
-      ),
-    ).toEqual([
-      { host_id: '100', listings_active: 2, listings_on_airbnb: 42, listings_on_airbnb_read_date: '2026-08-01' },
-      { host_id: '200', listings_active: 1, listings_on_airbnb: 1, listings_on_airbnb_read_date: '2026-08-01' },
-    ]);
-    expect(
-      await db.rows(
-        'SELECT listing_id, host_listings_active, host_listings_on_airbnb ' +
-          'FROM listings_active_with_host ORDER BY listing_id',
-      ),
-    ).toEqual([
-      { listing_id: '1', host_listings_active: 2, host_listings_on_airbnb: 42 },
-      { listing_id: '2', host_listings_active: 2, host_listings_on_airbnb: 42 },
-      { listing_id: '3', host_listings_active: 1, host_listings_on_airbnb: 1 },
-    ]);
-  });
-
-  it('carries the profile count forward past a failed read, and says from when', async () => {
-    const { db } = await freshDb();
-    const held: Held[] = [{ listingId: 1, hostId: '100', page: card('100') }];
-    await recordDay(db, '2026-08-01', held, new Map([['100', 40]]));
-    await recordDay(db, '2026-08-02', held);
-    await recordDay(db, '2026-08-03', held, new Map([['100', 41]]));
-
-    expect(
-      await db.rows(
-        "SELECT listings_on_airbnb_read_ok, listings_on_airbnb FROM airbnb_host_observations " +
-          'ORDER BY scrape_date',
-      ),
-    ).toEqual([
-      { listings_on_airbnb_read_ok: true, listings_on_airbnb: 40 },
-      { listings_on_airbnb_read_ok: false, listings_on_airbnb: null },
-      { listings_on_airbnb_read_ok: true, listings_on_airbnb: 41 },
-    ]);
-    expect(
-      await db.rows(
-        'SELECT scrape_date, listings_on_airbnb, listings_on_airbnb_read_date ' +
-          'FROM host_listing_portfolios ORDER BY scrape_date',
-      ),
-    ).toEqual([
-      { scrape_date: '2026-08-01', listings_on_airbnb: 40, listings_on_airbnb_read_date: '2026-08-01' },
-      { scrape_date: '2026-08-02', listings_on_airbnb: 40, listings_on_airbnb_read_date: '2026-08-01' },
-      { scrape_date: '2026-08-03', listings_on_airbnb: 41, listings_on_airbnb_read_date: '2026-08-03' },
-    ]);
-  });
-
-  it('stores a read of zero listings as zero, not as unread', async () => {
-    const { db } = await freshDb();
-    const held: Held[] = [{ listingId: 1, hostId: '100', page: card('100') }];
-    await recordDay(db, '2026-08-01', held, new Map([['100', 3]]));
-    await recordDay(db, '2026-08-02', held, new Map([['100', 0]]));
-
-    expect(
-      await db.rows("SELECT listings_on_airbnb FROM host_listing_portfolios WHERE scrape_date = '2026-08-02'"),
-    ).toEqual([{ listings_on_airbnb: 0 }]);
-  });
-
-  it('is NULL for a host whose profile has never been read', async () => {
-    const { db } = await freshDb();
-    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card('100') }]);
-
-    expect(
-      await db.rows('SELECT listings_on_airbnb, listings_on_airbnb_read_date FROM host_listing_portfolios'),
-    ).toEqual([{ listings_on_airbnb: null, listings_on_airbnb_read_date: null }]);
+    ).toMatch(/wherever it is.*42 listings, 2 in the Muni/s);
   });
 });
 

@@ -91,31 +91,35 @@ CityView license pages). Views have no prefix.
 - `airbnb_host_observations`: one row per host per scrape date for every host with
   a listing observed that day: the public profile card from the listing page
   (display name, bio, `timeAsHost`), and whether it was read
-  (`profile_read_ok`); and `listings_on_airbnb`, the number of listings on
-  the host's profile anywhere on Airbnb, and whether that was read
-  (`listings_on_airbnb_read_ok`)
+  (`profile_read_ok`); and whether the listings on the host's Airbnb profile
+  were read (`profile_listings_fetch_ok`), why not (`profile_listings_error`),
+  and the responses verbatim on a day the parser couldn't read them
+  (`profile_listings_responses`)
+- `airbnb_host_profile_listings`: every listing on each host's Airbnb
+  profile, in Anchorage or anywhere else, with the title, photo, building
+  type, listing type, rating and review count the profile shows. Stored
+  change-only per (host, listing): a row when a listing appears or changes,
+  and one with `listed` false when it leaves. `host_profile_listings`
+  *(view)* adds `valid_to`.
 - `hosts` *(view)*: one row per host version, derived from
   `airbnb_host_observations` the way `listings` is derived from
   `airbnb_listing_observations`. A name or bio change opens a version; a failed read
   carries the last one forward. `hosting_started_on` is derived from
   `timeAsHost`, which Airbnb reports in whole months, so it can be up to a
   month late.
-- `host_listing_portfolios` *(view)*: per host per scrape date, two scopes
-  side by side. `listings_active` and `listings_ever_seen` count only
-  listings inside the Municipality: the host's Anchorage listing portfolio.
-  `listings_on_airbnb` counts every listing on the host's profile, wherever
-  it is, from the latest read on or before that date
-  (`listings_on_airbnb_read_date`). A host with 2 listings here and 40
-  elsewhere reads 2 and 42. The profile lists only what is listed now:
-  deactivated listings drop off it the same day, while `listings_active`
-  waits out the retirement grace period. See
+- `host_listing_portfolios` *(view)*: per host per scrape date, `listings`:
+  every listing on the host's Airbnb profile, wherever it is, from the latest
+  read on or before that date (`listings_read_date`). A host with 2 listings
+  here and 40 in Palmer has 42. `listings_in_muni` is how many of them were
+  active in the Municipality, for weighting a host by the listings they run
+  here. The profile lists only what is listed now: a deactivated listing
+  drops off it the same day, while `listings_in_muni` waits out the
+  retirement grace period. See
   [`docs/research/airbnb-host-listings.md`](docs/research/airbnb-host-listings.md).
   No threshold marking where a casual host ends and a commercial one begins
   is stored.
 - `listings_active_with_host` *(view)*: `listings_active` plus the host's
-  name, years hosting, and portfolio counts as of the latest run:
-  `host_listings_active` and `host_listings_ever_seen` for Anchorage,
-  `host_listings_on_airbnb` for everywhere
+  name, years hosting, and `host_listings` as of the latest run
 - `calendar_current` *(view)*: the current version of each night. Use this
   instead of `airbnb_calendar_status` for "how many listings had calendar
   data that night, and how many of those were available"; it drops the frozen
