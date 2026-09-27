@@ -72,8 +72,9 @@ Active listings by match (2026-09-14, 2,619 listings):
 A registration cited by several listings can be:
 
 - private rooms in one house, each listed separately;
-- units in one building sharing an id;
-- duplicate listings, or an id reused on a unit it does not cover.
+- dwellings in one building sharing an id;
+- a combo listing and the component listings it covers;
+- duplicate listings, or an id reused on a dwelling it does not cover.
 
 The data cannot tell these apart.
 

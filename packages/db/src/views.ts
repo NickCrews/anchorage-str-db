@@ -372,7 +372,7 @@ JOIN host_activity a USING (host_id);
 -- An Anchorage host listing portfolio: only the host's listings inside the
 -- Municipality are counted, not the ones they hold elsewhere. That is a
 -- limit of the data and not the question anyone is asking — a host running
--- forty units from Palmer is a large operator with two listings here — but
+-- forty dwellings from Palmer is a large operator with two listings here — but
 -- nothing Airbnb publishes to us carries a host's total. See issue #34.
 CREATE OR REPLACE VIEW host_listing_portfolios AS
 WITH held AS (
