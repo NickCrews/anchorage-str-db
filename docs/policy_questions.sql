@@ -228,7 +228,7 @@ ORDER BY
 -- ============================================================
 -- Q: Which registration ids appear on several Airbnb listings?
 -- Private rooms of one home, duplicate listings, or one id shown on several
--- units; compare the listings' names and coordinates.
+-- dwellings; compare the listings' names and coordinates.
 -- ============================================================
 SELECT
     registration_id,
