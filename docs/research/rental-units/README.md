@@ -1,14 +1,10 @@
 # Dwellings and rooms across Airbnb and the Muni registry
 
-First researched 2026-09-14. Revised 2026-09-26 against
-`data/anchorage_str.duckdb`, which now holds only listings inside the Muni.
-The first version drew on a search that also took in Hope, Palmer and
-Wasilla. Every count here is from the 2026-09-26 daily run and registry run
-(the registry layer was last edited 2026-09-21). History in this copy starts
-2026-09-24, so the problems in §7 come from how the sources work, not from
-observed history. Every count and example comes from a query in
-[queries.sql](queries.sql). Registration ids link to the Muni's license page,
-listing names and ids to Airbnb.
+As of the 2026-09-26 daily run and registry run in
+`data/anchorage_str.duckdb` (the registry layer was last edited
+2026-09-21). All listings are inside the Muni. Every count and example comes
+from a query in [queries.sql](queries.sql). Registration ids link to the
+Muni's license page, listing names and ids to Airbnb.
 
 **Goal:** one row per dwelling, and one per room rented on its own, with
 everything Airbnb and the Muni registry say about it and which of the two
@@ -36,7 +32,7 @@ sources know about it.
 
 ## 1. Vocabulary
 
-These terms replace **unit** in [CONTEXT.md](../../../CONTEXT.md).
+Defined in [CONTEXT.md](../../../CONTEXT.md).
 
 - **Dwelling:** short for dwelling unit. A house, apartment, cabin or
   accessory unit that could be rented long-term. Title 21 defines a dwelling
@@ -55,15 +51,14 @@ These terms replace **unit** in [CONTEXT.md](../../../CONTEXT.md).
   listing covers exactly one dwelling or one room.
 - **Parcel** is already defined: a Muni property record, `parcel_id`.
 
-**Does "unit" disappear?** Yes. Everything a guest can book on its own is a
-dwelling or a room, and those are the only two kinds. An umbrella word adds
-nothing a sentence can't say with "dwelling or room". "Unit" also collides
-with the unit designator in addresses: "4011 TURNAGAIN BLVD E, Unit:4A" is a
-dwelling, and "400 Turpin St, Unit 8, Bedroom B" is a room in one. Retiring
-the word avoids both readings.
+**No umbrella word.** Dwellings and rooms are the only two kinds of thing a
+listing can cover, so "dwelling or room" says everything an umbrella word
+would. "Unit" is not used: it collides with the unit designator in
+addresses, where "4011 TURNAGAIN BLVD E, Unit:4A" is a dwelling and
+"400 Turpin St, Unit 8, Bedroom B" is a room in one.
 
-**Is every non-combo listing one dwelling or room, one-to-one?** Each atomic
-listing covers exactly one dwelling or room. The reverse doesn't hold:
+**Atomic listings to dwellings and rooms is many-to-one, not one-to-one.**
+Each atomic listing covers exactly one dwelling or room, but:
 
 - **Duplicates:** a dwelling can have several atomic listings. 4011 Turnagain
   Blvd E, Units 3A and 4A, are each listed twice from two host accounts (§5).
@@ -186,9 +181,8 @@ grain, and the ordinance points the other way (§3).
 
 ## 3. What the ordinance says a registration covers
 
-The first version said "one registration per dwelling, as the ordinance
-intends". That was wrong. The ordinance asks for one registration per
-separately rented space, and a bedroom is one.
+The ordinance asks for one registration per separately rented space, and a
+bedroom is one. It does not ask for one registration per dwelling.
 
 [AO 2025-115(S-2)][ao-2025-115-s2], approved 2025-12-16 and corrected
 2025-12-30, adds chapter 10.90 to the code:
@@ -300,16 +294,15 @@ to a registration:
   listing's. For rooms and combos that's false.
 
 **Wrong id: at least 28 listings.** Their coordinate is over 1 km from the
-registration they print. [registration-location-mismatch][mismatch] sorted
-the 2026-09-14 cases: most are a host printing the id of another rental
-they run. Its report went to the Municipal Clerk's Office that day.
+registration they print. [registration-location-mismatch][mismatch] sorts
+them: most are a host printing the id of another rental they run.
 
 - **[STR20260765], 8483 Sundi St:** 4 listings from one host.
   "[Serenity Suite][1687456614565152954]" is at the address. "[Eagle nest
   home][1668926817471594875]", "[Eagle Suite][1662003281978078076]" and
   "[Large Cabin style home sleeps 26][1687945174652662852]" are elsewhere.
-  The 09-14 report found two of them near registrations under the host's
-  other business name.
+  Two of them are near registrations under the host's other business name
+  ([registration-location-mismatch][mismatch]).
 - **[STR20262388]:** cited by "[Arbor du Nord 3 A][1447082877038361365]"
   and "[Beautifully updated city center condo!][50359680]" from two hosts.
   Its typed address names two streets and two zip codes, so the geocode or
@@ -381,9 +374,8 @@ could use.
 
 **The same shape that is not a duplicate.** 829 E 13th Ave has three
 registrations ([STR20262194], [STR20262195], [STR20262196]) with the same
-business name, no unit designator and the same issue date. Two are cited
-now, by a [studio][50156544] and a [cabin][51602371]. On 2026-09-14 the
-third was cited by a [house][51688541]. These are probably three dwellings
+business name, no unit designator and the same issue date. Two are cited,
+by a [studio][50156544] and a [cabin][51602371]; the third by none. These are probably three dwellings
 on one parcel. The records look like the Chugach Park duplicate, and
 nothing in the registry tells the two cases apart. Parcel data could: the
 assessor records how many dwellings a parcel has (§9).
@@ -523,7 +515,7 @@ radius:
 - Every agent assertion can be retracted as a batch by its `asserted_by`,
   and the next run of the rules is unaffected.
 
-The design is [#40][issue-40]. It is blocked on this doc's review and on
+The design is [#40][issue-40]. It is blocked on
 [#38][issue-38] and [#39][issue-39].
 
 ## 8. Attributes when records disagree
@@ -545,8 +537,6 @@ With several records per dwelling, most attributes have more than one value:
   covering it is not available. Take the union, never the sum.
 
 ## 9. Decisions
-
-Answers from review, 2026-09-26:
 
 - **Dwelling, room, or both?** Both. Housing policy on conversion to
   long-term rentals needs dwellings. Tourism and bed-tax policy needs rooms.
@@ -629,7 +619,6 @@ Answers from review, 2026-09-26:
 [1718609799900620065]: https://www.airbnb.com/rooms/1718609799900620065
 [50156544]: https://www.airbnb.com/rooms/50156544
 [51602371]: https://www.airbnb.com/rooms/51602371
-[51688541]: https://www.airbnb.com/rooms/51688541
 [720964186611110453]: https://www.airbnb.com/rooms/720964186611110453
 
 <!-- Airbnb hosts, by host id. -->
