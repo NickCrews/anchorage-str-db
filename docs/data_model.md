@@ -71,10 +71,16 @@ Active listings by match (2026-09-14, 2,619 listings):
 
 A registration cited by several listings can be:
 
-- private rooms in one house, each listed separately;
-- dwellings in one building sharing an id;
-- a combo listing and the component listings it covers;
-- duplicate listings, or an id reused on a dwelling it does not cover.
+- private rooms in one house, each listed separately: STR20261701, the Ski
+  Inn, is cited by 8 private-room listings;
+- dwellings in one building sharing an id: STR20261828, the 700 M St
+  triplex, covers its three dwellings;
+- a combo listing and the component listings it covers: at 700 M St the
+  "Full 5BR Compound" and "3BR Combo" cite the same id as the dwellings they
+  cover;
+- duplicate listings, or an id reused on a dwelling it does not cover:
+  STR20262388 is cited by listings from two hosts, one of them 45 km from
+  the registered address.
 
 The data cannot tell these apart.
 
