@@ -223,7 +223,7 @@ FROM ri_listings WHERE printed_m <= 1000 GROUP BY 1;
 -- §3 Validation. Listings whose printed registration is within 200 m are
 -- taken as correctly linked. Each rule runs with the listing's own id hidden
 -- (it never counts as evidence), and is scored on whether it recovers it.
--- The second run also deletes the listing's registration from the
+-- The second pass also deletes the listing's registration from the
 -- candidates: every suggestion there is wrong, which is how a rule behaves on
 -- a listing that has no registration at all.
 -- ---------------------------------------------------------------------------

@@ -350,8 +350,14 @@ The rule that settles these is conservative: same host, an exact
 coordinate (or a jittered one inside one cluster), and exactly one
 candidate address among the registrations that host's other listings cite.
 It corrects the address, and so the dwelling, even when the room stays
-unknown. For a dwelling table that is enough. Measuring how often such
-rules apply, and how often they're right, is [#39][issue-39].
+unknown. For a dwelling table that is enough.
+
+[registration-inference](../registration-inference/README.md) measures the
+stricter question of which registration, not which address. Validated on
+listings with a correct id, its rules recover 455 of 459 hidden ids. On the
+460 listings with no id, an unknown id or one over 1 km away, they suggest
+32 registrations. They decline Shaligo's "Private Rooms |Workspace" because
+3503 E 16th has several unclaimed registrations.
 
 ## 5. Duplicate records
 
