@@ -1,9 +1,9 @@
 # Registration inference: suggesting a registration for a listing whose id is missing or wrong
 
-Researched 2026-09-27 against `data/anchorage_str.duckdb`, with the
-2026-09-26 run: listings from that day, registry published 2026-09-21. Every
-count comes from a query in [queries.sql](queries.sql), in the order this
-README uses them. Registration ids link to the Muni's license page, listing
+As of the 2026-09-26 daily run and registry run in
+`data/anchorage_str.duckdb` (the registry layer was last edited 2026-09-21).
+Every count comes from a query in [queries.sql](queries.sql), in the order
+this README uses them. Registration ids link to the Muni's license page, listing
 names to Airbnb. Answers
 [#39](https://github.com/NickCrews/anchorage-str-db/issues/39).
 
@@ -74,7 +74,7 @@ the rule says nothing. Three safeguards recur:
   a fair test.
 - **No unclaimed neighbour:** no other unclaimed registration is geocoded
   within 10 m of the candidate. Several registrations at one address
-  (rooms, units of a duplex, a registrant filing twice) look identical from a
+  (rooms, the halves of a duplex, a registrant filing twice) look identical from a
   coordinate, and the rules cannot tell which one a listing is.
 - **Host not already there:** the host prints no registration within reach on
   another listing. Where it does, the unlinked listing may be covered by that
@@ -107,7 +107,7 @@ The view makes one suggestion per listing. If two rules suggest different
 registrations, both are dropped. If one registration is suggested to several
 listings, it stands only when they share a host and at most one is an Entire
 home/apt: ten dormitory beds can share one hostel's registration, three
-condos cannot.
+entire homes cannot.
 
 **Tried and dropped** (validation, §3):
 
@@ -129,7 +129,7 @@ so it was not kept.
 within 200 m are taken as correctly linked. Each rule runs as if the listing
 printed nothing, and is scored on whether it suggests the printed
 registration. The results are the table in the summary. Only 4 are wrong, and
-all are the right address with the wrong unit:
+all are the right address with the wrong dwelling or room:
 
 - Three [Sourdough Sue's][814633890883170819] listings print [STR20260430];
   `title` suggests [STR20260429], the same registrant at the same address.
@@ -173,10 +173,12 @@ contradicted; 15 are confirmed by independent evidence:
 | Consistent, not confirmed | 17 | Ten dormitory beds at [STR20261461] ("mojo Airbnb", 1069 W 25th Ave), and seven Entire home/apt or room listings 3 to 23 m from a lone registration whose name says nothing, such as "[Midnight Sun Loft][973309104095598055]" and [STR20261778] ("BR Rentals"), 23 m away, which prints [STR20261886] 3.8 km away |
 | Contradicted | 0 | |
 
-The dropped hits read the same way. Three Evolve condos ([1][51902855],
+The dropped hits read the same way. Three Evolve listings ([1][51902855],
 [2][675919597906848951], [3][1650797199392143518]) are each within 30 m of
-[STR20262416], 315 E St, and nothing else. At most one of them can be that
-registration, so the view suggests it to none.
+[STR20262416], 315 E St, and nothing else. The third, "2 Adjoining Condos",
+is a combo of the first two ([combo-listings](../combo-listings/README.md)),
+so they are two dwellings and one registration. At most one dwelling can be
+that registration, so the view suggests it to none.
 
 **Cases the rules decline, correctly:**
 
@@ -192,6 +194,10 @@ registration, so the view suggests it to none.
   Shaligo AK Stays holds 10 registrations ([STR20262240] and rooms 2 to 10),
   6 of them unclaimed. The printed id is 1.5 km away, so the listing is a
   target, and every rule declines: too many registrations at one address.
+  The address, and so the dwelling, is still certain, which is what
+  [rental-units](../rental-units/README.md#4-linking-listings-to-registrations)
+  uses. This view suggests registrations, not addresses, so it has nothing
+  to say.
 
 ## 4. Proposed view
 
@@ -240,14 +246,6 @@ had already called "likely the wrong id".
 - No AI step is proposed. If one is added later, it should only choose among
   the candidates these rules already list, one listing at a time, with its
   choice logged next to the rule output.
-
-## Proposed vocabulary
-
-The maintainer proposed two words for [CONTEXT.md](../../../CONTEXT.md),
-used above only in §2 and §3: a **dwelling** is a home or apartment that could
-be a long-term rental, and a **room** is a strict subset of a dwelling.
-CONTEXT.md currently lists both under _Avoid_ for **unit**, so they need to
-be added there before code uses them.
 
 ## Limits
 
