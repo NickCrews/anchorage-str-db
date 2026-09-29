@@ -91,7 +91,9 @@ relation is a graph, and "combo/component" doesn't imply otherwise.
 - `dwellings_covered`: how many dwellings it covers (5BR Compound: 3; a
   whole-house listing over three room listings: 1).
 
-Detecting combos is [#38][issue-38].
+[combo-listings](../combo-listings/README.md) detects combos from their
+calendars: 28 combo listings and 45 component listings, 70 of the 2,468
+active listings (2.8%).
 
 ## 2. How far listings and registrations are from dwellings
 
@@ -112,7 +114,8 @@ Of 2,468 active listings:
   building, 400 Turpin St, Unit 8 is 4 in one apartment,
   and the [Shaligo host][450844916] has 11 across three houses (§4).
 - **Combos:** 168 entire-home listings (6.8%) share a host and a
-  registration id with another entire-home listing. Combos are among them.
+  registration id with another entire-home listing. Combos are among them;
+  [combo-listings](../combo-listings/README.md) finds 28.
   Names alone mark 13 listings as combos or whole buildings. Examples:
   "[AK Village- 4 unit combo][919861119846421474]", "[The Monarch Estate |
   Sprawling 9BR Compound][1197715784748015844]" over its 6BR upper and 3BR
@@ -457,8 +460,9 @@ Inn's dwelling gets eight room rows, each with an `is` listing. Per the
 3. **Host-sibling address** (§4): same host, one candidate address among
    the host's cited registrations, exact coordinate or a tight cluster.
    This also corrects wrong ids.
-4. **Combo detection** ([#38][issue-38]): a combo listing becomes `covers`
-   rows over the dwellings its components belong to.
+4. **Combo detection** ([combo-listings](../combo-listings/README.md)): a
+   combo listing becomes `covers` rows over the dwellings its components
+   belong to.
 5. **Spatial with one candidate:** an exact coordinate within 30 m of
    exactly one registration, of a dwelling no listing is in.
 6. **Otherwise the record is its own dwelling,** flagged as known to one
