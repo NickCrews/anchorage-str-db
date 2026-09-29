@@ -8,8 +8,8 @@ LOAD spatial;
 SET geometry_always_xy = false;
 
 -- Setup 1: every active listing's current calendar from the latest run on,
--- with each night's not-available run. A run is a stretch of consecutive
--- not-available nights. An interior run starts after the first night of the
+-- with each night's not-available stretch. A stretch is a stretch of consecutive
+-- not-available nights. An interior stretch starts after the first night of the
 -- window and ends before the last, so both of its edges are observed.
 CREATE OR REPLACE TEMP TABLE nights AS
 WITH c AS (
@@ -20,7 +20,7 @@ WITH c AS (
 ), numbered AS (
     SELECT
         *,
-        sum(changed) OVER (PARTITION BY listing_id ORDER BY night_date) AS run_no
+        sum(changed) OVER (PARTITION BY listing_id ORDER BY night_date) AS stretch_no
     FROM (
         SELECT
             *,
@@ -30,25 +30,25 @@ WITH c AS (
 ), bounded AS (
     SELECT
         *,
-        min(night_date) OVER w AS run_start,
-        max(night_date) OVER w AS run_end
+        min(night_date) OVER w AS stretch_start,
+        max(night_date) OVER w AS stretch_end
     FROM numbered
-    WINDOW w AS (PARTITION BY listing_id, run_no)
+    WINDOW w AS (PARTITION BY listing_id, stretch_no)
 )
 SELECT
     listing_id,
     night_date,
     not_available,
-    run_no,
+    stretch_no,
     not_available
-        AND run_start > (SELECT min(night_date) FROM c)
-        AND run_end < (SELECT max(night_date) FROM c) AS in_interior_run
+        AND stretch_start > (SELECT min(night_date) FROM c)
+        AND stretch_end < (SELECT max(night_date) FROM c) AS in_interior_stretch
 FROM bounded;
 
-CREATE OR REPLACE TEMP TABLE interior_runs AS
-SELECT listing_id, run_no, min(night_date) AS run_start, max(night_date) AS run_end
+CREATE OR REPLACE TEMP TABLE interior_stretches AS
+SELECT listing_id, stretch_no, min(night_date) AS stretch_start, max(night_date) AS stretch_end
 FROM nights
-WHERE in_interior_run
+WHERE in_interior_stretch
 GROUP BY ALL;
 
 -- Setup 2: active listings with bedrooms as a number. Studio is 0, and a room
@@ -102,8 +102,8 @@ JOIN sized k
 -- Setup 4: calendar evidence per candidate pair.
 --   violations: nights the component is not available and the combo is.
 --     A true component has none: while it is taken, the combo cannot be.
---   matched_runs: the component's interior runs that the combo repeats
---     exactly, not available on every night of the run and available on
+--   matched_stretches: the component's interior stretches that the combo repeats
+--     exactly, not available on every night of the stretch and available on
 --     the night before and the night after.
 CREATE OR REPLACE TEMP TABLE pair_evidence AS
 WITH night_counts AS (
@@ -117,21 +117,21 @@ WITH night_counts AS (
     JOIN nights c ON c.listing_id = p.combo_listing_id
     JOIN nights k ON k.listing_id = p.component_listing_id AND k.night_date = c.night_date
     GROUP BY ALL
-), run_counts AS (
+), stretch_counts AS (
     SELECT
         p.combo_listing_id,
         p.component_listing_id,
-        count(*) AS component_interior_runs,
-        count(*) FILTER (WHERE covered.all_not_available AND before.not_available = false AND after.not_available = false) AS matched_runs
+        count(*) AS component_interior_stretches,
+        count(*) FILTER (WHERE covered.all_not_available AND before.not_available = false AND after.not_available = false) AS matched_stretches
     FROM candidate_pairs p
-    JOIN interior_runs r ON r.listing_id = p.component_listing_id
+    JOIN interior_stretches r ON r.listing_id = p.component_listing_id
     JOIN LATERAL (
         SELECT bool_and(n.not_available) AS all_not_available
         FROM nights n
-        WHERE n.listing_id = p.combo_listing_id AND n.night_date BETWEEN r.run_start AND r.run_end
+        WHERE n.listing_id = p.combo_listing_id AND n.night_date BETWEEN r.stretch_start AND r.stretch_end
     ) covered ON true
-    LEFT JOIN nights before ON before.listing_id = p.combo_listing_id AND before.night_date = r.run_start - 1
-    LEFT JOIN nights after ON after.listing_id = p.combo_listing_id AND after.night_date = r.run_end + 1
+    LEFT JOIN nights before ON before.listing_id = p.combo_listing_id AND before.night_date = r.stretch_start - 1
+    LEFT JOIN nights after ON after.listing_id = p.combo_listing_id AND after.night_date = r.stretch_end + 1
     GROUP BY ALL
 )
 SELECT
@@ -139,31 +139,31 @@ SELECT
     n.component_not_available,
     n.combo_not_available,
     n.violations,
-    coalesce(r.component_interior_runs, 0) AS component_interior_runs,
-    coalesce(r.matched_runs, 0) AS matched_runs,
+    coalesce(r.component_interior_stretches, 0) AS component_interior_stretches,
+    coalesce(r.matched_stretches, 0) AS matched_stretches,
     regexp_matches(
         p.combo_name,
         '(?i)\bcombo\b|compound|full (duplex|house|building|home)|entire (duplex|building)|entire apts|whole house|both units|\d+[ -]units?\b|two units|adjoining|houses in 1|double house'
     ) AS combo_name_says_combo
 FROM candidate_pairs p
 JOIN night_counts n USING (combo_listing_id, component_listing_id)
-LEFT JOIN run_counts r USING (combo_listing_id, component_listing_id);
+LEFT JOIN stretch_counts r USING (combo_listing_id, component_listing_id);
 
 -- Setup 5: the detection rule, in three steps.
---   linked: same host, at most 2 violations, at least 1 matched run.
---   strong: linked, and 2+ matched runs, or the same registration id, or a
---     combo name that says it combines units.
+--   linked: same host, at most 2 violations, at least 1 matched stretch.
+--   strong: linked, and 2+ matched stretches, or the same registration id, or a
+--     combo name that says it combines dwellings.
 --   sibling: a strong pair whose component is also a strong component of a
 --     bigger listing, and whose combo name does not say combo. Two dwellings
---     of one combo share every run the combo puts on both, so the bigger of
+--     of one combo share every stretch the combo puts on both, so the bigger of
 --     the two can look like it covers the smaller.
 CREATE OR REPLACE TEMP TABLE detected AS
 WITH linked AS (
     SELECT
         *,
-        matched_runs >= 2 OR same_registration OR combo_name_says_combo AS strong
+        matched_stretches >= 2 OR same_registration OR combo_name_says_combo AS strong
     FROM pair_evidence
-    WHERE same_host AND violations <= 2 AND matched_runs >= 1
+    WHERE same_host AND violations <= 2 AND matched_stretches >= 1
 )
 SELECT
     l.*,
@@ -198,12 +198,12 @@ INSERT INTO verdicts VALUES
     (603643425786065443, 619620258985541322, 'no', 'Lark St: separate apartments'),
     (647038672219247651, 989940972825044148, 'unsure', 'Creekside home and getaway, 5 m apart'),
     (650703417901647620, 650740675048189290, 'unsure', 'both not available on 95% of nights'),
-    (656318860846776577, 645953498616566832, 'yes', 'M St 3BR Combo covers the 2-bedroom unit'),
+    (656318860846776577, 645953498616566832, 'yes', 'M St 3BR Combo covers the 2-bedroom dwelling'),
     (669776495319133526, 934124969732923338, 'unsure', 'two private-room listings, same calendar'),
     (671080169206801340, 646665488318641326, 'yes', 'Double house, 2 + 1 bedrooms'),
     (671080169206801340, 671024040847617580, 'yes', 'Double house, 2 + 1 bedrooms'),
-    (710295528067536426, 710134390747537081, 'yes', 'Full Duplex covers each unit'),
-    (710295528067536426, 710280902480078850, 'yes', 'Full Duplex covers each unit'),
+    (710295528067536426, 710134390747537081, 'yes', 'Full Duplex covers each half'),
+    (710295528067536426, 710280902480078850, 'yes', 'Full Duplex covers each half'),
     (720964186611110453, 645953498616566832, 'yes', 'M St compound'),
     (720964186611110453, 656318860846776577, 'yes', 'M St compound covers the 3BR Combo'),
     (720964186611110453, 671779791243926274, 'yes', 'M St compound'),
@@ -229,8 +229,8 @@ INSERT INTO verdicts VALUES
     (1197715784748015844, 1206608250708549650, 'yes', 'Monarch Estate covers the upper level'),
     (1206608250708549650, 1206608243376149637, 'no', 'siblings: upper and lower level'),
     (1235049055699961332, 1694422977155081248, 'yes', 'Grand Estate at 8 and 5+ bedrooms'),
-    (1267640044563959459, 1261077912615714433, 'unsure', 'duplex units and a studio at one pin'),
-    (1267735970296435055, 1261077912615714433, 'unsure', 'duplex units and a studio at one pin'),
+    (1267640044563959459, 1261077912615714433, 'unsure', 'duplex halves and a studio at one coordinate'),
+    (1267735970296435055, 1261077912615714433, 'unsure', 'duplex halves and a studio at one coordinate'),
     (1314700001186516881, 1314677612156468239, 'no', 'two apartments in one building'),
     (1369900679626004459, 1366269444071895718, 'yes', '"Suite and Cabin" covers the cabin'),
     (1373566734504523791, 33803798, 'yes', 'Grand Home Villa, 4 + 2 bedrooms'),
@@ -245,10 +245,10 @@ INSERT INTO verdicts VALUES
     (1627750104313503229, 1577709087926261623, 'yes', 'Entire Duplex, 2 + 2 bedrooms'),
     (1650797199392143518, 51902855, 'yes', '2 Adjoining Condos'),
     (1650797199392143518, 675919597906848951, 'yes', '2 Adjoining Condos'),
-    (1666150309545055104, 1211595658386858862, 'unsure', 'group getaway and a 2-bedroom at one pin'),
+    (1666150309545055104, 1211595658386858862, 'unsure', 'group getaway and a 2-bedroom at one coordinate'),
     (1671759924941130693, 1614545221246831723, 'yes', 'Cabin Duplex covers the Raven cabin'),
     (1703960498804079878, 1703929629875697758, 'unsure', 'Anchorage Villa 3- and 2-bedroom'),
-    (1756851965405362688, 1756785504151312235, 'unsure', 'lakeside house and studio, one run');
+    (1756851965405362688, 1756785504151312235, 'unsure', 'lakeside house and studio, one stretch');
 
 -- §1: the M St listings, their calendars and the evidence between them.
 SELECT listing_id, bedrooms, guest_capacity, name
@@ -261,19 +261,19 @@ FROM nights
 WHERE listing_id IN (645953498616566832, 671779791243926274, 645953306917476922, 656318860846776577, 720964186611110453)
 GROUP BY 1;
 
-SELECT listing_id, max(night_date) FILTER (WHERE run_no = 1) AS first_run_ends
+SELECT listing_id, max(night_date) FILTER (WHERE stretch_no = 1) AS first_stretch_ends
 FROM nights
 WHERE listing_id IN (645953498616566832, 671779791243926274, 645953306917476922, 656318860846776577, 720964186611110453)
 GROUP BY 1;
 
-SELECT n.listing_id, min(n.night_date) AS run_start, max(n.night_date) AS run_end
+SELECT n.listing_id, min(n.night_date) AS stretch_start, max(n.night_date) AS stretch_end
 FROM nights n
-WHERE n.in_interior_run
+WHERE n.in_interior_stretch
   AND n.listing_id IN (645953498616566832, 671779791243926274, 645953306917476922, 656318860846776577, 720964186611110453)
-GROUP BY n.listing_id, n.run_no
-ORDER BY run_start, n.listing_id;
+GROUP BY n.listing_id, n.stretch_no
+ORDER BY stretch_start, n.listing_id;
 
-SELECT combo_listing_id, component_listing_id, round(meters) AS meters, violations, component_interior_runs, matched_runs
+SELECT combo_listing_id, component_listing_id, round(meters) AS meters, violations, component_interior_stretches, matched_stretches
 FROM pair_evidence
 WHERE combo_listing_id IN (656318860846776577, 720964186611110453)
   AND component_listing_id IN (645953498616566832, 671779791243926274, 645953306917476922, 656318860846776577, 720964216940577112)
@@ -295,19 +295,19 @@ FROM nights;
 SELECT
     same_host,
     count(*) AS candidate_pairs,
-    count(*) FILTER (WHERE violations <= 2 AND matched_runs >= 1) AS linked,
-    count(*) FILTER (WHERE violations <= 2 AND matched_runs >= 1
-                       AND (matched_runs >= 2 OR same_registration OR combo_name_says_combo)) AS strong
+    count(*) FILTER (WHERE violations <= 2 AND matched_stretches >= 1) AS linked,
+    count(*) FILTER (WHERE violations <= 2 AND matched_stretches >= 1
+                       AND (matched_stretches >= 2 OR same_registration OR combo_name_says_combo)) AS strong
 FROM pair_evidence
 GROUP BY 1
 ORDER BY 1;
 
 -- §2: the cross-host pairs the rule would link, for inspection.
 SELECT combo_listing_id, component_listing_id, same_registration, round(meters) AS meters,
-       violations, matched_runs, combo_name, component_name
+       violations, matched_stretches, combo_name, component_name
 FROM pair_evidence
-WHERE NOT same_host AND violations <= 2 AND matched_runs >= 1
-ORDER BY matched_runs DESC;
+WHERE NOT same_host AND violations <= 2 AND matched_stretches >= 1
+ORDER BY matched_stretches DESC;
 
 -- §3: precision by step.
 SELECT
@@ -337,7 +337,7 @@ SELECT
     d.combo_bedrooms,
     d.component_bedrooms,
     d.violations,
-    d.matched_runs,
+    d.matched_stretches,
     left(replace(d.combo_name, chr(10), ' '), 45) AS combo_name,
     left(replace(d.component_name, chr(10), ' '), 45) AS component_name,
     v.note
@@ -415,7 +415,7 @@ FROM c
 GROUP BY 1
 ORDER BY 1;
 
--- §5: listings whose name says they combine units, and whether the rule
+-- §5: listings whose name says they combine dwellings, and whether the rule
 -- found components for them. A recall check the rule did not use to choose
 -- its thresholds. The rule does use the name, but only to promote a pair
 -- the calendars already linked.
@@ -433,16 +433,16 @@ SELECT
     left(replace(n.name, chr(10), ' '), 50) AS name,
     (SELECT count(*) FROM pair_evidence p WHERE p.combo_listing_id = n.listing_id AND p.same_host) AS same_host_candidates,
     (SELECT count(*) FROM pair_evidence p WHERE p.combo_listing_id = n.listing_id AND p.same_host AND p.violations <= 2) AS at_most_2_violations,
-    (SELECT count(*) FROM pair_evidence p WHERE p.combo_listing_id = n.listing_id AND p.same_host AND p.violations <= 2 AND p.component_interior_runs > 0) AS testable,
+    (SELECT count(*) FROM pair_evidence p WHERE p.combo_listing_id = n.listing_id AND p.same_host AND p.violations <= 2 AND p.component_interior_stretches > 0) AS testable,
     (SELECT count(*) FROM accepted a WHERE a.combo_listing_id = n.listing_id) AS accepted_components
 FROM named n
 ORDER BY accepted_components DESC, same_host_candidates DESC;
 
 -- §5: same-host pairs with no violations whose component has no interior
--- run, so the calendar cannot test them.
+-- stretch, so the calendar cannot test them.
 SELECT
     count(*) FILTER (WHERE violations <= 2) AS at_most_2_violations,
-    count(*) FILTER (WHERE violations <= 2 AND component_interior_runs = 0) AS untestable
+    count(*) FILTER (WHERE violations <= 2 AND component_interior_stretches = 0) AS untestable
 FROM pair_evidence
 WHERE same_host;
 
@@ -454,11 +454,11 @@ WITH window_nights AS (
     WHERE night_date >= (SELECT scrape_date FROM latest_scrape_date)
       AND listing_id IN (SELECT listing_id FROM listings_active)
 ),
-runs AS (
-    -- Interior not-available runs: both edges inside the window.
-    SELECT listing_id, min(night_date) AS run_start, max(night_date) AS run_end
+stretches AS (
+    -- Interior not-available stretches: both edges inside the window.
+    SELECT listing_id, min(night_date) AS stretch_start, max(night_date) AS stretch_end
     FROM (
-        SELECT *, sum(changed) OVER (PARTITION BY listing_id ORDER BY night_date) AS run_no
+        SELECT *, sum(changed) OVER (PARTITION BY listing_id ORDER BY night_date) AS stretch_no
         FROM (
             SELECT *, (not_available IS DISTINCT FROM lag(not_available)
                 OVER (PARTITION BY listing_id ORDER BY night_date))::int AS changed
@@ -466,7 +466,7 @@ runs AS (
         )
     )
     WHERE not_available
-    GROUP BY listing_id, run_no
+    GROUP BY listing_id, stretch_no
     HAVING min(night_date) > (SELECT min(night_date) FROM window_nights)
        AND max(night_date) < (SELECT max(night_date) FROM window_nights)
 ),
@@ -509,33 +509,33 @@ violations AS (
     GROUP BY ALL
 ),
 matched AS (
-    -- Component runs the combo repeats exactly: not available throughout,
+    -- Component stretches the combo repeats exactly: not available throughout,
     -- available the night before and the night after.
-    SELECT combo_listing_id, component_listing_id, count(*) AS matched_runs
+    SELECT combo_listing_id, component_listing_id, count(*) AS matched_stretches
     FROM (
-        SELECT p.combo_listing_id, p.component_listing_id, r.run_start
+        SELECT p.combo_listing_id, p.component_listing_id, r.stretch_start
         FROM pairs p
         JOIN (
-            SELECT *, unnest(generate_series(run_start - 1, run_end + 1, INTERVAL 1 DAY))::date AS night_date
-            FROM runs
+            SELECT *, unnest(generate_series(stretch_start - 1, stretch_end + 1, INTERVAL 1 DAY))::date AS night_date
+            FROM stretches
         ) r ON r.listing_id = p.component_listing_id
         JOIN window_nights n ON n.listing_night = (p.combo_listing_id, r.night_date)
         GROUP BY ALL
-        HAVING count(*) = r.run_end - r.run_start + 3
-           AND bool_and(n.not_available = (n.night_date BETWEEN r.run_start AND r.run_end))
+        HAVING count(*) = r.stretch_end - r.stretch_start + 3
+           AND bool_and(n.not_available = (n.night_date BETWEEN r.stretch_start AND r.stretch_end))
     )
     GROUP BY ALL
 ),
 strong AS (
-    SELECT p.*, v.violations, m.matched_runs
+    SELECT p.*, v.violations, m.matched_stretches
     FROM pairs p
     JOIN violations v USING (combo_listing_id, component_listing_id)
     JOIN matched m USING (combo_listing_id, component_listing_id)
     WHERE v.violations <= 2
-      AND (m.matched_runs >= 2 OR p.same_registration OR p.combo_name_says_combo)
+      AND (m.matched_stretches >= 2 OR p.same_registration OR p.combo_name_says_combo)
 )
 -- Drop siblings: a pair whose component has a bigger strong combo, unless
--- this combo's name says it combines units.
+-- this combo's name says it combines dwellings.
 SELECT * EXCLUDE (biggest_combo_bedrooms)
 FROM (
     SELECT *, max(combo_bedrooms) OVER (PARTITION BY component_listing_id) AS biggest_combo_bedrooms

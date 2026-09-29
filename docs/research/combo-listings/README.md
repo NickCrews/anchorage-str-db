@@ -1,22 +1,21 @@
 # Combo listings: which listings cover other listings
 
-Researched 2026-09-27 against `data/anchorage_str.duckdb`, latest run
-2026-09-26. Every count and example comes from a query in
-[queries.sql](queries.sql). Registration ids link to the Muni's license page,
-listing names to Airbnb. Answers
+As of the 2026-09-26 daily run in `data/anchorage_str.duckdb`. Every count
+and example comes from a query in [queries.sql](queries.sql). Registration
+ids link to the Muni's license page, listing names to Airbnb. Answers
 [#38](https://github.com/NickCrews/anchorage-str-db/issues/38).
 
 **Goal:** find the listings that combine other listings, link each to the
 listings it covers, and say how reliable the link is.
 
 **Summary:** The calendars can tell a combo from its components when a
-component has a not-available run with a start and an end inside the window,
+component has a not-available stretch with a start and an end inside the window,
 and the combo repeats it exactly. A rule built on that, same host and a
 registration id or name that backs it up, links 49 pairs. By hand, 43 are
 right, 0 are wrong and 6 cannot be decided from what we store. They make 28
 combo listings and 45 component listings, 70 listings in all, 2.8% of the
 2,468 active listings. The rule misses combos whose components have nothing
-on their calendar to test, such as the 1-bedroom unit of the 700 M St
+on their calendar to test, such as the 1-bedroom dwelling of the 700 M St
 triplex. It is good enough for a view that marks combos. It is not good
 enough to say that every other listing is atomic.
 
@@ -24,24 +23,15 @@ enough to say that every other listing is atomic.
 
 ## Words
 
-These are the terms the issue proposes. They are not yet in
-[CONTEXT.md](../../../CONTEXT.md), and two of them, dwelling and room, are on
-the _Avoid_ list of **Unit** there, so adopting them means settling that
-first.
+**Dwelling**, **room**, **combo listing**, **component listing** and
+**atomic listing** are defined in [CONTEXT.md](../../../CONTEXT.md), which
+also shows the 700 M St triplex as a worked example. This doc adds two words
+for the calendar. "Stretch" is used rather than "run", which CONTEXT.md
+reserves for one execution of a pipeline.
 
-- **Dwelling:** a home or apartment that could be a long-term rental.
-- **Room:** part of a dwelling rented on its own.
-- **Combo listing:** a listing that covers two or more other listings. It can
-  itself be part of a larger combo.
-- **Component listing:** a listing a combo listing covers.
-- **Atomic listing:** a listing that covers no other listing. It covers
-  exactly one dwelling or one room.
-
-This doc also uses two words for the calendar:
-
-- **Run:** consecutive not-available nights on one listing's calendar. An
-  **interior run** starts after the first night we hold and ends before the
-  last, so both of its edges are observed.
+- **Stretch:** consecutive not-available nights on one listing's calendar. An
+  **interior stretch** starts after the first night we hold and ends before
+  the last, so both of its edges are observed.
 - **Violation:** a night the component is not available and the combo is
   available. Whatever makes a component not available, a stay or the host,
   makes its combo not available too, so a true pair has none.
@@ -50,7 +40,7 @@ This doc also uses two words for the calendar:
 
 **[STR20261828], [one host][187849202]:**
 
-| Listing | Bedrooms | First run ends | Interior runs |
+| Listing | Bedrooms | First stretch ends | Interior stretches |
 | --- | --- | --- | --- |
 | [Bootlegger's Bungalow][645953498616566832] | 2 | 2027-04-29 | 2027-07-26 to 07-29 |
 | [Sleeping Lady Retreat][671779791243926274] | 2 | 2027-04-29 | 2027-06-02 to 06-03 |
@@ -60,7 +50,7 @@ This doc also uses two words for the calendar:
 
 All five are not available from the first night until late April or mid May.
 That stretch says nothing about which listing covers which. The two short
-runs do:
+stretches do:
 
 - The Bungalow's 4 nights in July show up, with the same edges, on the 3BR
   Combo and on the compound.
@@ -70,12 +60,12 @@ runs do:
 So the compound covers the Bungalow, Sleeping Lady and the 3BR Combo, and the
 3BR Combo covers the Bungalow but not Sleeping Lady. By bedrooms, the 3BR
 Combo is the Bungalow plus Captain Cook's Condo, and the compound is all
-three dwellings. But Captain Cook has no interior run, so its calendar cannot
+three dwellings. But Captain Cook has no interior stretch, so its calendar cannot
 confirm that. The rule links 4 of the 6 pairs the bedrooms imply and misses
 the two with Captain Cook.
 
 [Bootleggers Landing Villa][720964216940577112] shows the same registration
-id, is 377 m from the compound's pin and has 1 not-available night. Nothing
+id, is 377 m from the compound's coordinate and has 1 not-available night. Nothing
 links it to the others.
 
 ## 2. What each signal is worth
@@ -93,11 +83,11 @@ count is 1).
 - **Calendars, overlap.** Counting shared not-available nights does not work.
   Many listings are not available for months at the start of the window, as
   at M St, and any two such calendars overlap. Of the 456 same-host pairs
-  with at most 2 violations, 305 have a component with no interior run at
+  with at most 2 violations, 305 have a component with no interior stretch at
   all.
-- **Calendars, matched runs.** An interior run of the component that the
-  combo repeats exactly: not available on every night of the run, available
-  the night before and the night after. One matched run is weak alone, since
+- **Calendars, matched stretches.** An interior stretch of the component that the
+  combo repeats exactly: not available on every night of the stretch, available
+  the night before and the night after. One matched stretch is weak alone, since
   two listings are often not available on the same weekend. Two or more are
   rare by chance.
 - **Registration id.** Of the 28 combos found, 19 show an id one of their
@@ -116,18 +106,18 @@ count is 1).
 
 A pair (combo, component) is accepted when:
 
-1. **Linked:** same host; same registration id or pins within 500 m; the
-   combo has more bedrooms; at most 2 violations; at least 1 matched run.
-2. **Strong:** 2 or more matched runs, or the same registration id, or a
-   combo name that says it combines units.
+1. **Linked:** same host; same registration id or coordinates within 500 m; the
+   combo has more bedrooms; at most 2 violations; at least 1 matched stretch.
+2. **Strong:** 2 or more matched stretches, or the same registration id, or a
+   combo name that says it combines dwellings.
 3. **Not a sibling:** the component is not also a strong component of a
    listing with more bedrooms, unless this combo's name says combo. Two
-   dwellings inside one combo share every run the combo puts on both, so the
+   dwellings inside one combo share every stretch the combo puts on both, so the
    bigger one can look like it covers the smaller. The Monarch Estate's
    upper level seemed to cover its lower level this way.
 
-I checked all 66 linked pairs by hand from their names, bedrooms,
-registration ids, distance and calendars. I did not open the listing pages.
+All 66 linked pairs were checked by hand from their names, bedrooms,
+registration ids, distance and calendars, without opening the listing pages.
 
 | Step | Pairs | Right | Wrong | Cannot tell |
 | --- | --- | --- | --- | --- |
@@ -143,25 +133,25 @@ Accepted combos, beyond M St:
 
 | Combo | Components found | Evidence |
 | --- | --- | --- |
-| [The Jules Whole House][3457665], [STR20262385] | [Top Suite][13416604], [Room North][13416897], [Room South][13416993] | 2 matched runs each; the combo holds its own registration |
-| [Goldenview Retreat][48492935], [STR20261470] | 3 suites ([Arctic King][48531882], [Aerie][48532605], [Eagles Nest][48532925]) | same id; 1 to 4 matched runs |
-| [AK Village, 4 unit combo][919861119846421474], [STR20261907] | [Alaskan Double house][671080169206801340] and [Denali Double House, 3BR combo][919850596440235634], and the studios and 2-bedroom inside them | nested combos; 1 or 2 matched runs each |
-| [Alyeska 2-Unit Chalet][53574551], [STR20261245] | [Drift to the Lift][53560259] (3), [Walk Anywhere][53573226] (2) | 3 and 5 matched runs; 3 + 2 = 5 bedrooms |
+| [The Jules Whole House][3457665], [STR20262385] | [Top Suite][13416604], [Room North][13416897], [Room South][13416993] | 2 matched stretches each; the combo holds its own registration |
+| [Goldenview Retreat][48492935], [STR20261470] | 3 suites ([Arctic King][48531882], [Aerie][48532605], [Eagles Nest][48532925]) | same id; 1 to 4 matched stretches |
+| [AK Village, 4 unit combo][919861119846421474], [STR20261907] | [Alaskan Double house][671080169206801340] and [Denali Double House, 3BR combo][919850596440235634], and the studios and 2-bedroom inside them | nested combos; 1 or 2 matched stretches each |
+| [Alyeska 2-Unit Chalet][53574551], [STR20261245] | [Drift to the Lift][53560259] (3), [Walk Anywhere][53573226] (2) | 3 and 5 matched stretches; 3 + 2 = 5 bedrooms |
 | [Downtown Airbnb (Full Duplex)][710295528067536426], [STR20262081] | [Unit A][710280902480078850], [Unit B][710134390747537081] | name; 2 + 2 = 4 bedrooms; three registrations for one duplex |
-| [The Retreat at Moose Meadows][817510656719871504], [STR20260391] | [Mountain Chalet][815508132639490169] (4), [Hideaway][43819678] (2) | 8 and 6 matched runs |
-| [Hygge House (2 houses in 1!)][832278111770365732], [STR20262330] | [Bel-Hygge Chalet][52962848], [Hygge Hideaway][643585266500303881] | 3 and 6 matched runs; own registration |
-| [The Monarch Estate][1197715784748015844], [STR20261884] | [Upper Level][1206608250708549650], [Lower Level][1206608243376149637] | same id; 3 matched runs each |
-| [Anchorage Grand Home Downtown Villa][1373566734504523791], [STR20261322] | [Grand Four Bedroom][608445027482501945], [Elegant 2BR Suite][33803798] | 7 and 5 matched runs; 4 + 2 = 6 bedrooms |
-| [Spacious Duplex for 16+][1506589954006831604], [STR20260015] | [Serene Townhome][1506670448455178934] (3), [Modern 2BR Townhome][1506656780831589146] (2) | 3 and 2 matched runs; own registration |
-| [Entire Duplex! Downtown 4 Bdr][1627750104313503229], [STR20261766] | [WestChester Casa][843453113073260077], [South Addition Getaway][1577709087926261623] | 4 and 2 matched runs; own registration |
-| [Dtwn Anchorage Getaway: 2 Adjoining Condos][1650797199392143518] | [Modern Downtown Apt][51902855], [Idyllic Dtwn Condo][675919597906848951] | 5 and 4 matched runs; neither shows an id |
-| [Central Home w/hot tub][781561466237821991], [STR20260347] | [Cozy Arctic Den][558100013878090934] | 8 matched runs |
-| [Charming Cabin Duplex][1671759924941130693], [STR20260275] | [Garmisch Ski Cabin, Raven][1614545221246831723] | 12 matched runs |
+| [The Retreat at Moose Meadows][817510656719871504], [STR20260391] | [Mountain Chalet][815508132639490169] (4), [Hideaway][43819678] (2) | 8 and 6 matched stretches |
+| [Hygge House (2 houses in 1!)][832278111770365732], [STR20262330] | [Bel-Hygge Chalet][52962848], [Hygge Hideaway][643585266500303881] | 3 and 6 matched stretches; own registration |
+| [The Monarch Estate][1197715784748015844], [STR20261884] | [Upper Level][1206608250708549650], [Lower Level][1206608243376149637] | same id; 3 matched stretches each |
+| [Anchorage Grand Home Downtown Villa][1373566734504523791], [STR20261322] | [Grand Four Bedroom][608445027482501945], [Elegant 2BR Suite][33803798] | 7 and 5 matched stretches; 4 + 2 = 6 bedrooms |
+| [Spacious Duplex for 16+][1506589954006831604], [STR20260015] | [Serene Townhome][1506670448455178934] (3), [Modern 2BR Townhome][1506656780831589146] (2) | 3 and 2 matched stretches; own registration |
+| [Entire Duplex! Downtown 4 Bdr][1627750104313503229], [STR20261766] | [WestChester Casa][843453113073260077], [South Addition Getaway][1577709087926261623] | 4 and 2 matched stretches; own registration |
+| [Dtwn Anchorage Getaway: 2 Adjoining Condos][1650797199392143518] | [Modern Downtown Apt][51902855], [Idyllic Dtwn Condo][675919597906848951] | 5 and 4 matched stretches; neither shows an id |
+| [Central Home w/hot tub][781561466237821991], [STR20260347] | [Cozy Arctic Den][558100013878090934] | 8 matched stretches |
+| [Charming Cabin Duplex][1671759924941130693], [STR20260275] | [Garmisch Ski Cabin, Raven][1614545221246831723] | 12 matched stretches |
 
-The 10 wrong pairs are numbered units of one lot or building ("#1 Pendleton
+The 10 wrong pairs are numbered dwellings of one lot or building ("#1 Pendleton
 Cottage" and "#4 Slumber Village", Lark St apartments, Arbor du Nord 1B and
 1A), two ski condos under one property manager, and the three siblings. The
-strong step removes the first 7, which each have 1 matched run and no shared
+strong step removes the first 7, which each have 1 matched stretch and no shared
 id.
 
 The 6 undecided accepted pairs:
@@ -170,7 +160,7 @@ The 6 undecided accepted pairs:
   or one house listed twice;
 - two pairs among three Chugiak chalets whose sizes do not add up;
 - a Moose Meadow 3-bedroom and a 1-bedroom on one id;
-- a lakeside house and a studio with one matched run between them;
+- a lakeside house and a studio with one matched stretch between them;
 - two private-room listings, 6 and 3 bedrooms, with one calendar.
 
 ## 4. How many
@@ -187,21 +177,21 @@ The 6 undecided accepted pairs:
 - **Registrations.** 6 combos show a registration id none of their
   components shows: [STR20260015], [STR20260605], [STR20261766],
   [STR20262081], [STR20262330] and [STR20262385]. Each is a registration for
-  a space the component registrations already cover. 19 share an id with a
+  dwellings the component registrations already cover. 19 share an id with a
   component and 3 show none.
 
 ## 5. What it misses
 
-The rule needs a component with an interior run. 20 active listings match
+The rule needs a component with an interior stretch. 20 active listings match
 the name pattern of §2. 19 of them have a same-host candidate, and the rule
 found components for 14. The other 5:
 
 - [Penguin Ridge Estate, Full 4BR Duplex Compound][1493037319494937946]: its
-  two duplex halves have interior runs, and the estate is not available on
+  two duplex halves have interior stretches, and the estate is not available on
   all of them, but on none with the same edges.
 - [Raven Moon, 2 Entire Apts][34092705], [3 Units, Luxury Retreat][1224661897075721897]
   and [Entire Building, 6 Bedrooms][1737170677175033714]: their candidate
-  components have no interior run, or only one, to test.
+  components have no interior stretch, or only one, to test.
 - [St Moritz Compound][25818928] may be one house with a grand name.
 
 So the precision above is for the pairs found. Recall is unknown and
@@ -210,11 +200,11 @@ only presumed atomic.
 
 Two things would raise recall without changing the rule:
 
-- **More history.** The calendar history starts on 2026-09-24. A run that
+- **More history.** The calendar history starts on 2026-09-24. A stretch that
   appears on the combo and the component on the same run date, when both were
   available the day before, is the strongest evidence there is. Three days
   hold too few of these to use.
-- **The listing text.** A combo's description may name the units it
+- **The listing text.** A combo's description may name the dwellings it
   includes. We store the name and title but not the description.
 
 ## 6. Proposed view
@@ -231,11 +221,11 @@ WITH window_nights AS (
     WHERE night_date >= (SELECT scrape_date FROM latest_scrape_date)
       AND listing_id IN (SELECT listing_id FROM listings_active)
 ),
-runs AS (
-    -- Interior not-available runs: both edges inside the window.
-    SELECT listing_id, min(night_date) AS run_start, max(night_date) AS run_end
+stretches AS (
+    -- Interior not-available stretches: both edges inside the window.
+    SELECT listing_id, min(night_date) AS stretch_start, max(night_date) AS stretch_end
     FROM (
-        SELECT *, sum(changed) OVER (PARTITION BY listing_id ORDER BY night_date) AS run_no
+        SELECT *, sum(changed) OVER (PARTITION BY listing_id ORDER BY night_date) AS stretch_no
         FROM (
             SELECT *, (not_available IS DISTINCT FROM lag(not_available)
                 OVER (PARTITION BY listing_id ORDER BY night_date))::int AS changed
@@ -243,7 +233,7 @@ runs AS (
         )
     )
     WHERE not_available
-    GROUP BY listing_id, run_no
+    GROUP BY listing_id, stretch_no
     HAVING min(night_date) > (SELECT min(night_date) FROM window_nights)
        AND max(night_date) < (SELECT max(night_date) FROM window_nights)
 ),
@@ -286,33 +276,33 @@ violations AS (
     GROUP BY ALL
 ),
 matched AS (
-    -- Component runs the combo repeats exactly: not available throughout,
+    -- Component stretches the combo repeats exactly: not available throughout,
     -- available the night before and the night after.
-    SELECT combo_listing_id, component_listing_id, count(*) AS matched_runs
+    SELECT combo_listing_id, component_listing_id, count(*) AS matched_stretches
     FROM (
-        SELECT p.combo_listing_id, p.component_listing_id, r.run_start
+        SELECT p.combo_listing_id, p.component_listing_id, r.stretch_start
         FROM pairs p
         JOIN (
-            SELECT *, unnest(generate_series(run_start - 1, run_end + 1, INTERVAL 1 DAY))::date AS night_date
-            FROM runs
+            SELECT *, unnest(generate_series(stretch_start - 1, stretch_end + 1, INTERVAL 1 DAY))::date AS night_date
+            FROM stretches
         ) r ON r.listing_id = p.component_listing_id
         JOIN window_nights n ON n.listing_night = (p.combo_listing_id, r.night_date)
         GROUP BY ALL
-        HAVING count(*) = r.run_end - r.run_start + 3
-           AND bool_and(n.not_available = (n.night_date BETWEEN r.run_start AND r.run_end))
+        HAVING count(*) = r.stretch_end - r.stretch_start + 3
+           AND bool_and(n.not_available = (n.night_date BETWEEN r.stretch_start AND r.stretch_end))
     )
     GROUP BY ALL
 ),
 strong AS (
-    SELECT p.*, v.violations, m.matched_runs
+    SELECT p.*, v.violations, m.matched_stretches
     FROM pairs p
     JOIN violations v USING (combo_listing_id, component_listing_id)
     JOIN matched m USING (combo_listing_id, component_listing_id)
     WHERE v.violations <= 2
-      AND (m.matched_runs >= 2 OR p.same_registration OR p.combo_name_says_combo)
+      AND (m.matched_stretches >= 2 OR p.same_registration OR p.combo_name_says_combo)
 )
 -- Drop siblings: a pair whose component has a bigger strong combo, unless
--- this combo's name says it combines units.
+-- this combo's name says it combines dwellings.
 SELECT * EXCLUDE (biggest_combo_bedrooms)
 FROM (
     SELECT *, max(combo_bedrooms) OVER (PARTITION BY component_listing_id) AS biggest_combo_bedrooms
@@ -350,11 +340,9 @@ here means not found to be a combo (§5).
 
 ## Open questions
 
-- Settle dwelling and room in CONTEXT.md against **Unit**, which lists both
-  under _Avoid_.
 - Should the view keep only the latest calendar, or accumulate pairs across
   runs? A pair seen once stays true while both listings are active, and
-  history will add matched runs that later calendars have dropped.
+  history will add matched stretches that later calendars have dropped.
 - The undecided pairs need someone to open the listing pages. So does a
   sample of listings the rule calls atomic, to measure recall.
 
