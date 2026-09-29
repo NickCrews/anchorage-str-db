@@ -107,7 +107,7 @@ registry, the distance from Airbnb's pin to the registration's geocoded point
 | Total | 2,038 |
 
 Airbnb offsets approximate pins, and the median approximate pin is 92 m from
-its registration (see [rental-units](../rental-units/README.md#4-records-with-no-registration-id)).
+its registration (see [rental-units](../rental-units/README.md#4-linking-listings-to-registrations)).
 Nothing falls between 500 m and 1 km, so a 500 m cutoff separates Airbnb's
 offset from a different location. The 15 listings between 200 m and 500 m are
 not in the report. 9 listings cite a registration the geocoder could not place
@@ -143,6 +143,6 @@ STR20261520 appears twice: one of its listings has no name match nearby.
   each case.
 - A name match is a lead, not a confirmation. For a property manager with
   many registrations at one complex, such as Arctic Fox Vacation Rentals
-  (13 matches), it shows the listing belongs there but not which unit.
+  (13 matches), it shows the listing belongs there but not which dwelling.
 - Listings with no id, or an id not in the registry, are out of scope.
 - Data is from one day: listings 2026-09-14, registry published 2026-09-07.

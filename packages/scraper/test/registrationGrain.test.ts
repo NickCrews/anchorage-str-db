@@ -3,10 +3,10 @@
  * rather than assumed.
  *
  * It is tempting to read a registration as one row per (registrant, address),
- * or per (registrant, address, unit), and to group listings or count units on
- * that basis. The layer does not work that way: the registrant decides what to
- * file, so the same registrant files several registrations at one address, and
- * one registration can cover a whole building. No tuple keys a registration
+ * or per (registrant, address, unit designator), and to group listings or count
+ * dwellings on that basis. The layer does not work that way: the registrant
+ * decides what to file, so the same registrant files several registrations at
+ * one address, and one registration can cover a whole building. No tuple keys a registration
  * but its own `registration_id`.
  *
  * A failure here is not a flake: it means the Muni changed what a registration
@@ -14,7 +14,7 @@
  * revisiting. Measured 2026-09-15, when the layer held 2,564 registrations and
  * 115 (registrant, address) pairs held 293 of them.
  *
- * The other direction — one registration covering many units — is an Airbnb
+ * The other direction — one registration covering many rooms or dwellings — is an Airbnb
  * fact rather than a layer one (STR20261701 is cited by 8 private-room
  * listings), so it is evidenced in docs/research/rental-units/README.md.
  */
@@ -69,9 +69,9 @@ describe('what a registration covers', () => {
     expect(shared.length).toBeGreaterThan(50);
   });
 
-  it('can be finer than one unit: 400 Turpin St Unit 8 is registered per bedroom', () => {
-    // One registrant, one apartment, one registration per bedroom. A unit
-    // count that trusts the registration grain reads this as four units.
+  it('can be finer than one dwelling: 400 Turpin St Unit 8 is registered per bedroom', () => {
+    // One registrant, one apartment, one registration per bedroom. A dwelling
+    // count that trusts the registration grain reads this as four dwellings.
     const turpin = registrations.filter((r) => /400 Turpin St/i.test(r.registeredAddress ?? ''));
     expect(turpin.length).toBeGreaterThan(1);
     expect(new Set(turpin.map((r) => text(r.businessName))).size).toBe(1);

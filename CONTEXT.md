@@ -20,43 +20,78 @@ field.
 
 ### What is rented
 
-**Unit**:
-A physical space rented as a whole — a house, an apartment, a cabin, a
-bedroom in an occupied home. What it is used for is a separate question: a
-unit may be a short-term rental, a long-term rental, or owner-occupied. Every
-STR is a unit; most units are not STRs, and nothing here sees the ones that
-are not. The cross-source concept: a unit may have listings on several
-platforms, a registration, both, or neither. No table holds units; see
-[rental-units](./docs/research/rental-units/README.md) for why grouping
-records into them is unsolved.
-_Avoid_: property, rental, dwelling, room, STR, home
+**Dwelling**:
+Short for dwelling unit: a house, apartment, cabin or accessory unit that
+could be rented long-term — Title 21's "separate residence for one household"
+with its own sleeping, eating, cooking and sanitation. What it is used for is
+a separate question: a dwelling may be a short-term rental, a long-term
+rental, or owner-occupied, and nothing here sees the ones that are not STRs.
+The cross-source concept: a dwelling may have listings on several platforms,
+a registration, both, or neither. No table holds dwellings yet; see
+[rental-units](./docs/research/rental-units/README.md) for the design
+([#40](https://github.com/NickCrews/anchorage-str-db/issues/40)).
+_Avoid_: unit, property, rental, home, STR
+
+**Room**:
+A room inside a dwelling, rented on its own. Always part of exactly one
+dwelling, and never rentable long-term by itself, so it takes no housing off
+the long-term market unless its whole dwelling goes with it. Dwellings and
+rooms are the only two kinds of thing a listing covers.
+_Avoid_: unit, bedroom (except quoting a source), space
 
 **STR**:
-Short-term rental: a unit rented out for stays shorter than 30 days, which is
-what the Muni requires a registration for. As with units above, this database
-cannot give an accurate picture of these; estimate from listings and
-registrations, which are what it holds. An adjective, not a countable thing:
-an "STR registration", never "2,600 STRs".
-_Avoid_: using it to mean a listing or a unit
+Short-term rental: a dwelling or room rented out for stays shorter than 30
+days, which is what the Muni requires a registration for — the ordinance's
+"separate and distinct living unit", which explicitly includes a bedroom. As
+with dwellings above, this database cannot give an accurate picture of these;
+estimate from listings and registrations, which are what it holds. An
+adjective, not a countable thing: an "STR registration", never "2,600 STRs".
+_Avoid_: using it to mean a listing, a dwelling or a room
 
 **Listing**:
 One Airbnb page a guest can book, identified by `listing_id`. Neither
 direction is one-to-one, and both counterexamples are in the data rather than
-hypothetical: one unit can carry several listings on one platform — 4011
+hypothetical: one dwelling can carry several listings on one platform — 4011
 Turnagain Blvd E Unit 4A is listed twice, by a property manager and by the
-owner, from two host accounts — and one listing can cover several units —
-STR20261828's triplex is listed whole as well as by unit, and booking the
+owner, from two host accounts — and one listing can cover several dwellings —
+STR20261828's triplex is listed whole as well as by dwelling, and booking the
 whole makes the others unavailable. See
-[rental-units](./docs/research/rental-units/README.md) §1 and §3.
+[rental-units](./docs/research/rental-units/README.md).
 _Avoid_: room, rental, ad, property, STR, unit
 
+**Combo listing**, **component listing**, **atomic listing**:
+A **combo listing** covers two or more other listings. The listings it
+covers are its **component listings**. An **atomic listing** covers no other
+listing, and so covers exactly one dwelling or one room. Whether a listing
+covers others and whether it is covered by one are independent questions,
+and a listing can be a component of several combos, so this is a graph, not
+a tree.
+
+The 700 M St triplex (STR20261828), by bedroom count:
+
+| Listing | Bedrooms | Covers | Covered by |
+| --- | --- | --- | --- |
+| Bootlegger's Bungalow | 2 | — (atomic) | 3BR Combo, 5BR Compound |
+| Captain Cook's Condo | 1 | — (atomic) | 3BR Combo, 5BR Compound |
+| Sleeping Lady Retreat | 2 | — (atomic) | 5BR Compound |
+| M Street 3BR Combo | 3 | Bungalow, Condo | 5BR Compound |
+| M Street Triplex \| Full 5BR Compound | 5 | all of the above | — |
+
+The three atomic listings are the triplex's three dwellings. The 3BR Combo
+is both a combo and a component. Nothing in the data marks a combo yet
+([#38](https://github.com/NickCrews/anchorage-str-db/issues/38)); the sixth
+listing at the address, Bootleggers Landing Villa, fits none of these slots
+and is undecided.
+_Avoid_: parent/child listing, bundle, package, divisible
+
 **Listing type**:
-How much of a unit a listing covers, `listing_type`. The values are Airbnb's
-display text, stored verbatim: `Entire home/apt`, `Private room`, `Shared
-room`, `Hotel room`. Airbnb's own key is `roomType`, which is why the parser
-reads that word and nothing else does — the concept belongs to the listing,
-and it is Airbnb's alone. A unit-level equivalent would need its own values,
-since housing policy has no use for hotel rooms or single rooms.
+How much of a dwelling a listing covers, `listing_type`. The values are
+Airbnb's display text, stored verbatim: `Entire home/apt`, `Private room`,
+`Shared room`, `Hotel room`. Airbnb's own key is `roomType`, which is why the
+parser reads that word and nothing else does — the concept belongs to the
+listing, and it is Airbnb's alone. It is not the dwelling-or-room split: an
+`Entire home/apt` listing can be a combo over several dwellings, and Airbnb
+labels some apartments `Private room`.
 _Avoid_: room type, property type, rental type
 
 **Night**:
@@ -80,8 +115,8 @@ though they may be the same person. Co-hosts are not recorded.
 _Avoid_: operator, owner, property manager, landlord, account, user
 
 **Owner**:
-The legal owner of a unit. Not in this database — neither source publishes
-it. Say so rather than substituting host or registrant.
+The legal owner of a dwelling or room. Not in this database — neither source
+publishes it. Say so rather than substituting host or registrant.
 _Avoid_: using it for host or registrant
 
 **Registrant**:
@@ -99,12 +134,12 @@ _Avoid_: applicant, registrant, business, license holder
 **Portfolio**:
 What one party holds. Both halves are ambiguous on their own, so name them
 unless the sentence has already fixed both: whose it is (**host** or
-**owner**) and what is counted (**listings** or **units**). A host listing
-portfolio and an owner unit portfolio are different measurements, and this
+**owner**) and what is counted (**listings** or **dwellings**). A host listing
+portfolio and an owner dwelling portfolio are different measurements, and this
 database can only compute the first.
 
 A portfolio is everything the party holds, wherever it is. A host running
-forty units from Palmer has a portfolio of forty, and that is the number an
+forty dwellings from Palmer has a portfolio of forty, and that is the number an
 operator question wants. No threshold separating a hobbyist from a commercial
 operator is stored — that line is drawn downstream.
 
@@ -136,11 +171,18 @@ _Avoid_: permit, certificate, license, registration number, STR number
 — (registrant, address), (registrant, address, listing type), or another — as
 its key. The registrant decides what to file, and both directions occur:
 
-- One registration, many units: STR20261701 (189 Hightower Rd, Girdwood)
-  covers 8 private-room listings.
-- Many registrations, one unit and one registrant: 7901 Highlander Dr holds
+- One registration, many rooms: STR20261701, the Ski Inn (189 Hightower
+  Rd, Girdwood), covers 8 private-room listings.
+- One registration, many dwellings: STR20261828 (700 M St) covers a
+  triplex and the combo listings over it.
+- Many registrations, one dwelling and one registrant: 7901 Highlander Dr holds
   four registrations under Nordic Lodgings LLC, all with the same address
   string, and 400 Turpin St Unit 8 holds one per bedroom.
+
+The ordinance (AMC 10.90.010, from AO 2025-115(S-2)) asks for one
+registration per "separate and distinct living unit", bedrooms included, so
+Turpin St is the literal reading and the Ski Inn the exception; see
+[rental-units](./docs/research/rental-units/README.md).
 
 On 2026-09-15, 115 (registrant, address) pairs held more than one of the
 2,564 active registrations, covering 293 of them.
@@ -187,7 +229,7 @@ Retreat, read 2026-09-15:
 
 The three are one-to-one-to-one. That is about the three numbering systems
 and nothing else: it says these ids name one record, not that the record
-names one unit, one listing or one registrant. What a registration covers is
+names one dwelling, one room, one listing or one registrant. What a registration covers is
 the question above, and the answer there is that it has no fixed grain.
 On 2026-09-15 the layer held 2,564
 registrations, 2,564 distinct `license_id`s and 2,564 distinct
@@ -238,9 +280,12 @@ given by the registrant — its coordinate, `geocoded_address`,
 ### Lifecycle
 
 **Operating**:
-Of a unit: being rented as an STR. A fact about the world, not about this
-data — a unit operating without a registration or a listing is invisible
-here, and the closest this database gets to the word is an active listing.
+Of a dwelling or room: actually rented out as an STR. A fact about the
+world, which this database can only estimate. A dwelling or room can
+operate with no listing and no registration, and then it is invisible here. The nearest
+thing we observe is an active listing, which is evidence of operating but
+not proof: a listing can stay in search while its host takes no bookings.
+Operating describes the dwelling or room; active describes a record.
 _Avoid_: active, running, in business, live
 
 **Active**:
@@ -248,7 +293,7 @@ Of a listing: still appearing in search, within `RETIREMENT_GRACE_DAYS` of
 the latest completed run (`is_active`, `listings_active`). Of a registration:
 in the latest registry run's layer, which holds only active registrations.
 The word for "still out there" in schema and UI alike, at the grain of one
-record: a listing was active from June 2025, a unit is operating. Licenses
+record: a listing was active from June 2025, a dwelling is operating. Licenses
 are valid or expired instead; neither is a synonym for this.
 _Avoid_: current, live, operating, open, in service
 

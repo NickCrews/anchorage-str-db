@@ -14,7 +14,8 @@ Anchorage, Alaska, for answering questions like:
 - One DuckDB file, `anchorage_str.duckdb`, with daily snapshots of listings
   and calendar availability, and of the Municipality's STR registrations
 - Policy queries in `docs/policy_questions.sql`
-- A browser viewer in `packages/ui/`
+- A browser viewer in `packages/ui/`, published at
+  <https://nickcrews.github.io/anchorage-str-db/>
 
 ## Quick start
 
@@ -77,7 +78,7 @@ CityView license pages). Views have no prefix.
   `first_review_date` and `first_seen_date`: the listing existed on or before
   it. It is an estimate that can only be late: a listing with no reviews from
   before `first_seen_date` looks as new as the day it was first scraped.
-  - `listing_type`: how much of a unit the listing covers, in Airbnb's text
+  - `listing_type`: how much of a dwelling the listing covers, in Airbnb's text
     as written: `Entire home/apt`, `Private room`, `Shared room`,
     `Hotel room`. `property_title` (`Cabin in Palmer`) describes the
     building instead.
