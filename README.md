@@ -91,21 +91,30 @@ CityView license pages). Views have no prefix.
 - `airbnb_host_observations`: one row per host per scrape date for every host with
   a listing observed that day: the public profile card from the listing page
   (display name, bio, `timeAsHost`), and whether it was read
-  (`profile_read_ok`)
+  (`profile_read_ok`); and `listings_anywhere`, the number of listings on the
+  host's Airbnb profile, in or outside the Municipality, and whether that was
+  read (`listings_anywhere_read_ok`)
 - `hosts` *(view)*: one row per host version, derived from
   `airbnb_host_observations` the way `listings` is derived from
   `airbnb_listing_observations`. A name or bio change opens a version; a failed read
   carries the last one forward. `hosting_started_on` is derived from
   `timeAsHost`, which Airbnb reports in whole months, so it can be up to a
   month late.
-- `host_listing_portfolios` *(view)*: per host per scrape date, `listings_active` and
-  `listings_ever_seen`: each host's Anchorage listing portfolio. Counts only
-  listings inside the Municipality, so a host with 2 here and 40 elsewhere
-  reads as 2 — their true portfolio is not in this database
-  ([#34](https://github.com/NickCrews/anchorage-str-db/issues/34)). No threshold marking
-  where a casual host ends and a commercial one begins is stored.
+- `host_listing_portfolios` *(view)*: per host per scrape date, two
+  portfolios side by side:
+  - `listings_active` and `listings_ever_seen`: the host's Anchorage listing
+    portfolio, counting only listings inside the Municipality. A host with 2
+    here and 40 elsewhere reads as 2.
+  - `listings_anywhere`: every listing on the host's Airbnb profile, wherever
+    it is, so 42 for that host. The latest successful read on or before
+    `scrape_date`, carried forward past a failed one; `listings_anywhere_read_date`
+    says when it was read. NULL before a host's first read.
+
+  No threshold marking where a casual host ends and a commercial one begins
+  is stored.
 - `listings_active_with_host` *(view)*: `listings_active` plus the host's
   name, years hosting, and portfolio counts as of the latest run
+  (`host_listings_active`, `host_listings_ever_seen`, `host_listings_anywhere`)
 - `calendar_current` *(view)*: the current version of each night. Use this
   instead of `airbnb_calendar_status` for "how many listings had calendar
   data that night, and how many of those were available"; it drops the frozen

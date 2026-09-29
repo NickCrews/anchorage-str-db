@@ -8,7 +8,7 @@ import { connect, LegacySchemaError } from '../src/connect.ts';
 import { Database } from '../src/database.ts';
 
 /** Migrations in `../drizzle`; every `connect` should end with exactly these applied. */
-const MIGRATION_COUNT = 4;
+const MIGRATION_COUNT = 5;
 
 const temporary: string[] = [];
 const open: Database[] = [];

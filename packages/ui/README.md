@@ -16,11 +16,12 @@ Queries run in the browser with
   Airbnb's approximate pins.
 - **Listings**: a searchable table of active listings with a cover-photo
   thumbnail, listing type, their latest rating, review count and price quote,
-  host name, years hosting, the host's portfolio size, registration status
+  host name, years hosting, the host's listing counts in Anchorage and
+  anywhere on Airbnb, registration status
   with the registered address and parcel, and estimated first-available date.
   Filters by registration status.
 - **Hosts**: a searchable table of Airbnb hosts with active listings: listing
-  count, distinct registration ids, listings per registration status, and
+  count, listings anywhere on Airbnb, distinct registration ids, listings per registration status, and
   the business names on the registrations their listings cite. Filters to
   hosts with 2+ listings or with listings that show no number.
 - **Registrations**: a searchable table of the Muni's STR registrations with

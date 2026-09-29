@@ -466,8 +466,9 @@ ORDER BY
 -- ============================================================
 -- Host listing portfolios. `host_listing_portfolios` stores counts only; the cutoffs below
 -- are choices, swept rather than fixed.
--- Scope: an Anchorage listing portfolio -- only listings inside the
--- Municipality are counted. A
+-- Scope: `listings_active` and `listings_ever_seen` are an Anchorage listing
+-- portfolio -- only listings inside the Municipality are counted.
+-- `listings_anywhere` counts every listing on the host's profile. A
 -- `host_id` is an Airbnb account, so a property manager's account can list
 -- for many owners. Listings with no known host are left out.
 -- ============================================================
@@ -554,6 +555,62 @@ LIMIT
     25;
 
 -- ============================================================
+-- Q: Which hosts hold far more listings than they hold here?
+-- The gap is listings outside the Municipality. Both counts are as of the
+-- latest run; `listings_anywhere` may be from an earlier read.
+-- ============================================================
+SELECT
+    host_id,
+    listings_active AS listings_in_anchorage,
+    listings_anywhere,
+    listings_anywhere - listings_active AS listings_elsewhere,
+    listings_anywhere_read_date
+FROM
+    host_listing_portfolios
+WHERE
+    scrape_date = (SELECT scrape_date FROM latest_scrape_date)
+    AND listings_active > 0
+ORDER BY
+    listings_elsewhere DESC NULLS LAST
+LIMIT
+    25;
+
+-- ============================================================
+-- Q: What share of Anchorage inventory is held by hosts with N or more
+-- listings anywhere? Compare with the Anchorage-only cutoffs above.
+-- ============================================================
+WITH now AS (
+    SELECT
+        listings_active,
+        listings_anywhere
+    FROM
+        host_listing_portfolios
+    WHERE
+        scrape_date = (SELECT scrape_date FROM latest_scrape_date)
+        AND listings_active > 0
+        AND listings_anywhere IS NOT NULL
+),
+cutoffs AS (
+    SELECT unnest([1, 2, 3, 5, 10, 20, 50, 100]) AS n
+)
+SELECT
+    c.n AS min_listings_anywhere,
+    count(*) FILTER (WHERE now.listings_anywhere >= c.n) AS hosts,
+    coalesce(sum(now.listings_active) FILTER (WHERE now.listings_anywhere >= c.n), 0) AS anchorage_listings_held,
+    round(
+        100.0 * coalesce(sum(now.listings_active) FILTER (WHERE now.listings_anywhere >= c.n), 0)
+        / sum(now.listings_active),
+        1
+    ) AS pct_of_attributed_listings
+FROM
+    cutoffs c
+    CROSS JOIN now
+GROUP BY
+    c.n
+ORDER BY
+    c.n;
+
+-- ============================================================
 -- Q: Is this Girdwood listing part of a large portfolio?
 -- NULL host columns mean the host is unknown, not a portfolio of one.
 -- ============================================================
@@ -564,7 +621,8 @@ SELECT
     host_name,
     host_years_hosting,
     host_listings_active,
-    host_listings_ever_seen
+    host_listings_ever_seen,
+    host_listings_anywhere
 FROM
     listings_active_with_host
 WHERE

@@ -1,14 +1,15 @@
 /**
  * The daily pipeline: search Anchorage, keep the listings inside the
- * Municipality, fetch every listing's page and calendar and unresolved
- * listings' earliest reviews, write the day to DuckDB, and run the quality
- * checks.
+ * Municipality, fetch every listing's page and calendar, every host's listing
+ * count and unresolved listings' earliest reviews, write the day to DuckDB,
+ * and run the quality checks.
  */
 
 import { connect } from '@anchorage-str-db/db/connect';
 import { fetchApiKey } from '@anchorage-str-db/scraper-airbnb/api/apiKey';
 import { fetchCalendars, liveCalendarFetcher } from '@anchorage-str-db/scraper-airbnb/calendars';
 import { fetchFirstReviews, liveReviewPageFetcher } from '@anchorage-str-db/scraper-airbnb/firstReviews';
+import { fetchHostListings, liveHostListingPageFetcher } from '@anchorage-str-db/scraper-airbnb/hostListings';
 import { collectHostCards, fetchListingPages, livePageFetcher } from '@anchorage-str-db/scraper-airbnb/listingPage';
 import { pace, resetPace } from '@anchorage-str-db/scraper-airbnb/pace';
 import { parseListing, type ParsedListing } from '@anchorage-str-db/scraper-airbnb/parse';
@@ -27,6 +28,7 @@ import {
   recordHostObservations,
   recordObservations,
   summarizeFirstReviews,
+  summarizeHostListings,
   summarizePages,
   summarizeQuotes,
   type RunRow,
@@ -108,6 +110,22 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
         `${pageStats.attempted - pageStats.failed} listing pages`,
     );
 
+    // One request per distinct host (a few for the largest), for the count of
+    // every listing on their profile, wherever it is. Hosts are the ones named
+    // by today's pages; a host whose only page failed is not read and keeps
+    // their last count.
+    const hostIds = [
+      ...new Set(pages.flatMap((page) => (page.error || !page.hostId ? [] : [page.hostId]))),
+    ];
+    const hostListings = await fetchHostListings(hostIds, {
+      fetchPage: liveHostListingPageFetcher(apiKey),
+    });
+    const hostListingsStats = summarizeHostListings(hostListings);
+    log.info(
+      `host listings: ${hostListingsStats.attempted} hosts, ${hostListingsStats.failed} failed, ` +
+        `${hostListingsStats.requests} requests`,
+    );
+
     const calendarResults = await fetchCalendars(listingIds, {
       minDate: scrapeDate,
       fetchOne: liveCalendarFetcher(apiKey),
@@ -140,7 +158,7 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
     const stats = await db.transaction(async () => {
       const listingStats = await recordObservations(db, scrapeDate, parsed, pages, quotes);
       // After the listings: it reads today's owners back from them.
-      const hostStats = await recordHostObservations(db, scrapeDate, hostCards);
+      const hostStats = await recordHostObservations(db, scrapeDate, hostCards, hostListings);
       const calendarStats = await mergeCalendar(db, scrapeDate, calendarResults);
       await recordFirstReviews(db, scrapeDate, firstReviews);
       await logRun(db, {
@@ -162,6 +180,8 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
         quoteFetchFailed: quoteStats.failed,
         hostProfileAttempted: hostStats.attempted,
         hostProfileFailed: hostStats.failed,
+        hostListingsFetchAttempted: hostListingsStats.attempted,
+        hostListingsFetchFailed: hostListingsStats.failed,
         errorSummary: null,
       });
       return { pageStats, quoteStats, searchResult, coverage };
@@ -203,6 +223,8 @@ function failedRunRow(scrapeDate: IsoDate, startedAt: string, errorSummary: stri
     quoteFetchFailed: null,
     hostProfileAttempted: null,
     hostProfileFailed: null,
+    hostListingsFetchAttempted: null,
+    hostListingsFetchFailed: null,
     errorSummary,
   };
 }

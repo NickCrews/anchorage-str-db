@@ -11,6 +11,7 @@ file per endpoint plus the shared HTTP client.
 | `calendar.ts` | `GET /api/v3/PdpAvailabilityCalendar/<hash>` | twelve months of nightly availability |
 | `priceQuote.ts` | `GET /api/v3/StaysPdpSections/<hash>` | the booking sidebar's price for one stay, given check-in and check-out |
 | `reviews.ts` | `GET /api/v3/StaysPdpReviewsQuery/<hash>` | a page of reviews, newest first, and the total count; only review dates are read |
+| `hostListings.ts` | `GET /api/v3/UserProfileBeehiveListingQuery/<hash>` | a page of the listing ids on a host's profile, wherever they are; no total |
 
 Each endpoint is pinned to a persisted-query hash, which Airbnb rotates. If an
 endpoint starts returning 400, check its hash first.

@@ -369,11 +369,16 @@ JOIN host_activity a USING (host_id);
 -- \`listings_active.host_id\`. A listing whose page was never read has no
 -- known host and is counted under nobody.
 --
--- An Anchorage host listing portfolio: only the host's listings inside the
--- Municipality are counted, not the ones they hold elsewhere. That is a
--- limit of the data and not the question anyone is asking — a host running
--- forty dwellings from Palmer is a large operator with two listings here — but
--- nothing Airbnb publishes to us carries a host's total. See issue #34.
+-- listings_active and listings_ever_seen are the Anchorage host listing
+-- portfolio: only the host's listings inside the Municipality. A host running
+-- forty dwellings from Palmer has two listings here.
+--
+-- listings_anywhere   every listing on the host's Airbnb profile, wherever
+--                     it is, including the ones counted here: the host
+--                     listing portfolio. The latest successful read on or
+--                     before scrape_date, carried forward past failed reads;
+--                     NULL before the host's first read.
+-- listings_anywhere_read_date  the scrape date of that read.
 CREATE OR REPLACE VIEW host_listing_portfolios AS
 WITH held AS (
     SELECT
@@ -424,6 +429,11 @@ panel AS (
     SELECT f.host_id, d.scrape_date
     FROM (SELECT host_id, min(scrape_date) AS since FROM first_held GROUP BY host_id) f
     JOIN run_dates d ON d.scrape_date >= f.since
+),
+anywhere_reads AS (
+    SELECT host_id, scrape_date, listings_anywhere
+    FROM airbnb_host_observations
+    WHERE listings_anywhere_read_ok
 )
 SELECT
     p.host_id,
@@ -431,14 +441,18 @@ SELECT
     coalesce(l.listings_active, 0)::INTEGER AS listings_active,
     sum(coalesce(n.listings_new, 0)) OVER (
         PARTITION BY p.host_id ORDER BY p.scrape_date
-    )::INTEGER AS listings_ever_seen
+    )::INTEGER AS listings_ever_seen,
+    a.listings_anywhere,
+    a.scrape_date AS listings_anywhere_read_date
 FROM panel p
 LEFT JOIN live_counts l USING (host_id, scrape_date)
-LEFT JOIN newly_seen n USING (host_id, scrape_date);
+LEFT JOIN newly_seen n USING (host_id, scrape_date)
+ASOF LEFT JOIN anywhere_reads a
+  ON a.host_id = p.host_id AND p.scrape_date >= a.scrape_date;
 
--- \`listings_active\` plus the owning host's profile and listing portfolio as of
--- the latest run, so "is this Girdwood listing part of a large one?" needs no
--- join. The host columns are NULL when the host is unknown.
+-- \`listings_active\` plus the owning host's profile and listing portfolios as
+-- of the latest run, so "is this Girdwood listing part of a large one?" needs
+-- no join. The host columns are NULL when the host is unknown.
 CREATE OR REPLACE VIEW listings_active_with_host AS
 SELECT
     l.*,
@@ -446,7 +460,8 @@ SELECT
     h.years_hosting AS host_years_hosting,
     h.hosting_started_on AS host_hosting_started_on,
     p.listings_active AS host_listings_active,
-    p.listings_ever_seen AS host_listings_ever_seen
+    p.listings_ever_seen AS host_listings_ever_seen,
+    p.listings_anywhere AS host_listings_anywhere
 FROM listings_active l
 LEFT JOIN hosts h
   ON h.host_id = l.host_id AND h.valid_to IS NULL
@@ -455,10 +470,12 @@ LEFT JOIN host_listing_portfolios p
  AND p.scrape_date = (SELECT scrape_date FROM latest_scrape_date);
 
 -- Stored in the file, so readers of the published .duckdb see the scope.
-COMMENT ON VIEW host_listing_portfolios IS 'Listings per Airbnb host account per scrape date: the host''s Anchorage listing portfolio. Counts only listings inside the Municipality, so a host with 2 here and 40 elsewhere reads as 2 — their true portfolio is not recoverable from this database. No threshold marking a commercial host is stored.';
-COMMENT ON COLUMN host_listing_portfolios.listings_active IS 'Listings held by this host that were live on scrape_date (seen within the retirement grace window ending that day).';
-COMMENT ON COLUMN host_listing_portfolios.listings_ever_seen IS 'Distinct listings observed under this host on or before scrape_date, active or inactive.';
-COMMENT ON VIEW listings_active_with_host IS 'listings_active plus the host''s name, tenure, and host_listing_portfolios counts as of the latest run. NULL when the host is unknown. Portfolio counts cover only listings inside the Municipality.';
+COMMENT ON VIEW host_listing_portfolios IS 'Listings per Airbnb host account per scrape date. listings_active and listings_ever_seen count only listings inside the Municipality: the Anchorage listing portfolio, so a host with 2 here and 40 elsewhere reads as 2 there. listings_anywhere is every listing on the host''s Airbnb profile, wherever it is: 42 for that host. No threshold marking a commercial host is stored.';
+COMMENT ON COLUMN host_listing_portfolios.listings_active IS 'Listings inside the Municipality held by this host that were live on scrape_date (seen within the retirement grace window ending that day).';
+COMMENT ON COLUMN host_listing_portfolios.listings_ever_seen IS 'Distinct listings inside the Municipality observed under this host on or before scrape_date, active or inactive.';
+COMMENT ON COLUMN host_listing_portfolios.listings_anywhere IS 'Every listing on the host''s Airbnb profile, in or outside the Municipality, as of listings_anywhere_read_date: the latest successful read on or before scrape_date. NULL before the host''s first read.';
+COMMENT ON COLUMN host_listing_portfolios.listings_anywhere_read_date IS 'The scrape date listings_anywhere was read.';
+COMMENT ON VIEW listings_active_with_host IS 'listings_active plus the host''s name, tenure, and host_listing_portfolios counts as of the latest run. NULL when the host is unknown. host_listings_active and host_listings_ever_seen count only listings inside the Municipality; host_listings_anywhere counts every listing on the host''s profile.';
 `;
 
 /** CityView's own row id for a registration's license, read from its `status_url`. */

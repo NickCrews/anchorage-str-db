@@ -16,6 +16,7 @@ import {
 import { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views';
 import type { CalendarResult } from '@anchorage-str-db/scraper-airbnb/calendars';
 import type { FirstReviewCandidate, FirstReviewResult } from '@anchorage-str-db/scraper-airbnb/firstReviews';
+import type { HostListingsResult } from '@anchorage-str-db/scraper-airbnb/hostListings';
 import type { HostCard, Layer, ListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
 import { LAYERS } from '@anchorage-str-db/scraper-airbnb/listingPage';
 import type { ParsedListing } from '@anchorage-str-db/scraper-airbnb/parse';
@@ -284,6 +285,22 @@ export function summarizeQuotes(quotes: readonly PriceQuote[]): QuoteStats {
 // --------------------------------------------------------------------------
 // hosts
 
+export interface HostListingsStats {
+  /** Hosts whose profile listing list was requested. */
+  attempted: number;
+  failed: number;
+  /** Requests the successful reads took, retries excluded. */
+  requests: number;
+}
+
+export function summarizeHostListings(results: readonly HostListingsResult[]): HostListingsStats {
+  return {
+    attempted: results.length,
+    failed: results.filter((result) => result.error).length,
+    requests: results.reduce((sum, result) => sum + result.requests, 0),
+  };
+}
+
 export interface HostProfileStats {
   /** Distinct hosts of a listing observed today. */
   attempted: number;
@@ -295,19 +312,29 @@ export interface HostProfileStats {
 
 /**
  * Write one day's host observations: a row for every host of a listing
- * observed today, whether or not their card was read.
+ * observed today, whether or not their card or listing count was read.
  *
  * Runs after `recordObservations` for the same date, in the same transaction:
  * today's owners are read back from `listings`, so a listing whose page failed
  * today still names its owner through the carried-forward `host_id`.
  *
- * `cards` is `collectHostCards`' output. Idempotent per scrape date.
+ * `cards` is `collectHostCards`' output and `listingCounts` is
+ * `fetchHostListings`' output. A host with no successful entry in
+ * `listingCounts` records `listings_anywhere_read_ok = false`. Idempotent per
+ * scrape date.
  */
 export async function recordHostObservations(
   db: Database,
   scrapeDate: IsoDate,
   cards: ReadonlyMap<string, HostCard>,
+  listingCounts: readonly HostListingsResult[] = [],
 ): Promise<HostProfileStats> {
+  const countByHost = new Map<string, number>();
+  for (const result of listingCounts) {
+    if (!result.error && result.listingsAnywhere !== null) {
+      countByHost.set(result.hostId, result.listingsAnywhere);
+    }
+  }
   await db.run('DELETE FROM airbnb_host_observations WHERE scrape_date = CAST(? AS DATE)', [scrapeDate]);
   const previouslySeen = new Set(
     (
@@ -335,6 +362,8 @@ export async function recordHostObservations(
         about: card?.about ?? null,
         timeAsHostYears: card?.timeAsHostYears ?? null,
         timeAsHostMonths: card?.timeAsHostMonths ?? null,
+        listingsAnywhereReadOk: countByHost.has(hostId),
+        listingsAnywhere: countByHost.get(hostId) ?? null,
       };
     }),
   );

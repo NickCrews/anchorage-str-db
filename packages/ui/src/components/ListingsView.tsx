@@ -46,6 +46,7 @@ const BASE_QUERY = `
     l.host_years_hosting,
     l.host_listings_active,
     l.host_listings_ever_seen,
+    l.host_listings_anywhere,
     ${registrationStatusSql('r')} AS registration_status,
     l.registration_id,
     r.registration_address,

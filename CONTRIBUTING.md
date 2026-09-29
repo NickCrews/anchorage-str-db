@@ -181,19 +181,31 @@ listings, which can't be scraped after the fact.
 ### Host pass
 
 Every listing page carries its primary host's profile card (name, bio,
-`timeAsHost`), so the host pass makes no requests. `collectHostCards` reduces
-the run's pages to one card per distinct host (about 2 listings per host),
-and `recordHostObservations` writes a row for every host with a listing
+`timeAsHost`), so reading the card makes no requests. `collectHostCards`
+reduces the run's pages to one card per distinct host (about 2 listings per
+host), and `recordHostObservations` writes a row for every host with a listing
 observed that day, including hosts whose only page failed.
+
+The card has no listing count, so the pass also asks
+`UserProfileBeehiveListingQuery` for the listings on each host's profile
+(`hostListings.ts`): one request per distinct host named by that day's pages,
+paging 100 at a time until a page comes back short. The count is every
+listing the host holds on Airbnb, wherever it is, and is stored as
+`airbnb_host_observations.listings_anywhere`. A host whose read failed, or
+whose only page failed, stores `listings_anywhere_read_ok = false`, and
+`host_listing_portfolios` carries their last count forward. See
+[`docs/research/airbnb-host-listings.md`](docs/research/airbnb-host-listings.md).
 
 ### Request budget
 
-A run makes about `3N + 200` requests for N listings: a page, a calendar and
-a price quote per listing (the host pass adds none), plus one `StaysSearch`
+A run makes about `3N + H + 200` requests for N listings and H hosts: a
+page, a calendar and a price quote per listing, a profile listing list per
+host (a second for each host with over 100 listings), plus one `StaysSearch`
 request per price band (see
 [`docs/research/airbnb-search-pagination.md`](docs/research/airbnb-search-pagination.md)
-for why the search never paginates). At ~2600 listings that is ~8000 requests
-and about 75 minutes. The first-review pass adds about one request per
+for why the search never paginates). At ~2600 listings and ~1200 hosts that
+is ~9200 requests and about 85 minutes. The host listings measured 1253
+requests for 1226 hosts in 11.6 minutes, with no failures. The first-review pass adds about one request per
 unresolved listing, at most ~1030 (~10 minutes) while backfilling and a handful
 once caught up. The per-listing passes dominate.
 
@@ -324,9 +336,12 @@ Every run fails with `LegacySchemaError` until someone:
   derived from `airbnb_listing_observations.host_id` with no extra requests, as a
   time series. Where an owner ends and an operator begins is left to
   downstream users, so no threshold is stored; the viewer's cutoff is a
-  labelled display choice. It counts only listings inside the Municipality,
-  so it is an Anchorage listing portfolio and undercounts a host who also
-  lists elsewhere (issue #34).
+  labelled display choice. `listings_active` and `listings_ever_seen` count
+  only listings inside the Municipality, an Anchorage listing portfolio.
+  `listings_anywhere` beside them is the host's whole portfolio, read from
+  their profile. It is stored as a count, not the listing ids: the ids would
+  be ~5000 a day, most of them outside the Municipality and never otherwise
+  observed.
 - **Listings are never UPDATEd.** `first_seen_date`, `last_seen_date` and
   `page_seen_date` are derived from observations, so they stay correct for a
   listing that retires and later relists, and a bug in version logic is
@@ -436,7 +451,8 @@ pnpm typecheck
 
 The tests above need the network; no other test does. Fetching is injected: `searchAnchorage` takes a
 `fetchPage`, `fetchCalendars` takes a `fetchOne`, `fetchFirstReviews` takes a
-`fetchPage`, and `fetchRegistrations` takes a `fetchJson`. The `live*Fetcher` functions are the
+`fetchPage`, `fetchHostListings` takes a `fetchPage`, and `fetchRegistrations`
+takes a `fetchJson`. The `live*Fetcher` functions are the
 only places real requests are made.
 
 When Airbnb changes something, `scraper-airbnb/src/api/` and `parse.ts` break

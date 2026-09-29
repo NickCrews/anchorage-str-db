@@ -143,12 +143,12 @@ forty dwellings from Palmer has a portfolio of forty, and that is the number an
 operator question wants. No threshold separating a hobbyist from a commercial
 operator is stored — that line is drawn downstream.
 
-`host_listing_portfolios` does not yet hold that number. It counts only the
-listings we scrape, which are the ones inside the Municipality, because
-nothing Airbnb publishes to us carries a host's total — see
-[#34](https://github.com/NickCrews/anchorage-str-db/issues/34). That is a gap
-to close, not what the word means: until it closes, call what the view holds
-an **Anchorage host listing portfolio** and never a portfolio unqualified.
+`host_listing_portfolios` holds both counts, and they are different numbers.
+`listings_anywhere` is the host listing portfolio: every listing on the host's
+Airbnb profile, read once a day. `listings_active` and `listings_ever_seen`
+count only the listings we scrape, which are the ones inside the Municipality:
+call that an **Anchorage host listing portfolio**, never a portfolio
+unqualified.
 _Avoid_: empire, holdings, inventory, tycoon
 
 ### The Municipality

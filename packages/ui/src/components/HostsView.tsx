@@ -18,6 +18,7 @@ const HOSTS_QUERY = `
     any_value(l.host_years_hosting) AS host_years_hosting,
     count(*)::INT AS listings_active,
     any_value(l.host_listings_ever_seen) AS host_listings_ever_seen,
+    any_value(l.host_listings_anywhere) AS host_listings_anywhere,
     count(DISTINCT l.registration_id)::INT AS registration_ids,
     count(*) FILTER (WHERE status = 'Registered')::INT AS listings_registered,
     count(*) FILTER (WHERE status = 'Registration lapsed')::INT AS listings_registration_lapsed,

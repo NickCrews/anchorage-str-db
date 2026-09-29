@@ -148,8 +148,9 @@ export const HostConcentrationCard: FC = () => {
           listing counts and no commercial-host threshold. These are Anchorage
           listing portfolios: they cover only listings inside the
           Municipality, so a host with listings elsewhere is undercounted
-          here. A host is an Airbnb account, so one property manager's
-          account can list for many owners.
+          here; the Listings and Hosts tables show each host's count
+          anywhere on Airbnb beside it. A host is an Airbnb account, so one
+          property manager's account can list for many owners.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

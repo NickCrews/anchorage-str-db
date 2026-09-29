@@ -8,6 +8,7 @@ import { connect } from '@anchorage-str-db/db/connect';
 import type { Database } from '@anchorage-str-db/db/database';
 import { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views';
 import type { CalendarNight, CalendarResult } from '@anchorage-str-db/scraper-airbnb/calendars';
+import type { HostListingsResult } from '@anchorage-str-db/scraper-airbnb/hostListings';
 import {
   collectHostCards,
   emptyListingPage,
@@ -24,6 +25,7 @@ import {
   recordFirstReviews,
   recordHostObservations,
   recordObservations,
+  summarizeHostListings,
   type RunRow,
 } from '../src/store.ts';
 import { makeListing } from './fixtures.ts';
@@ -70,6 +72,8 @@ function runRow(scrapeDate: IsoDate, overrides: Partial<RunRow> = {}): RunRow {
     quoteFetchFailed: null,
     hostProfileAttempted: null,
     hostProfileFailed: null,
+    hostListingsFetchAttempted: null,
+    hostListingsFetchFailed: null,
     errorSummary: null,
     ...overrides,
   };
@@ -668,7 +672,26 @@ interface Held {
   page: HostCard | 'no-card' | 'failed';
 }
 
-async function recordDay(db: Database, day: IsoDate, held: readonly Held[]): Promise<void> {
+/**
+ * Each host's profile listing count read on the day, or `'failed'`. Hosts not
+ * named are not read.
+ */
+type Anywhere = Record<string, number | 'failed'>;
+
+function hostListings(anywhere: Anywhere): HostListingsResult[] {
+  return Object.entries(anywhere).map(([hostId, count]) =>
+    count === 'failed'
+      ? { hostId, listingsAnywhere: null, requests: 0, error: 'HttpError: HTTP 503' }
+      : { hostId, listingsAnywhere: count, requests: 1, error: null },
+  );
+}
+
+async function recordDay(
+  db: Database,
+  day: IsoDate,
+  held: readonly Held[],
+  anywhere: Anywhere = {},
+): Promise<void> {
   const pages = held.map(({ listingId, hostId, page: outcome }) =>
     outcome === 'failed'
       ? page(String(listingId), { error: 'HttpError: HTTP 503' })
@@ -680,7 +703,7 @@ async function recordDay(db: Database, day: IsoDate, held: readonly Held[]): Pro
     held.map(({ listingId }) => makeListing(listingId, `Cabin ${listingId}`)),
     pages,
   );
-  await recordHostObservations(db, day, collectHostCards(pages));
+  await recordHostObservations(db, day, collectHostCards(pages), hostListings(anywhere));
   await logRun(db, runRow(day, { listingsSeen: held.length }));
 }
 
@@ -947,10 +970,154 @@ describe('host_listing_portfolios', () => {
       { column_name: 'scrape_date' },
       { column_name: 'listings_active' },
       { column_name: 'listings_ever_seen' },
+      { column_name: 'listings_anywhere' },
+      { column_name: 'listings_anywhere_read_date' },
     ]);
     expect(
       await db.value("SELECT comment FROM duckdb_views() WHERE view_name = 'host_listing_portfolios'"),
-    ).toMatch(/Anchorage listing portfolio.*reads as 2/s);
+    ).toMatch(/Anchorage listing portfolio.*reads as 2.*listings_anywhere.*42/s);
+  });
+});
+
+describe('listings_anywhere', () => {
+  const portfolio = (db: Database) =>
+    db.rows<{
+      host_id: string;
+      scrape_date: string;
+      listings_active: number;
+      listings_anywhere: number | null;
+      listings_anywhere_read_date: string | null;
+    }>(
+      'SELECT host_id, scrape_date, listings_active, listings_anywhere, listings_anywhere_read_date ' +
+        'FROM host_listing_portfolios ORDER BY host_id, scrape_date',
+    );
+
+  it('stores each host’s count beside the Anchorage counts', async () => {
+    const { db } = await freshDb();
+    await recordDay(
+      db,
+      '2026-08-01',
+      [
+        { listingId: 1, hostId: '100', page: card('100') },
+        { listingId: 2, hostId: '100', page: card('100') },
+        { listingId: 3, hostId: '200', page: card('200') },
+      ],
+      { '100': 42, '200': 1 },
+    );
+
+    expect(
+      await db.rows(
+        'SELECT host_id, listings_anywhere_read_ok, listings_anywhere FROM airbnb_host_observations ' +
+          'ORDER BY host_id',
+      ),
+    ).toEqual([
+      { host_id: '100', listings_anywhere_read_ok: true, listings_anywhere: 42 },
+      { host_id: '200', listings_anywhere_read_ok: true, listings_anywhere: 1 },
+    ]);
+    expect(await portfolio(db)).toEqual([
+      {
+        host_id: '100',
+        scrape_date: '2026-08-01',
+        listings_active: 2,
+        listings_anywhere: 42,
+        listings_anywhere_read_date: '2026-08-01',
+      },
+      {
+        host_id: '200',
+        scrape_date: '2026-08-01',
+        listings_active: 1,
+        listings_anywhere: 1,
+        listings_anywhere_read_date: '2026-08-01',
+      },
+    ]);
+    expect(
+      await db.rows(
+        'SELECT listing_id, host_listings_active, host_listings_anywhere ' +
+          'FROM listings_active_with_host ORDER BY listing_id',
+      ),
+    ).toEqual([
+      { listing_id: '1', host_listings_active: 2, host_listings_anywhere: 42 },
+      { listing_id: '2', host_listings_active: 2, host_listings_anywhere: 42 },
+      { listing_id: '3', host_listings_active: 1, host_listings_anywhere: 1 },
+    ]);
+  });
+
+  it('carries the last count forward past a failed or skipped read', async () => {
+    const { db } = await freshDb();
+    const held: Held[] = [{ listingId: 1, hostId: '100', page: card('100') }];
+    await recordDay(db, '2026-08-01', held, { '100': 40 });
+    await recordDay(db, '2026-08-02', held, { '100': 'failed' });
+    // The listing page failed too, so the host was not read at all.
+    await recordDay(db, '2026-08-03', [{ listingId: 1, hostId: '100', page: 'failed' }]);
+    await recordDay(db, '2026-08-04', held, { '100': 41 });
+
+    expect(
+      await db.rows(
+        'SELECT scrape_date, listings_anywhere_read_ok, listings_anywhere ' +
+          'FROM airbnb_host_observations ORDER BY scrape_date',
+      ),
+    ).toEqual([
+      { scrape_date: '2026-08-01', listings_anywhere_read_ok: true, listings_anywhere: 40 },
+      { scrape_date: '2026-08-02', listings_anywhere_read_ok: false, listings_anywhere: null },
+      { scrape_date: '2026-08-03', listings_anywhere_read_ok: false, listings_anywhere: null },
+      { scrape_date: '2026-08-04', listings_anywhere_read_ok: true, listings_anywhere: 41 },
+    ]);
+    expect(
+      (await portfolio(db)).map((row) => [
+        row.scrape_date,
+        row.listings_anywhere,
+        row.listings_anywhere_read_date,
+      ]),
+    ).toEqual([
+      ['2026-08-01', 40, '2026-08-01'],
+      ['2026-08-02', 40, '2026-08-01'],
+      ['2026-08-03', 40, '2026-08-01'],
+      ['2026-08-04', 41, '2026-08-04'],
+    ]);
+  });
+
+  it('is NULL until a host is first read', async () => {
+    const { db } = await freshDb();
+    const held: Held[] = [{ listingId: 1, hostId: '100', page: card('100') }];
+    await recordDay(db, '2026-08-01', held);
+    await recordDay(db, '2026-08-02', held, { '100': 3 });
+
+    expect(
+      (await portfolio(db)).map((row) => [row.scrape_date, row.listings_anywhere]),
+    ).toEqual([
+      ['2026-08-01', null],
+      ['2026-08-02', 3],
+    ]);
+  });
+
+  it('keeps counting a host who leaves the Municipality from their last read', async () => {
+    const { db } = await freshDb();
+    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card('100') }], {
+      '100': 7,
+    });
+    await recordDay(db, '2026-08-02', [{ listingId: 2, hostId: '200', page: card('200') }], {
+      '200': 1,
+    });
+
+    expect(
+      await db.rows(
+        "SELECT host_id, listings_anywhere, listings_anywhere_read_date FROM host_listing_portfolios " +
+          "WHERE scrape_date = '2026-08-02' ORDER BY host_id",
+      ),
+    ).toEqual([
+      { host_id: '100', listings_anywhere: 7, listings_anywhere_read_date: '2026-08-01' },
+      { host_id: '200', listings_anywhere: 1, listings_anywhere_read_date: '2026-08-02' },
+    ]);
+  });
+
+  it('summarizes attempted, failed and requests for the run log', () => {
+    expect(
+      summarizeHostListings([
+        { hostId: '100', listingsAnywhere: 206, requests: 3, error: null },
+        { hostId: '200', listingsAnywhere: 1, requests: 1, error: null },
+        { hostId: '300', listingsAnywhere: null, requests: 0, error: 'HttpError: HTTP 503' },
+      ]),
+    ).toEqual({ attempted: 3, failed: 1, requests: 4 });
   });
 });
 
