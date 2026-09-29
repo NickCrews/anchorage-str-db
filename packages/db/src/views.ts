@@ -16,9 +16,12 @@
  * placeholder coordinate) happens in the views, so the raw tables can always be
  * re-derived.
  *
- * Views are not in the Drizzle schema: they use DuckDB syntax drizzle-kit
+ * Views are not in the Drizzle migrations: they use DuckDB syntax drizzle-kit
  * cannot express, and recreating them on connect applies a change without a
- * migration.
+ * migration. Their columns are declared in `viewSchema.ts`, which is what the
+ * scraper's checks and the viewer build their queries from; `connect` checks
+ * the two agree, so a change here that adds, drops, renames or retypes a
+ * column has to be carried over there.
  */
 
 import { NO_MATCH_GEOCODED_ADDRESS } from '@anchorage-str-db/scraper-muni-str/registrationLayers';

@@ -1,3 +1,5 @@
+import type { WasmSelection } from '@anchorage-str-db/db/rows';
+import { toSql } from '@anchorage-str-db/db/sql';
 import { useSql } from '@sqlrooms/duckdb';
 import {
   Bar,
@@ -22,16 +24,18 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from '@sqlrooms/ui';
-import { useState, type FC } from 'react';
+import { useMemo, useState, type FC } from 'react';
 import { pct, shortDate } from '../format';
+import {
+  CUTOFFS,
+  DISTRIBUTION_FIELDS,
+  DISTRIBUTION_QUERY,
+  summaryQuery,
+  trendQuery,
+  type SummaryRow,
+  type TrendRow,
+} from '../queries/hostConcentration';
 import { useRoomStore } from '../store';
-
-/**
- * Display cutoffs for "hosts with at least N active listings". The database
- * stores counts only; where an owner ends and an operator begins is left to
- * the reader, and the card says so.
- */
-const CUTOFFS = [2, 3, 5, 10, 20] as const;
 
 const distributionConfig = {
   listings: { label: 'Listings held', color: 'hsl(var(--chart-5))' },
@@ -41,81 +45,22 @@ const trendConfig = {
   pctHeld: { label: '% of listings', color: 'hsl(var(--chart-5))' },
 } satisfies ChartConfig;
 
-// Each host with active listings at the latest run.
-const NOW = `
-  SELECT host_id, listings_active
-  FROM host_listing_portfolios
-  WHERE scrape_date = (SELECT max(scrape_date) FROM host_listing_portfolios)
-    AND listings_active > 0
-`;
-
 export const HostConcentrationCard: FC = () => {
   const enabled = useRoomStore((s) => s.dataInit.status) === 'ready';
   const [cutoff, setCutoff] = useState<number>(CUTOFFS[0]);
 
-  const { data: summaryData, isLoading: summaryLoading } = useSql<{
-    hosts: number;
-    hostsAtCutoff: number;
-    attributed: number;
-    heldAtCutoff: number;
-    heldByTop10: number;
-    unknownHost: number;
-  }>({
+  const { data: summaryData, isLoading: summaryLoading } = useSql<SummaryRow>({
     enabled,
-    query: `
-      WITH ranked AS (
-        SELECT listings_active, row_number() OVER (ORDER BY listings_active DESC, host_id) AS rnk
-        FROM (${NOW})
-      )
-      SELECT
-        count(*)::INT AS "hosts",
-        count(*) FILTER (WHERE listings_active >= ${cutoff})::INT AS "hostsAtCutoff",
-        coalesce(sum(listings_active), 0)::INT AS "attributed",
-        coalesce(sum(listings_active) FILTER (WHERE listings_active >= ${cutoff}), 0)::INT AS "heldAtCutoff",
-        coalesce(sum(listings_active) FILTER (WHERE rnk <= 10), 0)::INT AS "heldByTop10",
-        (SELECT count(*) FROM listings_active WHERE host_id IS NULL)::INT AS "unknownHost"
-      FROM ranked
-    `,
+    query: useMemo(() => toSql(summaryQuery(cutoff)), [cutoff]),
   });
 
-  const { data: distributionData, isLoading: distributionLoading } = useSql<{
-    bucket: string;
-    listings: number;
-  }>({
-    enabled,
-    query: `
-      SELECT
-        CASE
-          WHEN listings_active >= 20 THEN '20+'
-          WHEN listings_active >= 10 THEN '10–19'
-          WHEN listings_active >= 5 THEN '5–9'
-          WHEN listings_active >= 3 THEN '3–4'
-          ELSE listings_active::VARCHAR
-        END AS "bucket",
-        sum(listings_active)::INT AS "listings"
-      FROM (${NOW})
-      GROUP BY 1
-      ORDER BY min(listings_active)
-    `,
-  });
+  const { data: distributionData, isLoading: distributionLoading } = useSql<
+    WasmSelection<typeof DISTRIBUTION_FIELDS>
+  >({ enabled, query: toSql(DISTRIBUTION_QUERY) });
 
-  const { data: trendData, isLoading: trendLoading } = useSql<{
-    scrapeDate: number;
-    pctHeld: number | null;
-  }>({
+  const { data: trendData, isLoading: trendLoading } = useSql<TrendRow>({
     enabled,
-    query: `
-      SELECT
-        scrape_date AS "scrapeDate",
-        round(
-          100.0 * coalesce(sum(listings_active) FILTER (WHERE listings_active >= ${cutoff}), 0)
-            / nullif(sum(listings_active), 0),
-          1
-        )::DOUBLE AS "pctHeld"
-      FROM host_listing_portfolios
-      GROUP BY scrape_date
-      ORDER BY scrape_date
-    `,
+    query: useMemo(() => toSql(trendQuery(cutoff)), [cutoff]),
   });
 
   const s = summaryData?.toArray()[0];

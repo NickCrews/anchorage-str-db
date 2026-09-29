@@ -1,3 +1,5 @@
+import type {WasmSelection} from '@anchorage-str-db/db/rows';
+import {toSql} from '@anchorage-str-db/db/sql';
 import {
   buildColorScaleLegend,
   type ResolvedColorLegend,
@@ -5,12 +7,14 @@ import {
 import {DeckJsonMap} from '@sqlrooms/deck';
 import type {DeckDatasetInput, DeckJsonMapProps} from '@sqlrooms/deck';
 import {useCallback, useMemo, useState, type FC} from 'react';
-import {registrationStatusSql} from '../registrationStatus';
+import {
+  AIRBNB_RENTAL_FIELDS,
+  REGISTERED_ONLY_FIELDS,
+  RENTALS_QUERY,
+} from '../queries/map';
 import {DataStatusGate} from './DataStatusGate';
 
 const RENTALS_DATASET = 'currentRentals';
-
-const NOT_ON_AIRBNB = 'Registered, not on Airbnb';
 
 // Anchorage bowl plus Girdwood/Eagle River, which the scrape bbox covers.
 const ANCHORAGE_VIEW_STATE = {
@@ -23,68 +27,6 @@ const ANCHORAGE_VIEW_STATE = {
 
 // Light basemap to match the app's light default theme.
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
-
-/**
- * One coordinate per short-term rental we know of, as WKB geometry for
- * `@sqlrooms/deck` (needs the spatial extension loaded in `store.ts`): every
- * active Airbnb listing, plus every active Muni registration that no active
- * Airbnb listing cites (units listed elsewhere, such as VRBO, or not listed).
- * Registrations the Muni's geocoder could not place are left out.
- *
- * A listing's coordinate is the Muni's geocoding of the registration it cites when
- * there is one, otherwise Airbnb's pin. `is_precise` is true for a geocoded
- * license address or an exact Airbnb pin, and false for an Airbnb pin shifted
- * by up to a few hundred meters.
- */
-const RENTALS_QUERY = `
-  SELECT
-    l.name,
-    l.bedrooms,
-    l.listing_type,
-    o.rating_value,
-    o.review_count,
-    o.price_hint_per_night,
-    ${registrationStatusSql('l')} AS registration_status,
-    l.registration_id,
-    l.registration_address,
-    CASE
-      WHEN r.geocoded_lat IS NOT NULL THEN 'License address'
-      WHEN l.location_is_exact THEN 'Exact Airbnb pin'
-      ELSE 'Approximate Airbnb pin'
-    END AS location_source,
-    r.geocoded_lat IS NOT NULL OR coalesce(l.location_is_exact, false) AS is_precise,
-    ST_AsWKB(ST_Point(
-      coalesce(r.geocoded_lng, l.location_lng),
-      coalesce(r.geocoded_lat, l.location_lat)
-    )) AS geometry
-  FROM listings_active_with_registration l
-  LEFT JOIN registrations r
-    ON r.registration_id = l.registration_id
-    AND r.geocoded_lat IS NOT NULL
-    AND r.geocoded_lng IS NOT NULL
-  LEFT JOIN (
-    SELECT *
-    FROM airbnb_listing_observations
-    QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY scrape_date DESC) = 1
-  ) o ON o.listing_id = l.listing_id
-  WHERE coalesce(r.geocoded_lat, l.location_lat) IS NOT NULL
-    AND coalesce(r.geocoded_lng, l.location_lng) IS NOT NULL
-
-  UNION ALL BY NAME
-
-  SELECT
-    business_name AS name,
-    '${NOT_ON_AIRBNB}' AS registration_status,
-    registration_id AS registration_id,
-    location AS registration_address,
-    'License address' AS location_source,
-    true AS is_precise,
-    ST_AsWKB(ST_Point(geocoded_lng, geocoded_lat)) AS geometry
-  FROM registrations_active
-  WHERE airbnb_listings_active = 0
-    AND geocoded_lat IS NOT NULL
-    AND geocoded_lng IS NOT NULL
-`;
 
 type ColorMode = 'registration' | 'price';
 
@@ -149,18 +91,10 @@ const createLayers = (colorMode: ColorMode) => [
   },
 ];
 
-type RentalRow = {
-  name: string | null;
-  bedrooms: string | null;
-  listing_type: string | null;
-  rating_value: number | null;
-  review_count: number | null;
-  price_hint_per_night: number | null;
-  registration_status: string | null;
-  registration_id: string | null;
-  registration_address: string | null;
-  location_source: string;
-};
+/** A row of `RENTALS_QUERY`, as DuckDB-WASM hands it to the tooltip: either half. */
+type RentalRow =
+  | WasmSelection<typeof AIRBNB_RENTAL_FIELDS>
+  | WasmSelection<typeof REGISTERED_ONLY_FIELDS>;
 
 const rentalTooltip = (row: RentalRow): string[] => {
   const lines: string[] = [];
@@ -258,7 +192,7 @@ export const MapView: FC = () => {
   const datasets = useMemo<Record<string, DeckDatasetInput>>(
     () => ({
       [RENTALS_DATASET]: {
-        sqlQuery: RENTALS_QUERY,
+        sqlQuery: toSql(RENTALS_QUERY),
         geometryColumn: 'geometry',
         geometryEncodingHint: 'wkb',
       },

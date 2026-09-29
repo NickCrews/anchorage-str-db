@@ -14,13 +14,13 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 
 | package | does | runtime dependencies |
 | --- | --- | --- |
-| `packages/scraper` | runs the providers below, decides what is stored, writes, checks and the CLI | the five packages below |
+| `packages/scraper` | runs the providers below, decides what is stored, writes, checks and the CLI | the five packages below, `drizzle-orm` |
 | `packages/db` | the DuckDB schema (Drizzle), its migrations, the views, and the connection | `utils`, `scraper-muni-str`, `@duckdb/node-api`, `drizzle-orm`, `@duckdbfan/drizzle-duckdb` |
 | `packages/scraper-airbnb` | searches Airbnb and fetches listing pages, calendars, price quotes and reviews | `utils`, `impit` |
 | `packages/scraper-muni-str` | fetches the Municipal Clerk's STR registration layers from ArcGIS | `utils` |
 | `packages/muni-licenses` | fetches and parses the Muni's CityView license pages | `utils` |
 | `packages/utils` | dates, logging, concurrency, request pacing and retries, `fetch`, the Municipality boundary | none |
-| `packages/ui` | the browser viewer | |
+| `packages/ui` | the browser viewer | `db` (schema only), `drizzle-orm`, SQLRooms |
 
 Provider packages (`scraper-airbnb`, `scraper-muni-str`, `muni-licenses`)
 work in memory: they return typed records and never touch DuckDB, so each
@@ -85,10 +85,84 @@ COLUMN` keeps each column's position, which `appendRows` depends on. Edit
 entry, and cover it the way `connect.test.ts` covers 0001: seed a database
 from `0000_baseline.sql` under the old names and assert the rows survive.
 
-Views are SQL in `packages/db/src/views.ts`. They need no migration. To
-**rename** one, add its old name to `DROPPED_VIEWS_SQL` there: `CREATE OR
-REPLACE VIEW` cannot remove a view, so the published database would keep
-answering queries under the old name from a definition nothing maintains.
+Views are SQL in `packages/db/src/views.ts`. They need no migration:
+`connect` runs the script on every open. To **rename** one, add its old name
+to `DROPPED_VIEWS_SQL` there: `CREATE OR REPLACE VIEW` cannot remove a view,
+so the published database would keep answering queries under the old name
+from a definition nothing maintains.
+
+Each view's columns are also declared in `packages/db/src/viewSchema.ts`, as
+a Drizzle `pgView(...).existing()`: that is what the scraper's checks and the
+viewer build their queries from. `connect` compares every declaration against
+the view DuckDB built and refuses the database if they differ, or if the
+database holds a view nobody declares. A view that gains, loses, renames or
+retypes a column has to be re-declared in the same order; the error names the
+view and the column.
+
+### Writing and reading from the scraper
+
+The scraper's statements are built from `schema.ts` and `viewSchema.ts`,
+and run through `Database.orm`, the Drizzle instance on the same connection:
+`db.orm.delete(table).where(...)`, `db.orm.$count(view, ...)`,
+`db.orm.select({...}).from(...)`, `db.orm.insert(table).select(...)`. So a
+renamed or retyped column is a type error in the writes and the checks, not a
+statement that fails mid-run, and a read's row type is the selection's rather
+than one written out beside it.
+
+DuckDB syntax the Postgres dialect cannot express goes in a `sql` fragment
+inside the built statement, as in the viewer: the `QUALIFY` that finds a
+listing's previous photo set is a `qb.$with('prev', {columns})` CTE whose body
+is SQL over the schema's columns, and the hash a calendar merge stages is a
+`sql` value in an `update().set()`.
+
+A merge stages into a temp table, which is declared with `pgTable` in
+`store.ts` beside the statements that read it; `createStaging` builds it from
+that declaration, so the two cannot drift, and `appendRows` writes to it like
+any other table.
+
+### Reading the database from the browser
+
+The viewer runs the same schema through DuckDB-WASM, so part of
+`packages/db` has to be importable in a browser: `schema.ts`, `viewSchema.ts`,
+`catalog.ts`, `columns.ts`, `sql.ts` and `rows.ts` reach nothing but
+`drizzle-orm` and `@duckdbfan/drizzle-duckdb/helpers`, that package's
+driverless entry point. The scraper's side is `database.ts` and `connect.ts`,
+which load `@duckdb/node-api`, a native addon, and `views.ts`, the SQL script
+`connect` runs.
+`packages/db/test/browserSafe.test.ts` walks the imports and fails if the two
+sides meet.
+
+What crosses the line is the schema, not a connection:
+
+- The viewer builds its SQL from the same table and view objects the scraper
+  writes through, with `toSql` (`sql.ts`) rendering a Drizzle query to one
+  string for SQLRooms to run. A renamed column is a type error in the viewer
+  rather than a query that returns nothing.
+- Every query is built with Drizzle's query builder (`qb` from `sql.ts`,
+  which builds SQL without a connection), so the
+  compiler sees each `select`, `join`, `where` and `group by` against the
+  relation it names. DuckDB syntax the Postgres dialect has no notion of
+  (`FILTER`, `GROUP BY ALL`, `EXCLUDE`, `QUALIFY`) goes in a `sql` fragment
+  inside the built query — a selected expression, a `where`, a subquery, or a
+  `$with` CTE with its columns declared — rather than turning the query back
+  into a string.
+- The two drivers hand back different JavaScript for the same column, so
+  `rows.ts` has a row type for each: `NodeRow` for `Database.rows()`, where a
+  `DATE` is `'2026-09-11'` and a `BIGINT` a decimal string, and `WasmRow` for
+  the viewer, where the same `DATE` is epoch milliseconds and the `BIGINT` a
+  `bigint`. `WasmSelection` is the same mapping over a query's own selection,
+  for a row the viewer reads back in JavaScript.
+- A query's own invented columns (a `status` a `CASE` derives, a count it
+  names) stay plain SQL text. Only database relations come from the schema.
+- A value typed with `sql<T>` is a claim, not a check: Drizzle takes `T` on
+  trust. Through `Database.orm`, an aggregate over a `DATE` comes back as a
+  JavaScript `Date`, whatever `T` says, so give it `.mapWith(column)` to have
+  it decoded as that column is.
+- The viewer's queries live in `packages/ui/src/queries/`, out of the React
+  components, and `packages/ui/test/queries.test.ts` runs every one of them,
+  in every variant its toggles produce, against a database built by
+  `connect`, and checks the columns it emits against the keys the viewer
+  reads them by. Add a new query there too.
 
 ### Dependencies
 
@@ -310,8 +384,8 @@ Every run fails with `LegacySchemaError` until someone:
     derives first/last/page-seen dates.
 - **Add listing columns to `airbnb_listing_observations`, not `listings`.** If a
   change to the column should open a new version, also add it to
-  `VERSION_KEY_SQL` in `packages/db/src/views.ts`. Leave out values that move most days
-  (price, review count).
+  `VERSION_KEY_SQL` in `packages/db/src/views.ts`. Leave out values that move
+  most days (price, review count).
 - **Hosts are stored the same way.** `airbnb_host_observations` is append-only with
   a `profile_read_ok` flag, and `hosts` rebuilds versions with the same
   gaps-and-islands and carry-forward as `listings`. Name and bio are the

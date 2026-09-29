@@ -350,4 +350,16 @@ describe('pendingLicensePages', () => {
     // 2 left the layer and was never read; 1 was read yesterday.
     expect(pending).toEqual([2]);
   });
+
+  it('re-reads a license whose latest read is refreshDays old', async () => {
+    const db = await freshDb();
+    await registryRun(db, '2026-09-01', [registration('STR20260001', 1)], [licensePage(1)]);
+
+    const pending = await pendingLicensePages(db, '2026-09-08', [registration('STR20260001', 1)], {
+      refreshDays: 7,
+      max: 100,
+    });
+
+    expect(pending).toEqual([1]);
+  });
 });

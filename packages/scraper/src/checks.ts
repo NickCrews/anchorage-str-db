@@ -4,10 +4,18 @@
  */
 
 import type { Database } from '@anchorage-str-db/db/database';
+import {
+  airbnbCalendarStatus,
+  airbnbListingObservations,
+  airbnbScrapeRuns,
+} from '@anchorage-str-db/db/schema';
+import { qb } from '@anchorage-str-db/db/sql';
+import { hosts, listings } from '@anchorage-str-db/db/viewSchema';
 import { missRate, type CoverageAudit, type SearchResult } from '@anchorage-str-db/scraper-airbnb/search';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 import { log } from '@anchorage-str-db/utils/log';
 import { inMunicipality } from '@anchorage-str-db/utils/muni_geography';
+import { and, asc, count, desc, eq, gt, isNotNull, isNull, lt, ne, or, sql, type Column } from 'drizzle-orm';
 
 import type { PageFetchStats, QuoteStats } from './store.ts';
 
@@ -25,6 +33,10 @@ export const PLAUSIBLE_LISTING_COUNT: readonly [number, number] = [1000, 8000];
  * the two query shapes.
  */
 const MAX_COVERAGE_MISS_RATE = 0.05;
+
+/** The `listings` view twice over, for the version-overlap self-join. */
+const earlier = qb.select().from(listings).as('earlier');
+const later = qb.select().from(listings).as('later');
 
 /** A calendar-fetch failure rate above this fails the run. */
 const MAX_CALENDAR_FAILURE_RATE = 0.25;
@@ -143,7 +155,7 @@ export async function runChecks(
     check('search_coverage', 'warn', false, 'coverage audit did not run: no usable audit boxes');
   }
 
-  const currentCount = await db.count('SELECT count(*) FROM listings WHERE is_active');
+  const currentCount = await db.orm.$count(listings, eq(listings.isActive, true));
   const [lo, hi] = PLAUSIBLE_LISTING_COUNT;
   check(
     'listing_count_plausible',
@@ -153,9 +165,14 @@ export async function runChecks(
   );
 
   // This and the overlap check test the SCD2 logic in the `listings` view.
-  const dupes = await db.count(
-    'SELECT count(*) FROM (SELECT listing_id FROM listings WHERE is_active ' +
-      'GROUP BY listing_id HAVING count(*) > 1)',
+  const dupes = await db.orm.$count(
+    qb
+      .select({ listingId: listings.listingId })
+      .from(listings)
+      .where(eq(listings.isActive, true))
+      .groupBy(listings.listingId)
+      .having(gt(count(), 1))
+      .as('duplicated'),
   );
   check(
     'no_duplicate_active_listings',
@@ -164,11 +181,20 @@ export async function runChecks(
     `${dupes} listing_ids with >1 active row`,
   );
 
-  const overlap = await db.count(`
-    SELECT count(*) FROM listings a JOIN listings b
-      ON a.listing_id = b.listing_id AND a.valid_from < b.valid_from
-    WHERE a.valid_to IS NULL OR a.valid_to > b.valid_from
-  `);
+  const overlap = await db.orm.$count(
+    qb
+      .select({ listingId: earlier.listingId })
+      .from(earlier)
+      .innerJoin(
+        later,
+        and(
+          eq(later.listingId, earlier.listingId),
+          lt(earlier.validFrom, later.validFrom),
+        ),
+      )
+      .where(or(isNull(earlier.validTo), gt(earlier.validTo, later.validFrom)))
+      .as('overlapping'),
+  );
   check(
     'no_overlapping_listing_versions',
     'error',
@@ -179,10 +205,15 @@ export async function runChecks(
   // The pipeline drops listings outside the boundary before storing them, so
   // this finds listings with no coordinates, and listings stored before the
   // boundary last changed that have not yet retired (RETIREMENT_GRACE_DAYS).
-  const coords = await db.rows<{ listing_id: string; lat: number | null; lng: number | null }>(
-    'SELECT listing_id, location_lat AS lat, location_lng AS lng FROM listings ' +
-      'WHERE is_active ORDER BY listing_id',
-  );
+  const coords = await db.orm
+    .select({
+      listingId: listings.listingId,
+      lat: listings.locationLat,
+      lng: listings.locationLng,
+    })
+    .from(listings)
+    .where(eq(listings.isActive, true))
+    .orderBy(asc(listings.listingId));
   const outside = coords.filter(
     ({ lat, lng }) => lat === null || lng === null || !inMunicipality(lat, lng),
   );
@@ -191,24 +222,24 @@ export async function runChecks(
     'warn',
     outside.length === 0,
     `${outside.length} active listings with no coordinates or outside the Municipality` +
-      (outside.length ? `; e.g. ${outside.slice(0, 5).map((row) => row.listing_id).join(', ')}` : ''),
+      (outside.length ? `; e.g. ${outside.slice(0, 5).map((row) => row.listingId).join(', ')}` : ''),
   );
 
-  const runs = await db.rows<{
-    calendar_fetch_attempted: number | null;
-    calendar_fetch_failed: number | null;
-    first_review_fetch_attempted: number | null;
-    first_review_fetch_failed: number | null;
-  }>(
-    'SELECT calendar_fetch_attempted, calendar_fetch_failed, ' +
-      'first_review_fetch_attempted, first_review_fetch_failed FROM airbnb_scrape_runs ' +
-      'WHERE scrape_date = CAST(? AS DATE) ORDER BY run_started_at DESC LIMIT 1',
-    [scrapeDate],
-  );
+  const runs = await db.orm
+    .select({
+      calendarAttempted: airbnbScrapeRuns.calendarFetchAttempted,
+      calendarFailed: airbnbScrapeRuns.calendarFetchFailed,
+      firstReviewAttempted: airbnbScrapeRuns.firstReviewFetchAttempted,
+      firstReviewFailed: airbnbScrapeRuns.firstReviewFetchFailed,
+    })
+    .from(airbnbScrapeRuns)
+    .where(eq(airbnbScrapeRuns.scrapeDate, scrapeDate))
+    .orderBy(desc(airbnbScrapeRuns.runStartedAt))
+    .limit(1);
   const run = runs[0];
   if (run) {
-    const attempted = run.calendar_fetch_attempted ?? 0;
-    const failed = run.calendar_fetch_failed ?? 0;
+    const attempted = run.calendarAttempted ?? 0;
+    const failed = run.calendarFailed ?? 0;
     const rate = attempted ? failed / attempted : 0;
     check(
       'calendar_failure_rate',
@@ -223,9 +254,9 @@ export async function runChecks(
   // A warning: a failed listing writes nothing and is retried next run, so
   // failing the run would withhold the day's calendar and listings, which
   // can't be re-scraped later, to protect review dates, which can.
-  const reviewsAttempted = run?.first_review_fetch_attempted ?? 0;
+  const reviewsAttempted = run?.firstReviewAttempted ?? 0;
   if (reviewsAttempted) {
-    const failed = run?.first_review_fetch_failed ?? 0;
+    const failed = run?.firstReviewFailed ?? 0;
     const rate = failed / reviewsAttempted;
     check(
       'first_review_failure_rate',
@@ -236,9 +267,9 @@ export async function runChecks(
     );
   }
 
-  const freshness = await db.count(
-    'SELECT count(*) FROM airbnb_listing_observations WHERE scrape_date = CAST(? AS DATE)',
-    [scrapeDate],
+  const freshness = await db.orm.$count(
+    airbnbListingObservations,
+    eq(airbnbListingObservations.scrapeDate, scrapeDate),
   );
   check(
     'observations_written_today',
@@ -299,29 +330,28 @@ export async function runChecks(
   // affected listing, and again when the parser is fixed. Failing the run
   // keeps that day out of the published archive.
   const minShare = MIN_PAGE_FIELD_SHARE;
-  const pageRead = await db.count(
-    'SELECT count(*) FROM listings WHERE is_active AND page_seen_date IS NOT NULL',
-  );
+  const pageWasRead = and(eq(listings.isActive, true), isNotNull(listings.pageSeenDate));
+  const pageRead = await db.orm.$count(listings, pageWasRead);
   if (pageRead) {
-    const minimums = [
-      ['host_id', minShare],
-      ['listing_type', minShare],
-      ['guest_capacity', minShare],
-      ['beds', minShare],
-      ['bedrooms', MIN_BEDROOMS_SHARE],
-      ['bathrooms', minShare],
-    ] as const;
+    const minimums: ReadonlyArray<readonly [Column, number]> = [
+      [listings.hostId, minShare],
+      [listings.listingType, minShare],
+      [listings.guestCapacity, minShare],
+      [listings.beds, minShare],
+      [listings.bedrooms, MIN_BEDROOMS_SHARE],
+      [listings.bathrooms, minShare],
+    ];
     for (const [column, min] of minimums) {
-      const present = await db.count(
-        'SELECT count(*) FROM listings ' +
-          `WHERE is_active AND page_seen_date IS NOT NULL AND ${column} IS NOT NULL`,
+      const present = await db.orm.$count(
+        listings,
+        and(pageWasRead, isNotNull(column)),
       );
       const share = present / pageRead;
       check(
-        `${column}_coverage`,
+        `${column.name}_coverage`,
         'error',
         share >= min,
-        `${present}/${pageRead} active listings with a page read have a ${column} ` +
+        `${present}/${pageRead} active listings with a page read have a ${column.name} ` +
           `(${percent(share)}, min ${percent(min)})`,
       );
     }
@@ -356,17 +386,18 @@ export async function runChecks(
   // forward, so a day without fresh profiles is thinner, not wrong.
   // `listing_page_failure_rate` already errors when pages stop arriving, so
   // these isolate the host card's extraction breaking.
-  const hostRuns = await db.rows<{
-    host_profile_attempted: number | null;
-    host_profile_failed: number | null;
-  }>(
-    'SELECT host_profile_attempted, host_profile_failed FROM airbnb_scrape_runs ' +
-      'WHERE scrape_date = CAST(? AS DATE) ORDER BY run_started_at DESC LIMIT 1',
-    [scrapeDate],
-  );
-  const hostAttempted = hostRuns[0]?.host_profile_attempted ?? 0;
+  const hostRuns = await db.orm
+    .select({
+      attempted: airbnbScrapeRuns.hostProfileAttempted,
+      failed: airbnbScrapeRuns.hostProfileFailed,
+    })
+    .from(airbnbScrapeRuns)
+    .where(eq(airbnbScrapeRuns.scrapeDate, scrapeDate))
+    .orderBy(desc(airbnbScrapeRuns.runStartedAt))
+    .limit(1);
+  const hostAttempted = hostRuns[0]?.attempted ?? 0;
   if (hostAttempted) {
-    const hostFailed = hostRuns[0]?.host_profile_failed ?? 0;
+    const hostFailed = hostRuns[0]?.failed ?? 0;
     const rate = hostFailed / hostAttempted;
     check(
       'host_profile_failure_rate',
@@ -378,14 +409,21 @@ export async function runChecks(
   }
 
   // Listings with no host_id at all are `host_id_coverage`'s concern.
-  const owned = await db.count(
-    'SELECT count(*) FROM listings WHERE is_active AND host_id IS NOT NULL',
+  const owned = await db.orm.$count(
+    listings,
+    and(eq(listings.isActive, true), isNotNull(listings.hostId)),
   );
   if (owned) {
-    const resolved = await db.count(
-      'SELECT count(*) FROM listings l ' +
-        'JOIN hosts h ON h.host_id = l.host_id AND h.valid_to IS NULL ' +
-        'WHERE l.is_active AND h.profile_seen_date IS NOT NULL',
+    const resolved = await db.orm.$count(
+      qb
+        .select({ listingId: listings.listingId })
+        .from(listings)
+        .innerJoin(
+          hosts,
+          and(eq(hosts.hostId, listings.hostId), isNull(hosts.validTo)),
+        )
+        .where(and(eq(listings.isActive, true), isNotNull(hosts.profileSeenDate)))
+        .as('resolved'),
     );
     const share = resolved / owned;
     check(
@@ -400,11 +438,16 @@ export async function runChecks(
   // A hosting start date should never move. Month rounding is within the
   // threshold; beyond it is an account change or a parse reading the wrong
   // number.
-  const moved = await db.rows<{ host_id: string; spread: number }>(
-    'SELECT host_id, hosting_start_spread_days AS spread FROM hosts ' +
-      'WHERE is_active AND hosting_start_spread_days > ? ORDER BY spread DESC',
-    [HOST_START_MAX_SPREAD_DAYS],
-  );
+  const moved = await db.orm
+    .select({ hostId: hosts.hostId, spread: hosts.hostingStartSpreadDays })
+    .from(hosts)
+    .where(
+      and(
+        eq(hosts.isActive, true),
+        gt(hosts.hostingStartSpreadDays, HOST_START_MAX_SPREAD_DAYS),
+      ),
+    )
+    .orderBy(desc(hosts.hostingStartSpreadDays));
   check(
     'host_start_date_stable',
     'warn',
@@ -412,24 +455,31 @@ export async function runChecks(
     `${moved.length} active hosts whose hosting start date moved by more than ` +
       `${HOST_START_MAX_SPREAD_DAYS} days between readings` +
       (moved.length
-        ? `; e.g. ${moved.slice(0, 5).map((row) => `${row.host_id} (${row.spread}d)`).join(', ')}`
+        ? `; e.g. ${moved.slice(0, 5).map((row) => `${row.hostId} (${row.spread}d)`).join(', ')}`
         : ''),
   );
 
   // Airbnb emits exact coordinates at 4 decimal places and jittered ones at
   // 5+ (41/41 measured; see docs/research/airbnb-pdp-location-payload.md).
   // This is undocumented, so a mismatch warns rather than fails.
-  const mismatched = await db.count(`
-    SELECT count(*) FROM listings
-    WHERE is_active AND location_is_exact IS NOT NULL AND location_lat IS NOT NULL
-      AND location_is_exact != (
-          length(split_part(abs(location_lat)::VARCHAR, '.', 2)) <= 4
-          AND length(split_part(abs(location_lng)::VARCHAR, '.', 2)) <= 4
-      )
-  `);
-  const located = await db.count(
-    'SELECT count(*) FROM listings WHERE is_active AND location_is_exact IS NOT NULL',
+  // Four decimal places or fewer on both coordinates is Airbnb's rounded pin.
+  const looksRounded = sql<boolean>`(
+      length(split_part(abs(${listings.locationLat})::VARCHAR, '.', 2)) <= 4
+      AND length(split_part(abs(${listings.locationLng})::VARCHAR, '.', 2)) <= 4
+    )`;
+  const hasExactFlag = and(
+    eq(listings.isActive, true),
+    isNotNull(listings.locationIsExact),
   );
+  const mismatched = await db.orm.$count(
+    listings,
+    and(
+      hasExactFlag,
+      isNotNull(listings.locationLat),
+      ne(listings.locationIsExact, looksRounded),
+    ),
+  );
+  const located = await db.orm.$count(listings, hasExactFlag);
   if (located) {
     check(
       'exact_flag_matches_coordinate_precision',
@@ -442,8 +492,9 @@ export async function runChecks(
 
   // A night before its own valid_from is an elapsed day that `toNights`
   // should have dropped.
-  const backdated = await db.count(
-    'SELECT count(*) FROM airbnb_calendar_status WHERE night_date < valid_from',
+  const backdated = await db.orm.$count(
+    airbnbCalendarStatus,
+    lt(airbnbCalendarStatus.nightDate, airbnbCalendarStatus.validFrom),
   );
   check(
     'no_backdated_calendar_rows',

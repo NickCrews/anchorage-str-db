@@ -5,7 +5,8 @@
  * Each table name starts with its source: `airbnb_`, `muni_str_` for the
  * Municipal Clerk's STR registration layer, and `muni_license_` for the
  * Muni's CityView license pages. Views are named for what they derive
- * (`listings`, `registrations`) and carry no prefix.
+ * (`listings`, `registrations`) and carry no prefix; their SQL is in
+ * `views.ts` and their columns in `viewSchema.ts`.
  *
  * Airbnb:
  *
@@ -58,34 +59,16 @@
  * whose tables differ. Add a column at the end of its table.
  */
 
-import { duckDbList } from '@duckdbfan/drizzle-duckdb';
 import {
-  bigint,
   boolean,
-  customType,
-  date,
   doublePrecision,
   integer,
   pgTable,
   primaryKey,
-  timestamp,
   varchar,
 } from 'drizzle-orm/pg-core';
 
-/** A DuckDB `DATE`, read and written as `YYYY-MM-DD`. */
-const day = (name: string) => date(name, { mode: 'string' });
-
-/** A naive UTC DuckDB `TIMESTAMP`, read and written as `YYYY-MM-DD HH:MM:SS`. */
-const naiveTimestamp = (name: string) => timestamp(name, { mode: 'string' });
-
-const id = (name: string) => bigint(name, { mode: 'bigint' });
-
-const varcharList = (name: string) => duckDbList<string>(name, 'VARCHAR');
-
-/** A list of structs; `sqlType` is the full DuckDB type, e.g. `STRUCT(a VARCHAR)[]`. */
-function structList<T>(name: string, sqlType: string) {
-  return customType<{ data: T[] }>({ dataType: () => sqlType })(name);
-}
+import { bigint, day, naiveTimestamp, structList, varcharList } from './columns.ts';
 
 // --------------------------------------------------------------------------
 // Airbnb
@@ -93,7 +76,7 @@ function structList<T>(name: string, sqlType: string) {
 export const airbnbListingObservations = pgTable(
   'airbnb_listing_observations',
   {
-    listingId: id('listing_id').notNull(),
+    listingId: bigint('listing_id').notNull(),
     scrapeDate: day('scrape_date').notNull(),
 
     // From the search response; present for every observed listing.
@@ -120,7 +103,7 @@ export const airbnbListingObservations = pgTable(
     locationVerified: boolean('location_verified'),
     registrationId: varchar('registration_id'),
     // The primary host's Airbnb user id (airbnb.com/users/show/<host_id>).
-    hostId: id('host_id'),
+    hostId: bigint('host_id'),
     // Airbnb's text, verbatim: 'Entire home/apt', 'Private room', ...
     listingType: varchar('listing_type'),
     guestCapacity: integer('guest_capacity'),
@@ -145,7 +128,7 @@ export const airbnbListingObservations = pgTable(
 );
 
 export const airbnbCalendarStatus = pgTable('airbnb_calendar_status', {
-  listingId: id('listing_id').notNull(),
+  listingId: bigint('listing_id').notNull(),
   nightDate: day('night_date').notNull(),
   available: boolean('available').notNull(),
   minNights: integer('min_nights'),
@@ -162,7 +145,7 @@ export const airbnbCalendarStatus = pgTable('airbnb_calendar_status', {
 export const airbnbListingPhotos = pgTable(
   'airbnb_listing_photos',
   {
-    listingId: id('listing_id').notNull(),
+    listingId: bigint('listing_id').notNull(),
     validFrom: day('valid_from').notNull(),
     photoUrls: varcharList('photo_urls').notNull(),
   },
@@ -201,7 +184,7 @@ export const airbnbScrapeRuns = pgTable('airbnb_scrape_runs', {
  * the date only: no review text or reviewer.
  */
 export const airbnbListingFirstReviews = pgTable('airbnb_listing_first_reviews', {
-  listingId: id('listing_id').primaryKey(),
+  listingId: bigint('listing_id').primaryKey(),
   // UTC date of the listing's oldest review; NULL if it had no reviews.
   firstReviewDate: day('first_review_date'),
   // The scrape date of the run that read the reviews.
@@ -218,7 +201,7 @@ export const airbnbListingFirstReviews = pgTable('airbnb_listing_first_reviews',
 export const airbnbHostObservations = pgTable(
   'airbnb_host_observations',
   {
-    hostId: id('host_id').notNull(),
+    hostId: bigint('host_id').notNull(),
     scrapeDate: day('scrape_date').notNull(),
     profileReadOk: boolean('profile_read_ok').notNull(),
     // A first name or a business name. Airbnb shows no surnames.
@@ -291,6 +274,8 @@ export interface LicenseLocation {
   link: string | null;
 }
 
+export const LICENSE_LOCATIONS_TYPE = 'STRUCT(label VARCHAR, value VARCHAR, link VARCHAR)[]';
+
 export interface LicenseIssuance {
   type: string | null;
   issued_date: string | null;
@@ -298,6 +283,10 @@ export interface LicenseIssuance {
   status: string | null;
   number: string | null;
 }
+
+/** Also the type of `registrations.license_issuances`; see `viewSchema.ts`. */
+export const LICENSE_ISSUANCES_TYPE =
+  'STRUCT(type VARCHAR, issued_date DATE, expires_date DATE, status VARCHAR, number VARCHAR)[]';
 
 /** A failed read writes no row. Text is as the page shows it. */
 export const muniLicensePageReads = pgTable(
@@ -318,14 +307,8 @@ export const muniLicensePageReads = pgTable(
     // link is text the registrant typed that matched no record, and usually
     // has no label. The label can be the portal's own lookup error
     // (license 13966).
-    locations: structList<LicenseLocation>(
-      'locations',
-      'STRUCT(label VARCHAR, value VARCHAR, link VARCHAR)[]',
-    ).notNull(),
-    issuances: structList<LicenseIssuance>(
-      'issuances',
-      'STRUCT(type VARCHAR, issued_date DATE, expires_date DATE, status VARCHAR, number VARCHAR)[]',
-    ).notNull(),
+    locations: structList<LicenseLocation>(LICENSE_LOCATIONS_TYPE)('locations').notNull(),
+    issuances: structList<LicenseIssuance>(LICENSE_ISSUANCES_TYPE)('issuances').notNull(),
   },
   (t) => [primaryKey({ columns: [t.cityviewLicenseId, t.scrapeDate] })],
 );

@@ -13,6 +13,7 @@ import {
   type Registration,
 } from '@anchorage-str-db/scraper-muni-str/registrationLayers';
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
+import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 
 // --------------------------------------------------------------------------
 // registrations
@@ -40,19 +41,27 @@ export async function recordRegistrations(
     );
   }
 
-  await db.run('DELETE FROM muni_str_registration_observations WHERE scrape_date = CAST(? AS DATE)', [
-    scrapeDate,
-  ]);
+  await db.orm
+    .delete(muniStrRegistrationObservations)
+    .where(eq(muniStrRegistrationObservations.scrapeDate, scrapeDate));
 
-  const previous = await db.rows<{ registration_id: string; last_seen: string }>(
-    'SELECT registration_id, max(scrape_date) AS last_seen FROM muni_str_registration_observations ' +
-      'GROUP BY registration_id',
-  );
+  const previous = await db.orm
+    .select({
+      registrationId: muniStrRegistrationObservations.registrationId,
+      // `mapWith` decodes it as the column does, to an `IsoDate`; left to the
+      // driver, an aggregated `DATE` comes back as a `Date`, which `===` and
+      // `<=` against a string would compare wrongly.
+      lastSeen: sql`max(${muniStrRegistrationObservations.scrapeDate})`
+        .mapWith(muniStrRegistrationObservations.scrapeDate)
+        .as('last_seen'),
+    })
+    .from(muniStrRegistrationObservations)
+    .groupBy(muniStrRegistrationObservations.registrationId);
   const previousRunDate = previous.reduce<string | null>(
-    (latest, row) => (latest === null || row.last_seen > latest ? row.last_seen : latest),
+    (latest, row) => (latest === null || row.lastSeen > latest ? row.lastSeen : latest),
     null,
   );
-  const everSeen = new Set(previous.map((row) => row.registration_id));
+  const everSeen = new Set(previous.map((row) => row.registrationId));
 
   await db.appendRows(
     muniStrRegistrationObservations,
@@ -80,7 +89,7 @@ export async function recordRegistrations(
     seen: registrations.length,
     new: registrations.filter((r) => !everSeen.has(r.registrationId)).length,
     lapsed: previous.filter(
-      (row) => row.last_seen === previousRunDate && !numbers.has(row.registration_id),
+      (row) => row.lastSeen === previousRunDate && !numbers.has(row.registrationId),
     ).length,
   };
 }
@@ -99,9 +108,16 @@ export async function recordLicensePages(
   pages: readonly LicensePage[],
 ): Promise<void> {
   if (pages.length === 0) return;
-  await db.run(
-    'CREATE OR REPLACE TEMP TABLE stg_license_pages AS ' +
-      'SELECT * FROM muni_license_page_reads LIMIT 0',
+  // Every page here was read today, so dropping today's rows for these
+  // licenses is what makes a second read of one replace the first.
+  await db.orm.delete(muniLicensePageReads).where(
+    and(
+      eq(muniLicensePageReads.scrapeDate, scrapeDate),
+      inArray(
+        muniLicensePageReads.cityviewLicenseId,
+        pages.map((page) => page.cityviewLicenseId),
+      ),
+    ),
   );
   await db.appendRows(
     muniLicensePageReads,
@@ -122,14 +138,7 @@ export async function recordLicensePages(
         number: i.number,
       })),
     })),
-    { into: 'stg_license_pages' },
   );
-  await db.run(
-    'DELETE FROM muni_license_page_reads WHERE (cityview_license_id, scrape_date) IN ' +
-      '(SELECT cityview_license_id, scrape_date FROM stg_license_pages)',
-  );
-  await db.run('INSERT INTO muni_license_page_reads SELECT * FROM stg_license_pages');
-  await db.run('DROP TABLE stg_license_pages');
 }
 
 export interface LicensePageSelection {
@@ -189,19 +198,31 @@ export async function pendingLicensePages(
       return id === null ? [] : [id];
     }),
   );
-  const reads = await db.rows<{ cityview_license_id: number; last_read: string }>(
-    'SELECT cityview_license_id, max(scrape_date) AS last_read FROM muni_license_page_reads GROUP BY cityview_license_id',
-  );
-  const seen = await db.rows<{ cityview_license_id: number; last_seen: string }>(
-    `SELECT ${CITYVIEW_LICENSE_ID_SQL} AS cityview_license_id, max(scrape_date) AS last_seen ` +
-      'FROM muni_str_registration_observations WHERE scrape_date < CAST(? AS DATE) ' +
-      'GROUP BY ALL HAVING cityview_license_id IS NOT NULL',
-    [scrapeDate],
-  );
+  const reads = await db.orm
+    .select({
+      cityviewLicenseId: muniLicensePageReads.cityviewLicenseId,
+      lastRead: sql`max(${muniLicensePageReads.scrapeDate})`
+        .mapWith(muniLicensePageReads.scrapeDate)
+        .as('last_read'),
+    })
+    .from(muniLicensePageReads)
+    .groupBy(muniLicensePageReads.cityviewLicenseId);
+  const seen = await db.orm
+    .select({
+      cityviewLicenseId: sql<number | null>`${sql.raw(CITYVIEW_LICENSE_ID_SQL)}`.as('cityview_license_id'),
+      lastSeen: sql`max(${muniStrRegistrationObservations.scrapeDate})`
+        .mapWith(muniStrRegistrationObservations.scrapeDate)
+        .as('last_seen'),
+    })
+    .from(muniStrRegistrationObservations)
+    .where(lt(muniStrRegistrationObservations.scrapeDate, scrapeDate))
+    // `cityview_license_id` is this query's own column, so `ALL` groups by it.
+    .groupBy(sql`ALL`)
+    .having(sql`cityview_license_id IS NOT NULL`);
   return chooseLicensePages({
     today,
-    lastRead: new Map(reads.map((row) => [row.cityview_license_id, row.last_read])),
-    lastSeen: new Map(seen.map((row) => [row.cityview_license_id, row.last_seen])),
+    lastRead: new Map(reads.map((row) => [row.cityviewLicenseId, row.lastRead])),
+    lastSeen: new Map(seen.map((row) => [row.cityviewLicenseId!, row.lastSeen])),
     scrapeDate,
     ...options,
   });

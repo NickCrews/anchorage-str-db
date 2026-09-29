@@ -1,3 +1,5 @@
+import type { WasmSelection } from '@anchorage-str-db/db/rows';
+import { toSql } from '@anchorage-str-db/db/sql';
 import { useSql } from '@sqlrooms/duckdb';
 import {
   Area,
@@ -24,6 +26,18 @@ import {
 } from '@sqlrooms/ui';
 import type { FC } from 'react';
 import { monthLabel, pct, shortDate } from '../format';
+import {
+  AVAILABILITY_FIELDS,
+  AVAILABILITY_QUERY,
+  BEDROOM_MIX_FIELDS,
+  BEDROOM_MIX_QUERY,
+  KPI_FIELDS,
+  KPI_QUERY,
+  LISTING_AGE_FIELDS,
+  LISTING_AGE_QUERY,
+  STR_TREND_FIELDS,
+  STR_TREND_QUERY,
+} from '../queries/overview';
 import { useRoomStore } from '../store';
 import { DataStatusGate } from './DataStatusGate';
 import { HostConcentrationCard } from './HostConcentrationCard';
@@ -55,132 +69,25 @@ export const OverviewView: FC = () => {
   const status = useRoomStore((s) => s.dataInit.status);
   const enabled = status === 'ready';
 
-  const { data: kpiData, isLoading: kpiLoading } = useSql<{
-    activeListings: number;
-    withCalendarTonight: number | null;
-    notAvailableTonight: number | null;
-    distinctListingsLastYear: number;
-    latestScrapeDate: number | null;
-    registrationsActive: number;
-    listingsRegistered: number;
-    latestRegistryDate: number | null;
-  }>({
-    enabled,
-    query: `
-      WITH tonight AS (
-        SELECT
-          count(*)::INT AS with_calendar_tonight,
-          count(*) FILTER (WHERE NOT available)::INT AS not_available_tonight
-        FROM calendar_current
-        WHERE night_date = CURRENT_DATE
-      ),
-      active AS (SELECT count(*)::INT AS n FROM listings WHERE is_active),
-      last_year AS (
-        SELECT count(DISTINCT listing_id)::INT AS n
-        FROM airbnb_listing_observations
-        WHERE scrape_date >= CURRENT_DATE - INTERVAL 365 DAY
-      ),
-      latest_run AS (SELECT max(scrape_date) AS d FROM airbnb_scrape_runs),
-      registry AS (
-        SELECT
-          (SELECT count(*) FROM registrations_active)::INT AS n,
-          (SELECT max(scrape_date) FROM muni_str_registry_runs WHERE registrations_seen IS NOT NULL) AS d
-      ),
-      registered AS (
-        SELECT count(*)::INT AS n
-        FROM listings_active_with_registration
-        WHERE registration_is_active
-      )
-      SELECT
-        active.n AS "activeListings",
-        tonight.with_calendar_tonight AS "withCalendarTonight",
-        tonight.not_available_tonight AS "notAvailableTonight",
-        last_year.n AS "distinctListingsLastYear",
-        latest_run.d AS "latestScrapeDate",
-        registry.n AS "registrationsActive",
-        registered.n AS "listingsRegistered",
-        registry.d AS "latestRegistryDate"
-      FROM active, tonight, last_year, latest_run, registry, registered
-    `,
-  });
+  const { data: kpiData, isLoading: kpiLoading } = useSql<
+    WasmSelection<typeof KPI_FIELDS>
+  >({ enabled, query: toSql(KPI_QUERY) });
 
-  const { data: availabilityData, isLoading: availabilityLoading } = useSql<{
-    nightDate: number;
-    notAvailable: number;
-    available: number;
-  }>({
-    enabled,
-    query: `
-      SELECT
-        night_date AS "nightDate",
-        count(*) FILTER (WHERE NOT available)::INT AS "notAvailable",
-        count(*) FILTER (WHERE available)::INT AS "available"
-      FROM calendar_current
-      WHERE night_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL 90 DAY
-      GROUP BY ALL
-      ORDER BY night_date
-    `,
-  });
+  const { data: availabilityData, isLoading: availabilityLoading } = useSql<
+    WasmSelection<typeof AVAILABILITY_FIELDS>
+  >({ enabled, query: toSql(AVAILABILITY_QUERY) });
 
-  const { data: strTrendData, isLoading: strTrendLoading } = useSql<{
-    month: number;
-    distinctListings: number;
-  }>({
-    enabled,
-    query: `
-      SELECT
-        date_trunc('month', scrape_date)::DATE AS "month",
-        count(DISTINCT listing_id)::INT AS "distinctListings"
-      FROM airbnb_listing_observations
-      GROUP BY ALL
-      ORDER BY month
-    `,
-  });
+  const { data: strTrendData, isLoading: strTrendLoading } = useSql<
+    WasmSelection<typeof STR_TREND_FIELDS>
+  >({ enabled, query: toSql(STR_TREND_QUERY) });
 
-  // A listing's `first_available_date_est` comes from its first review when
-  // that predates the first scrape, and is otherwise `first_seen_date`, which
-  // makes a listing look newer than it may be.
-  const { data: listingAgeData, isLoading: listingAgeLoading } = useSql<{
-    year: string;
-    fromReview: number;
-    fromFirstSeen: number;
-    reviewsUnread: number;
-  }>({
-    enabled,
-    query: `
-      SELECT
-        year(l.first_available_date_est)::VARCHAR AS "year",
-        count(*) FILTER (WHERE coalesce(l.first_review_date <= l.first_seen_date, false))::INT
-          AS "fromReview",
-        count(*) FILTER (WHERE NOT coalesce(l.first_review_date <= l.first_seen_date, false))::INT
-          AS "fromFirstSeen",
-        count(*) FILTER (WHERE r.listing_id IS NULL)::INT AS "reviewsUnread"
-      FROM listings_active l
-      LEFT JOIN airbnb_listing_first_reviews r USING (listing_id)
-      GROUP BY ALL
-      ORDER BY "year"
-    `,
-  });
+  const { data: listingAgeData, isLoading: listingAgeLoading } = useSql<
+    WasmSelection<typeof LISTING_AGE_FIELDS>
+  >({ enabled, query: toSql(LISTING_AGE_QUERY) });
 
-  // `bedrooms` is Airbnb's text ("2 bedrooms", "Studio"); rooms usually have none.
-  const { data: bedroomMixData, isLoading: bedroomMixLoading } = useSql<{
-    bedroomsLabel: string;
-    nListings: number;
-  }>({
-    enabled,
-    query: `
-      SELECT
-        coalesce(bedrooms, 'Not listed') AS "bedroomsLabel",
-        count(*)::INT AS "nListings"
-      FROM listings
-      WHERE is_active
-      GROUP BY bedrooms
-      ORDER BY
-        bedrooms IS NULL,
-        try_cast(regexp_extract(bedrooms, '^\\d+') AS INTEGER) NULLS FIRST,
-        bedrooms
-    `,
-  });
+  const { data: bedroomMixData, isLoading: bedroomMixLoading } = useSql<
+    WasmSelection<typeof BEDROOM_MIX_FIELDS>
+  >({ enabled, query: toSql(BEDROOM_MIX_QUERY) });
 
   const kpi = kpiData?.toArray()[0];
   const listingAge = listingAgeData?.toArray() ?? [];

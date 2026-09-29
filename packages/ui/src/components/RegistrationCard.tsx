@@ -1,3 +1,5 @@
+import type { WasmSelection } from '@anchorage-str-db/db/rows';
+import { toSql } from '@anchorage-str-db/db/sql';
 import { useSql } from '@sqlrooms/duckdb';
 import {
   Bar,
@@ -22,10 +24,16 @@ import {
 } from '@sqlrooms/ui';
 import type { FC } from 'react';
 import { pct, shortDate } from '../format';
-import { registrationStatusSql } from '../registrationStatus';
+import {
+  BY_LISTING_TYPE_FIELDS,
+  BY_LISTING_TYPE_QUERY,
+  COUNCIL_FIELDS,
+  COUNCIL_QUERY,
+  COUNCILS_SHOWN,
+  SUMMARY_FIELDS,
+  SUMMARY_QUERY,
+} from '../queries/registrationCard';
 import { useRoomStore } from '../store';
-
-const COUNCILS_SHOWN = 15;
 
 const statusConfig = {
   registered: { label: 'Registered', color: 'hsl(var(--chart-2))' },
@@ -39,78 +47,20 @@ const councilConfig = {
   listings: { label: 'Airbnb listings citing them', color: 'hsl(var(--chart-2))' },
 } satisfies ChartConfig;
 
-const STATUS_COUNTS = `
-  count(*) FILTER (WHERE status = 'Registered')::INT AS "registered",
-  count(*) FILTER (WHERE status = 'Registration lapsed')::INT AS "lapsed",
-  count(*) FILTER (WHERE status = 'Id not in registry')::INT AS "notInRegistry",
-  count(*) FILTER (WHERE status = 'No id shown')::INT AS "noId"
-`;
-
-const LISTINGS_WITH_STATUS = `
-  SELECT r.listing_type, ${registrationStatusSql('r')} AS status
-  FROM listings_active_with_registration r
-`;
-
 export const RegistrationCard: FC = () => {
   const enabled = useRoomStore((s) => s.dataInit.status) === 'ready';
 
-  const { data: summaryData, isLoading: summaryLoading } = useSql<{
-    listings: number;
-    registered: number;
-    lapsed: number;
-    notInRegistry: number;
-    noId: number;
-    registrations: number;
-    registrationsWithoutListing: number;
-    registryDate: number | null;
-  }>({
-    enabled,
-    query: `
-      SELECT
-        count(*)::INT AS "listings",
-        ${STATUS_COUNTS},
-        (SELECT count(*) FROM registrations_active)::INT AS "registrations",
-        (SELECT count(*) FROM registrations_active WHERE airbnb_listings_active = 0)::INT
-          AS "registrationsWithoutListing",
-        (SELECT max(scrape_date) FROM muni_str_registry_runs WHERE registrations_seen IS NOT NULL)
-          AS "registryDate"
-      FROM (${LISTINGS_WITH_STATUS})
-    `,
-  });
+  const { data: summaryData, isLoading: summaryLoading } = useSql<
+    WasmSelection<typeof SUMMARY_FIELDS>
+  >({ enabled, query: toSql(SUMMARY_QUERY) });
 
-  const { data: byListingTypeData, isLoading: byListingTypeLoading } = useSql<{
-    listingType: string;
-    registered: number;
-    lapsed: number;
-    notInRegistry: number;
-    noId: number;
-  }>({
-    enabled,
-    query: `
-      SELECT coalesce(listing_type, 'Not listed') AS "listingType", ${STATUS_COUNTS}
-      FROM (${LISTINGS_WITH_STATUS})
-      GROUP BY listing_type
-      ORDER BY count(*) DESC
-    `,
-  });
+  const { data: byListingTypeData, isLoading: byListingTypeLoading } = useSql<
+    WasmSelection<typeof BY_LISTING_TYPE_FIELDS>
+  >({ enabled, query: toSql(BY_LISTING_TYPE_QUERY) });
 
-  const { data: councilData, isLoading: councilLoading } = useSql<{
-    council: string;
-    registrations: number;
-    listings: number;
-  }>({
-    enabled,
-    query: `
-      SELECT
-        coalesce(community_council, 'Address not geocoded') AS "council",
-        count(*)::INT AS "registrations",
-        sum(airbnb_listings_active)::INT AS "listings"
-      FROM registrations_active
-      GROUP BY community_council
-      ORDER BY count(*) DESC, community_council
-      LIMIT ${COUNCILS_SHOWN}
-    `,
-  });
+  const { data: councilData, isLoading: councilLoading } = useSql<
+    WasmSelection<typeof COUNCIL_FIELDS>
+  >({ enabled, query: toSql(COUNCIL_QUERY) });
 
   const s = summaryData?.toArray()[0];
   const byCouncil = councilData?.toArray() ?? [];
