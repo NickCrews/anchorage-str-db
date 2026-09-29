@@ -67,9 +67,9 @@ So downstream repos can pull this data and join it against other sources
   See [`research/airbnb-calendar-price.md`](research/airbnb-calendar-price.md).
 - No schema stability guarantee yet. This is alpha; the schema may change at
   any time.
-- A host can delete a listing and relist the same unit under a new
-  listing_id to shed bad reviews or dodge a registration requirement. We don't
-  currently detect this.
+- A host can delete a listing and relist under a new listing_id to shed bad
+  reviews or dodge a registration requirement. We don't currently detect
+  this.
 
 ## Follow-ups (not now)
 
