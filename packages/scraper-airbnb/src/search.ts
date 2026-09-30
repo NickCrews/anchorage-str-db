@@ -5,7 +5,8 @@
  * Airbnb's paginated search silently stops at 280 items and re-ranks between
  * page fetches, so listings are duplicated or skipped. A single-page query
  * has neither problem. This module never paginates: when a response reports
- * more than one page (`pageCursors`), it halves the price band and retries.
+ * more than one page (`pageCursors`), it halves the price band and retries,
+ * and once the band is too narrow to halve, it halves the bounding box.
  */
 
 import { epochDays, type IsoDate } from '@anchorage-str-db/utils/dates';
@@ -41,11 +42,57 @@ const ZOOM_VALUE = 11;
 const SEARCH_PAGE_SIZE = 40;
 
 /**
- * Bands this narrow are not split further. One that still needs more than a
- * page (over 40 listings at one price) fails the `search_single_page` check.
- * The densest $1-2 bands (around $150 and $200) return 36 listings.
+ * Bands this narrow are not split further by price. One that still needs more
+ * than a page (over 40 listings at one price, as $125-126 had on 2026-09-29)
+ * is split by location instead (see `splitBox`).
  */
 export const PRICE_BAND_MIN_WIDTH_USD = 1;
+
+/**
+ * Boxes whose longer side is this short are not split further. A band that
+ * still needs more than a page in one fails the `search_single_page` check.
+ * Airbnb fuzzes unexact locations by a few hundred metres, so a smaller box
+ * would not separate listings reliably anyway.
+ */
+export const BOX_MIN_SIDE_KM = 0.5;
+
+const KM_PER_DEGREE_LAT = 111.32;
+
+/** Width and height of `box` in km. */
+function boxSidesKm(box: BoundingBox): { widthKm: number; heightKm: number } {
+  const midLat = (box.swLat + box.neLat) / 2;
+  return {
+    widthKm: (box.neLng - box.swLng) * KM_PER_DEGREE_LAT * Math.cos((midLat * Math.PI) / 180),
+    heightKm: (box.neLat - box.swLat) * KM_PER_DEGREE_LAT,
+  };
+}
+
+/**
+ * Two halves of `box` split across its longer side, or null if that side is
+ * under `BOX_MIN_SIDE_KM`. The halves share the midline, so a listing on it
+ * may come back from both; callers dedupe by listing id.
+ */
+export function splitBox(box: BoundingBox): [BoundingBox, BoundingBox] | null {
+  const { widthKm, heightKm } = boxSidesKm(box);
+  if (Math.max(widthKm, heightKm) < BOX_MIN_SIDE_KM) return null;
+  if (widthKm >= heightKm) {
+    const midLng = (box.swLng + box.neLng) / 2;
+    return [
+      { ...box, neLng: midLng },
+      { ...box, swLng: midLng },
+    ];
+  }
+  const midLat = (box.swLat + box.neLat) / 2;
+  return [
+    { ...box, neLat: midLat },
+    { ...box, swLat: midLat },
+  ];
+}
+
+function formatBox(box: BoundingBox): string {
+  const f = (n: number): string => n.toFixed(4);
+  return `[${f(box.swLat)},${f(box.swLng)} to ${f(box.neLat)},${f(box.neLng)}]`;
+}
 
 /**
  * A `price_min`/`price_max` window, in whole USD. `maxUsd === null` is the
@@ -137,7 +184,8 @@ export function liveSearchFetcher(apiKey: string): FetchPage {
 
 /**
  * One run's search pass. `unresolved` lists bands that still needed more than
- * one page at minimum width, so their results may be incomplete.
+ * one page at minimum price width in a minimum-size box, so their results may
+ * be incomplete.
  */
 export interface SearchResult {
   listings: SearchListing[];
@@ -177,8 +225,9 @@ export interface SearchOptions {
 
 /**
  * Search the whole box, splitting by price until no query needs a second
- * page. Every query uses the same `box`, by default the bounding box of the
- * Municipality's boundary, which is already padded by 1 km. Listings outside
+ * page, and by location when a $1 band still needs one. Queries cover `box`,
+ * by default the bounding box of the Municipality's boundary, which is
+ * already padded by 1 km. Listings outside
  * the box are never searched. The box also takes in Hope, Palmer and
  * Wasilla, so the daily run keeps only the listings inside the boundary
  * itself.
@@ -188,31 +237,38 @@ export async function searchAnchorage(options: SearchOptions): Promise<SearchRes
   const seeds = options.seeds ?? PRICE_BAND_SEEDS_USD;
   const result: SearchResult = { listings: [], queries: 0, unresolved: [] };
 
-  const visit = async (band: PriceBand): Promise<void> => {
-    const { listings, pageCount } = await options.fetchPage(band, box);
+  const visit = async (band: PriceBand, where: BoundingBox): Promise<void> => {
+    const { listings, pageCount } = await options.fetchPage(band, where);
     result.queries += 1;
-    const halves = pageCount > 1 ? band.split() : null;
+    const inBox = where === box ? '' : ` in ${formatBox(where)}`;
+    const priceHalves = pageCount > 1 ? band.split() : null;
+    // Only once price can't separate the listings, split the box instead.
+    const boxHalves = pageCount > 1 && !priceHalves ? splitBox(where) : null;
     log.info(
-      `search: ${band} -> ${listings.length} results across ${pageCount} page(s)` +
-        (halves ? ' (splitting)' : ''),
+      `search: ${band}${inBox} -> ${listings.length} results across ${pageCount} page(s)` +
+        (priceHalves ? ' (splitting)' : boxHalves ? ' (splitting by location)' : ''),
     );
-    if (halves) {
-      // The parent's partial page is discarded; the halves replace it.
-      for (const half of halves) await visit(half);
+    // The parent's partial page is discarded; the halves replace it.
+    if (priceHalves) {
+      for (const half of priceHalves) await visit(half, where);
+      return;
+    }
+    if (boxHalves) {
+      for (const half of boxHalves) await visit(band, half);
       return;
     }
     if (pageCount > 1) {
       log.warn(
-        `search: ${band} still needs ${pageCount} pages and is too narrow to split — ` +
-          `more than ${SEARCH_PAGE_SIZE} listings at one price, which price ` +
-          'cannot separate',
+        `search: ${band}${inBox} still needs ${pageCount} pages and is too narrow to ` +
+          `split — more than ${SEARCH_PAGE_SIZE} listings at one price in a ` +
+          `${BOX_MIN_SIDE_KM} km box`,
       );
       result.unresolved.push(band);
     }
     result.listings.push(...listings);
   };
 
-  for (const [lo, hi] of seeds) await visit(new PriceBand(lo, hi));
+  for (const [lo, hi] of seeds) await visit(new PriceBand(lo, hi), box);
 
   log.info(
     `searchAnchorage: ${result.listings.length} results from ${result.queries} ` +

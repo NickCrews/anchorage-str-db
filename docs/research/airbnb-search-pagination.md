@@ -63,9 +63,10 @@ Test boundaries only on single-page queries. On a multi-page query, churn
 looks like listings lost at the boundary.
 
 The densest $1–2 bands (around $150 and $200) return 36 of a possible 40. A $1
-band needing two pages would mean more than 40 listings at one price;
-`search_single_page` fails the run in that case, and the search would need to
-split by geography instead.
+band needing two pages means more than 40 listings at one price, which
+happened at $125–126 on 2026-09-29. The search then halves the bounding box
+across its longer side until each half fits on one page; `search_single_page`
+fails the run only if a box under 0.5 km still needs two pages.
 
 ## Approaches that don't work
 
