@@ -15,6 +15,7 @@ import {
   PRICE_BAND_SEEDS_USD,
   PriceBand,
   searchAnchorage,
+  splitBox,
   type FetchPage,
   type SearchPage,
 } from '../src/search.ts';
@@ -119,14 +120,35 @@ describe('searchAnchorage', () => {
     expect(result.unresolved).toEqual([]);
   });
 
-  it('reports a band that cannot be narrowed to one page', async () => {
+  it('splits by location when a band is too narrow to split by price', async () => {
+    const box: BoundingBox = { swLat: 61, swLng: -150, neLat: 61.1, neLng: -149.8 };
+    const [first] = splitBox(box)!;
     const result = await searchAnchorage({
-      seeds: [[100, 101]],
-      fetchPage: stubPages({ '100:101': page([...Array(40).keys()], 3) }),
+      box,
+      seeds: [[125, 126]],
+      fetchPage: async (_band, where) => {
+        if (where === box) return page([...Array(40).keys()], 2);
+        if (JSON.stringify(where) === JSON.stringify(first)) return page([1, 2, 3]);
+        return page([3, 4]);
+      },
     });
 
-    expect(result.unresolved).toHaveLength(1);
-    expect(String(result.unresolved[0])).toBe('$100-101');
+    expect(result.unresolved).toEqual([]);
+    expect(result.queries).toBe(3);
+    expect(result.listings.map((listing) => listing.listingId)).toEqual([1n, 2n, 3n, 3n, 4n]);
+  });
+
+  it('reports a band that cannot be narrowed to one page', async () => {
+    // Under 1 km on a side, so it splits once more and then gives up.
+    const box: BoundingBox = { swLat: 61, swLng: -150, neLat: 61.006, neLng: -149.992 };
+    const result = await searchAnchorage({
+      box,
+      seeds: [[100, 101]],
+      fetchPage: async () => page([...Array(40).keys()], 3),
+    });
+
+    expect(result.queries).toBe(3);
+    expect(result.unresolved.map(String)).toEqual(['$100-101', '$100-101']);
   });
 
   it('issues exactly one request per band and never follows a cursor', async () => {
@@ -141,6 +163,26 @@ describe('searchAnchorage', () => {
 
     expect(calls).toBe(1);
     expect(result.listings.map((listing) => listing.listingId)).toEqual([1n]);
+  });
+});
+
+describe('splitBox', () => {
+  it('halves across the longer side and covers the parent', () => {
+    // 0.1 deg lat is ~11 km; 0.4 deg lng at 61N is ~21.6 km.
+    const box: BoundingBox = { swLat: 61, swLng: -150, neLat: 61.1, neLng: -149.6 };
+    const [a, b] = splitBox(box)!;
+    expect(a).toEqual({ ...box, neLng: -149.8 });
+    expect(b).toEqual({ ...box, swLng: -149.8 });
+
+    const tall: BoundingBox = { swLat: 61, swLng: -150, neLat: 61.2, neLng: -149.9 };
+    const [south, north] = splitBox(tall)!;
+    expect(south.neLat).toBeCloseTo(61.1);
+    expect(north.swLat).toBeCloseTo(61.1);
+    expect(south.swLng).toBe(tall.swLng);
+  });
+
+  it('returns null for a box too small to split', () => {
+    expect(splitBox({ swLat: 61, swLng: -150, neLat: 61.001, neLng: -149.998 })).toBeNull();
   });
 });
 

@@ -120,7 +120,7 @@ export async function runChecks(
     'error',
     unresolved.length === 0,
     `${unresolved.length} price bands still needed more than one page at the narrowest ` +
-      'width price can express' +
+      'price width in the smallest box' +
       (unresolved.length ? `: ${unresolved.slice(0, 5).map(String).join(', ')}` : ''),
   );
 
