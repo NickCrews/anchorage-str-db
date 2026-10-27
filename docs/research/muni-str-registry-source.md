@@ -129,6 +129,38 @@ renewal may add an issuance to the same license page, or create a new license
 with a new id above the range. Either is covered by reading up to the newest
 id, but a new license would split one rental's history across two ids.
 
+### Ids follow creation, and some are hidden
+
+100 consecutive ids, 16340-16439:
+
+- Ids follow creation order, not issue order. Issue dates step back twice
+  (16395 issued 2026-10-06, 16396 on 2026-09-30), so a license can be issued
+  days after higher ids.
+- 3 are "Invalid License": 16383, 16429 and 16430. Hidden ids are real
+  licenses: 14417 sits between `LC260500839` and `LC260500841`, and the
+  Locator finds no `LC260500840` either. The other categories (`A`, `C`, ...)
+  return "not licensed" pages for every id, not the hidden license.
+
+Whether a hidden id becomes visible later (an application not yet issued) or
+stays hidden (withdrawn, denied) is not known. 14417 was still hidden five
+months after its neighbors. 16429 and 16430 are a week old and worth
+rechecking.
+
+### Incremental reads
+
+No id was seen reused or reassigned: each maps to one `LC` number, in order.
+Remembering the highest id read is safe for finding new licenses, provided
+each run:
+
+- probes upward from the highest id until a run of consecutive invalid ids
+  (or until the Locator's newest id),
+- rereads ids known to be hidden, which may appear later below the maximum,
+- rereads known licenses on the existing `LICENSE_PAGE_REFRESH_DAYS` cycle,
+  since status, business name and issuances change on the same id.
+
+At a 7-day refresh that is ~400 reads a day plus new and hidden ids, about the
+current budget. A full pass is the fallback when state is lost.
+
 The sample saw no inactive STR licenses, so how the portal shows a lapsed or
 revoked STR is not yet known: either a non-`Active` status, or an "Invalid
 License" page. Some of the 6 invalid ids may be one of those.
