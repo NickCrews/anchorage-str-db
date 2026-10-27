@@ -6,8 +6,9 @@ Measured 2026-10-27 from the sandbox, anonymous requests. Concerns
 **Summary:** The ArcGIS service `ShortTermRental_Registrations_Hosted` now
 answers `499 Token Required`: it was made private, not deleted, and no public
 copy exists in the Muni's ArcGIS org or on its own ArcGIS server. CityView
-license page ids are sequential, and STR licenses occupy one range of them, so
-reading every `License/Status` page in that range lists every STR license.
+license page ids come from one counter for every new license of any type, and
+the first STR license is 13607, so reading every `License/Status` page from
+13607 to the newest id and keeping the STR ones lists every STR license.
 About 2,830 pages, ~25 minutes at the `muni-licenses` rate. The fields the layer
 derived (coordinate, community council) can be rebuilt from public Muni
 services, including the same geocoder.
@@ -68,7 +69,11 @@ a list.
 
 Every search stops at 2 pages, 40 results, newest license first: `*`, `AK` and
 `ANCHORAGE` each return 40. `%` returns nothing. Listing everything this way
-needs many narrow searches (by street name, or by license number prefix,
+The JSON has fewer fields than the Status page: no STR number, issue or
+expiry dates, description, or second parcel, and the CityView `licenseId` is
+only in the `View` HTML. It does not replace parsing the Status page.
+
+Listing everything this way needs many narrow searches (by street name, or by license number prefix,
 splitting any that hit 40), and gives no signal that a search was complete
 other than returning fewer than 40.
 
@@ -98,6 +103,31 @@ description, locations (parcel id and address) and issuances (STR number,
 issued, expires, status). Reading the range is ~2,830 requests, ~25 minutes,
 daily or weekly. Later runs can reread only ids above the last known maximum,
 plus the existing range on a slower cycle to catch status changes.
+
+### The ids are a running counter, not a batch
+
+A second sample, every 20th id from 13607 to 16439 and every 40th from 9000
+to 13606 (258 pages):
+
+- Ids increase with the `LC` number's sequence (its last 5 digits) and with
+  the issue date, with no exceptions. Issue dates run from 2026-05-01 at 13607
+  to 2026-10-01 at 16407, about 2 ids a day after the May opening rush. The
+  `LC` number's middle digits are the year and month the license was created
+  (`LC2605...` is May 2026).
+- Below 13607 there are no STR licenses: 13 Business, 1 Alcohol (e.g. 9480,
+  `LC09603`), and 102 invalid.
+- Business and Alcohol licenses are mixed into the STR range (3 of 284 in the
+  first sample, and `LC261002840` and `LC261002830` among the newest).
+
+So the id is CityView's counter for every new license of any type. The STR
+range starts where the STR program started and stays mostly STR only because
+STRs are most new licenses. A scan should run from 13607 to the newest id and
+filter on license type, not assume every id is an STR.
+
+Not known: what renewal does. Every STR issued so far expires 2027-04-30. A
+renewal may add an issuance to the same license page, or create a new license
+with a new id above the range. Either is covered by reading up to the newest
+id, but a new license would split one rental's history across two ids.
 
 The sample saw no inactive STR licenses, so how the portal shows a lapsed or
 revoked STR is not yet known: either a non-`Active` status, or an "Invalid
