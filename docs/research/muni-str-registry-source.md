@@ -1,0 +1,131 @@
+# A source for the Muni's STR registrations after the registry layer went private
+
+Measured 2026-10-27 from the sandbox, anonymous requests. Concerns
+`packages/scraper-muni-str`.
+
+**Summary:** The ArcGIS service `ShortTermRental_Registrations_Hosted` now
+answers `499 Token Required`: it was made private, not deleted, and no public
+copy exists in the Muni's ArcGIS org or on its own ArcGIS server. CityView
+license page ids are sequential, and STR licenses occupy one range of them, so
+reading every `License/Status` page in that range lists every STR license.
+About 2,830 pages, ~25 minutes at the `muni-licenses` rate. The fields the layer
+derived (coordinate, community council) can be rebuilt from public Muni
+services, including the same geocoder.
+
+## The old layer
+
+```
+https://services2.arcgis.com/Ce3DhLRthdwbHlfF/arcgis/rest/services/ShortTermRental_Registrations_Hosted/FeatureServer?f=json
+-> {"error":{"code":499,"message":"Token Required"}}
+```
+
+The Experience Builder app item `22b40a78a9fc459e9950a16249b37ed2` returns 403.
+
+## Other ArcGIS services: none have STR data
+
+- **The Muni's ArcGIS Online org** (`services2.arcgis.com/Ce3DhLRthdwbHlfF`,
+  336 public services). No service name or org item search matches rental,
+  short term, STR, clerk or registration. The parcel layers used by
+  [anchorage-property](https://github.com/NickCrews/anchorage-property)
+  (`PropertyInformation_Hosted`, `MOA_Parcels_Hosted`, `TaxParcels_Hosted`)
+  have no license fields. License layers exist for other types only:
+  `LiquorLicenses_Hosted`, `MJ_Permits_Hosted`.
+- **The Muni's ArcGIS Server** (`www.ancgis.com/arcgis/rest/services`, which
+  the CityView portal map uses). `ITD/cityview_maporder2` has liquor, MJ and
+  child care layers, no STR layer.
+- **data.muni.org** redirects to a static open-data page.
+
+## CityView License Locator: searchable, but capped at 40 results
+
+`https://www.muni.org/CityViewPortal/License/Locator` is the portal's license
+search. Its results come from a JSON endpoint that needs only the session
+cookie from loading the Locator page:
+
+```
+GET /CityViewPortal/License/LocatorResults?searchValue=Echo+Ridge&jurisdictionFilter=&licenseType=&pageNumber=0
+X-Requested-With: XMLHttpRequest
+```
+
+The response has `View` (an HTML list, 20 per page, with each license's
+CityView `licenseId`) and `LocationMarkers`, one per located result:
+
+```json
+{
+  "ReferenceNumber": "LC260902653",
+  "Name": "Greenrose Rentals",
+  "ApplicationTypeDescription": "Short-Term Rentals",
+  "PrimaryLocation": "186 ECHO RIDGE DR, GIRDWOOD, AK 99587",
+  "MapRelationValue": {"AttributeName": "Parcel_ID", "AttributeValue": "07606206000"},
+  "Status": "Active",
+  "LinkUri": "https://www.muni.org/CityViewPortal/License/StatusReference?referenceNumber=LC260902653&category=B"
+}
+```
+
+It matches business name, address and license number, across all license
+types (Alcohol, Business, Short-Term Rentals). A search for one exact license
+or STR number returns a `RedirectUrl` to that license's Status page instead of
+a list.
+
+Every search stops at 2 pages, 40 results, newest license first: `*`, `AK` and
+`ANCHORAGE` each return 40. `%` returns nothing. Listing everything this way
+needs many narrow searches (by street name, or by license number prefix,
+splitting any that hit 40), and gives no signal that a search was complete
+other than returning fewer than 40.
+
+## Enumerating CityView license ids: complete
+
+The Status page id (`License/Status?licenseId=N&category=B`) is a sequential
+integer across license types. STR licenses start at 13607 (`STR20260004`
+through `STR20260067` are at 13607-13609; 13600-13606 are invalid, and the lower ids seen are other types) and the
+newest is 16439 (`STR20262782`, license `LC261002852`). Ids 16440-16460 are
+invalid. The Locator's `*` search lists the newest licenses first, so its top
+result gives the current upper end in one request.
+
+A sample of every 10th id from 13607 to 16439 (284 pages):
+
+| page | count |
+| --- | --- |
+| Short-Term Rentals, Active | 275 |
+| Business, Active | 3 |
+| "Invalid License" | 6 |
+
+Every STR page in the sample had an STR certificate number. That projects to
+about 2,750 STR licenses in the range. The layer had 2549 on 2026-09-07.
+
+`packages/muni-licenses` already fetches and parses these pages, at 2/s. Its
+`parseLicensePage` gives license number, business name, license type, status,
+description, locations (parcel id and address) and issuances (STR number,
+issued, expires, status). Reading the range is ~2,830 requests, ~25 minutes,
+daily or weekly. Later runs can reread only ids above the last known maximum,
+plus the existing range on a slower cycle to catch status changes.
+
+The sample saw no inactive STR licenses, so how the portal shows a lapsed or
+revoked STR is not yet known: either a non-`Active` status, or an "Invalid
+License" page. Some of the 6 invalid ids may be one of those.
+
+## What the layer had that license pages don't
+
+| layer field | replacement |
+| --- | --- |
+| `RegistrationNumber`, `ApplicationNumber`, `BusinessName`, `Status`, `Issued`, `Expires`, `StatusUrl`, `Location` | on the license page |
+| `Submitted` | none found |
+| `GeocodedAddress`, coordinate | the same geocoder is public: `https://www.ancgis.com/arcgis/rest/services/Locators/MOA_Multirole_Locator/GeocodeServer/findAddressCandidates`. `525 w 3rd Ave #501, anchorage AK 99501` returns `525 W 3rd Ave, #501, Anchorage, AK, 99501` at (-149.89247, 61.21964), score 100. For a license with a parcel id, the parcel's polygon in `PropertyInformation_Hosted` is an alternative. |
+| `CommunityCouncil` | point-in-polygon against `CommunityCouncil_Links/FeatureServer/0` (`COUNCIL`) |
+| `ParcelType` | `Property_Type` in `PropertyInformation_Hosted`, by parcel id, for licenses that have one |
+| `PUBDATE`, `dataLastEditDate` | none; the scrape time stands in |
+| layer 1, `Clerk_ShortTermRental_CC_Stats` | living units per council: `PropertyInformation_LivingUnit_Summary` (public) |
+
+The geocoder's output style may differ from the layer's (`#501` stayed `#501`
+here, where the layer had `Apartment 501`), so `geocoded_address` values would
+change on the switch.
+
+## Options, ranked
+
+1. **Enumerate license ids** with `muni-licenses`, then geocode and assign a
+   council. Complete, uses a parser that exists and is tested, and adds what the
+   layer lacked (description, all parcels). Costs ~2,830 requests per full pass.
+2. **Locator searches.** Fewer requests per new license, but the 40-result cap
+   makes completeness depend on the search plan. Useful as the cheap "what is
+   the newest id" probe for option 1.
+3. **Ask the Clerk** to make the layer public again, or for a token. Restores
+   the old pipeline unchanged; depends on the Muni.
