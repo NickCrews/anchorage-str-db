@@ -196,8 +196,28 @@ CityView page. It carries what the registration layer lacks: the licensee's
 own description of the business, parcel ids, and every certificate issued.
 One license holds exactly one STR Certificate, so a license and a
 registration are the same thing seen from two systems — see **Three ids, one
-license** below.
+license** below. The portal publishes licenses of other types under the same
+ids — Business (private detectives) and Alcohol among them — and those hold
+no registration.
 _Avoid_: registration, permit, licence
+
+**Issuance**:
+One row of a license page's Issuances table: a certificate or license
+issued under the license, with its type (`STR Certificate`, `Business
+License`), dates, status and number. An STR Certificate's number is the
+`registration_id`.
+_Avoid_: certificate (except for the STR Certificate itself), permit
+
+**Submittal**:
+One row of a license page's Submittals table: something the licensee filed
+for the Muni to review, such as `1 Private Detective 10/13/2026`, `Pending`.
+_Avoid_: document, attachment, filing
+
+**Hidden license id**:
+A `cityview_license_id` whose page is the portal's "Invalid License" page
+("License Not Found"): never issued, or not public. Most ids are hidden. A
+hidden id is a result of reading it, not a failed read.
+_Avoid_: invalid license, missing license, deleted license
 
 **Parcel**:
 A Muni property record, identified by `parcel_id`. The join key to
