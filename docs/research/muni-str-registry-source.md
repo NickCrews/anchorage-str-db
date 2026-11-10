@@ -191,3 +191,27 @@ change on the switch.
    the newest id" probe for option 1.
 3. **Ask the Clerk** to make the layer public again, or for a token. Restores
    the old pipeline unchanged; depends on the Muni.
+
+## Every license the portal publishes
+
+Every 25th id from 1 to 16,520 (661 pages), 2026-11-10:
+
+| id range | sampled | visible | Short-Term Rentals | Business | Alcohol |
+| --- | --- | --- | --- | --- | --- |
+| 1-13,606 | 545 | 43 | 0 | 31 | 12 |
+| 13,607-16,520 | 116 | 109 | 109 | 0 | 0 |
+
+That projects to about 2,750 STR, 750 Business and 300 Alcohol licenses, and
+12,700 hidden ids. Only `category=B` is served; other categories return
+"CityView PortalAnimalLicensing is not licensed" and similar.
+
+- Business pages seen are private detective licenses (issuance number
+  `PD 1476`, two-year terms ending 10/01). They have no Locations section,
+  which `parseLicensePage` requires, so it throws on them (ids 9480, 13400,
+  13580, 16427). Some list Submittals (`Private Detective`, 10/13/2026,
+  Pending).
+- Alcohol pages (id 559, `LC01867`) parse; their issuances have no dates or
+  number.
+- The page's "Application Status" was Active on every page sampled, including
+  id 13400, whose only issuance expired 2025-10-01. The issuance status is the
+  license's status.
