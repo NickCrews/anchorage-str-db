@@ -13,7 +13,7 @@ const BASE_QUERY = `
   SELECT
     registration_id,
     business_name,
-    location,
+    registered_address,
     community_council,
     parcel_type,
     parcel_id,
@@ -60,7 +60,7 @@ export const RegistrationsView: FC = () => {
       const pattern = escapeVal(`%${term}%`);
       filters.push(
         `(registration_id ILIKE ${pattern} OR business_name ILIKE ${pattern}` +
-          ` OR location ILIKE ${pattern} OR community_council ILIKE ${pattern}` +
+          ` OR registered_address ILIKE ${pattern} OR community_council ILIKE ${pattern}` +
           ` OR parcel_id ILIKE ${pattern} OR license_description ILIKE ${pattern})`,
       );
     }
@@ -97,8 +97,8 @@ export const RegistrationsView: FC = () => {
             Each row is a short-term rental registration from the Municipality
             of Anchorage. A registrant registers a unit with the Muni and gets
             an id like STR20261754, which they are expected to show on their
-            listing. The Muni publishes only active registrations, so one that
-            is no longer published has lapsed or been withdrawn.
+            listing. A registration is read from its Muni license page, and is
+            active while its STR certificate's status there is Active.
           </p>
           <p>
             A <strong>listing</strong> is an Airbnb page. A{' '}

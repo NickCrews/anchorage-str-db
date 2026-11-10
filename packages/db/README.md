@@ -3,7 +3,10 @@
 The DuckDB database, and the only package that uses DuckDB directly.
 
 - `schema.ts`: the tables, as Drizzle `pgTable` definitions
-- `views.ts`: the views, as DuckDB SQL, and `RETIREMENT_GRACE_DAYS`
+- `views.ts`: the views, as DuckDB SQL, and `RETIREMENT_GRACE_DAYS`.
+  `licenses` is each visible license's latest page read; `registrations` is
+  one row per STR Certificate number on a Short-Term Rentals license, with
+  the geocoded fields from the archived registration layer
 - `connect.ts`: `connect(path)`, which applies the migrations, checks the
   tables and recreates the views
 - `database.ts`: `Database`, a wrapper over one connection with raw SQL,

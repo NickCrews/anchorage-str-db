@@ -229,11 +229,15 @@ read writes nothing and is retried next scan.
 
 The license page is the only source for the licensee's own description of
 the business, the parcel id, and every certificate issued under the license.
+The `licenses` view holds each license's latest read, and `registrations`
+one row per STR Certificate number on a Short-Term Rentals license.
 
 The Municipal Clerk's ArcGIS registration layer answers only with a token.
 What it published is kept in `muni_str_registration_observations` and
-`muni_str_registry_runs`, which nothing writes, and the `registrations` view
-reads them. What the Muni published there, and how it is cleaned:
+`muni_str_registry_runs`, which nothing writes. `registrations` takes the
+layer's geocoded coordinate, community council, parcel type and submitted
+date from it, and keeps the registrations only it holds, as not active.
+What the Muni published there, and how it is cleaned:
 
 - `BusinessName` is the string `'None'` when none was given. Stored as
   published; `registrations.business_name` is NULL.
@@ -344,8 +348,8 @@ Every run fails with `LegacySchemaError` until someone:
 - **Licenses are stored raw, and joined to listings in views.**
   `muni_license_page_reads` and the archived
   `muni_str_registration_observations` hold what the Muni publishes, with its
-  field values unchanged. `registrations` derives one row per registration
-  from them, and `listings_active_with_registration` joins Airbnb listings on
+  field values unchanged. `licenses` derives one row per license and
+  `registrations` one row per registration from them, and `listings_active_with_registration` joins Airbnb listings on
   `registration_id`, so a cleaning or join rule is fixed by editing a
   view. A license page read is a whole page, stored every time it is read,
   like `airbnb_listing_observations`, rather than change-only: the reads give

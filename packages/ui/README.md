@@ -25,13 +25,14 @@ Queries run in the browser with
   hosts with 2+ listings or with listings that show no number.
 - **Registrations**: a searchable table of the Muni's STR registrations with
   their license page description and the number of current Airbnb listings
-  citing each. Filters to current, current with no Airbnb listing, or no
-  longer published.
+  citing each. Filters to active, active with no Airbnb listing, or
+  lapsed.
 
 Registration status compares the number a listing page shows with the
-registry: `Registered`, `Registration lapsed` (no longer published),
-`Id not in registry` (includes numbers issued since the Muni's last
-publish), or `No id shown`.
+registry, the STR certificates on the Muni's license pages: `Registered`,
+`Registration lapsed` (its certificate is no longer Active), `Id not in
+registry` (includes numbers issued since the last license scan), or `No id
+shown`.
 
 ## Published site
 

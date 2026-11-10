@@ -10,9 +10,10 @@
  * backfilling the only copy of the archive. `hosts` is built from
  * `airbnb_host_observations` the same way.
  *
- * `registrations` has one row per registration with its latest license page,
- * and `listings_active_with_registration` joins Airbnb listings to it on the
- * registration id. Cleaning (the `'None'` business name, the no-match
+ * `licenses` has one row per visible license with its latest page read,
+ * `registrations` one row per STR Certificate number on a Short-Term Rentals
+ * license, and `listings_active_with_registration` joins Airbnb listings to
+ * it on the registration id. Cleaning (the `'None'` business name, the no-match
  * placeholder coordinate) happens in the views, so the raw tables can always be
  * re-derived.
  *
@@ -466,24 +467,147 @@ COMMENT ON COLUMN host_listing_portfolios.listings_ever_seen IS 'Distinct listin
 COMMENT ON VIEW listings_active_with_host IS 'listings_active plus the host''s name, tenure, and host_listing_portfolios counts as of the latest run. NULL when the host is unknown. Portfolio counts cover only listings inside the Municipality.';
 `;
 
-/** CityView's own row id for a registration's license, read from its `status_url`. */
+/** CityView's own row id for an archived registration's license, read from its `status_url`. */
 export const CITYVIEW_LICENSE_ID_SQL = "nullif(regexp_extract(status_url, '[?&]licenseId=(\\d+)', 1), '')::INTEGER";
 
+/** The license type whose STR Certificates are registrations. */
+export const SHORT_TERM_RENTALS = 'Short-Term Rentals';
+
+/** The issuance type whose number is a `registration_id`. */
+export const STR_CERTIFICATE = 'STR Certificate';
+
+/**
+ * Issuance statuses that make a license active. A Short-Term Rentals
+ * license's STR Certificate reads `Active`; a new Business License reads
+ * `Issued`. `Expired` and `Pending` are not active.
+ */
+export const ACTIVE_ISSUANCE_STATUSES = ['Active', 'Issued'] as const;
+
 const REGISTRY_VIEWS_SQL = `
--- The latest registry run that completed its writes.
+-- The latest license scan that completed its writes. The registry is the
+-- Short-Term Rentals licenses among the license pages, so this is the date
+-- \`registrations\` is current to.
 CREATE OR REPLACE VIEW latest_registry_date AS
-SELECT max(scrape_date) AS scrape_date FROM muni_str_registry_runs
-WHERE registrations_seen IS NOT NULL;
+SELECT max(scrape_date) AS scrape_date FROM muni_license_runs
+WHERE error_summary IS NULL;
 
-CREATE OR REPLACE VIEW license_pages_latest AS
-SELECT * FROM muni_license_page_reads
-QUALIFY row_number() OVER (PARTITION BY cityview_license_id ORDER BY scrape_date DESC) = 1;
+-- One row per license with a visible page, of any license type: the latest
+-- page read of each id, without its scrape_date, plus the first and last
+-- dates it was read visible. An id whose latest read found it hidden is left
+-- out.
+--
+-- is_active: the license's most recent issuance (latest issued_date; the
+-- page lists newest first, so the first of a tie or of undated ones) has
+-- status Active or Issued. The page's own Application Status is Active on
+-- licenses whose only issuance expired, so it is not used.
+CREATE OR REPLACE VIEW licenses AS
+WITH read_dates AS (
+    SELECT
+        cityview_license_id,
+        min(scrape_date) AS first_read_date,
+        max(scrape_date) AS last_read_date
+    FROM muni_license_page_reads
+    GROUP BY cityview_license_id
+),
+hidden_dates AS (
+    SELECT cityview_license_id, max(scrape_date) AS last_hidden_date
+    FROM muni_license_hidden_reads
+    GROUP BY cityview_license_id
+),
+latest AS (
+    SELECT p.*
+    FROM muni_license_page_reads p
+    JOIN read_dates d
+      ON d.cityview_license_id = p.cityview_license_id
+     AND d.last_read_date = p.scrape_date
+),
+latest_issuance AS (
+    SELECT cityview_license_id, issuance.status AS issuance_status
+    FROM (
+        SELECT
+            cityview_license_id,
+            unnest(issuances) AS issuance,
+            generate_subscripts(issuances, 1) AS position
+        FROM latest
+    )
+    QUALIFY row_number() OVER (
+        PARTITION BY cityview_license_id
+        ORDER BY issuance.issued_date DESC NULLS LAST, position
+    ) = 1
+)
+SELECT
+    l.* EXCLUDE (scrape_date),
+    d.first_read_date,
+    d.last_read_date,
+    coalesce(i.issuance_status IN (${ACTIVE_ISSUANCE_STATUSES.map((s) => `'${s}'`).join(', ')}), false) AS is_active
+FROM latest l
+JOIN read_dates d ON d.cityview_license_id = l.cityview_license_id
+LEFT JOIN hidden_dates h ON h.cityview_license_id = l.cityview_license_id
+LEFT JOIN latest_issuance i ON i.cityview_license_id = l.cityview_license_id
+WHERE h.last_hidden_date IS NULL OR h.last_hidden_date < d.last_read_date;
 
--- One row per registration ever published, with its latest published fields
--- and latest license page. A registration is active if it was in the
--- latest registry run's layer, which lists only active registrations.
+-- One row per registration: each STR Certificate number on a Short-Term
+-- Rentals license in \`licenses\`, plus each registration only the archived
+-- registration layer holds.
+--
+-- From the license page: the ids, business_name, registered_address (the
+-- Address location, else the first location that is not a parcel id, which
+-- is usually the text the registrant typed) and the license_* columns. From
+-- the STR Certificate issuance: status, issued_date, expires_date, and
+-- is_active (its status is Active). first_seen_date and last_seen_date are
+-- the first and latest page reads that show the number.
+--
+-- submitted_date, community_council, parcel_type and geocoded_* come from the
+-- registration's latest row in the archived layer, and are NULL for a
+-- registration the layer never held.
+--
+-- A registration in the archive whose number no license in \`licenses\`
+-- shows keeps its layer row: is_active is false, the license_* columns are
+-- NULL, and first_seen_date and last_seen_date are its layer dates.
 CREATE OR REPLACE VIEW registrations AS
-WITH activity AS (
+WITH certificates AS (
+    SELECT
+        * EXCLUDE (issuance),
+        issuance.number AS registration_id,
+        issuance.status AS issuance_status,
+        issuance.issued_date AS issuance_issued_date,
+        issuance.expires_date AS issuance_expires_date
+    FROM (
+        SELECT
+            *,
+            unnest(issuances) AS issuance,
+            generate_subscripts(issuances, 1) AS position
+        FROM licenses
+        WHERE license_type = '${SHORT_TERM_RENTALS}'
+    )
+    WHERE issuance.type = '${STR_CERTIFICATE}' AND issuance.number IS NOT NULL
+    -- A number on two licenses, or twice on one, takes the latest read and
+    -- then the most recent issuance.
+    QUALIFY row_number() OVER (
+        PARTITION BY issuance.number
+        ORDER BY last_read_date DESC, issuance.issued_date DESC NULLS LAST,
+                 position, cityview_license_id DESC
+    ) = 1
+),
+sightings AS (
+    SELECT
+        issuance.number AS registration_id,
+        min(scrape_date) AS first_seen_date,
+        max(scrape_date) AS last_seen_date
+    FROM (
+        SELECT scrape_date, unnest(issuances) AS issuance
+        FROM muni_license_page_reads
+        WHERE license_type = '${SHORT_TERM_RENTALS}'
+    )
+    WHERE issuance.type = '${STR_CERTIFICATE}' AND issuance.number IS NOT NULL
+    GROUP BY 1
+),
+archived AS (
+    SELECT *, ${CITYVIEW_LICENSE_ID_SQL} AS cityview_license_id
+    FROM muni_str_registration_observations
+    QUALIFY row_number() OVER (PARTITION BY registration_id ORDER BY scrape_date DESC) = 1
+),
+archived_dates AS (
     SELECT
         registration_id,
         min(scrape_date) AS first_seen_date,
@@ -491,66 +615,124 @@ WITH activity AS (
     FROM muni_str_registration_observations
     GROUP BY registration_id
 ),
-latest AS (
-    SELECT *, ${CITYVIEW_LICENSE_ID_SQL} AS cityview_license_id
-    FROM muni_str_registration_observations
-    QUALIFY row_number() OVER (PARTITION BY registration_id ORDER BY scrape_date DESC) = 1
-),
 airbnb AS (
     SELECT registration_id AS registration_id, count(*)::INTEGER AS listings
     FROM listings_active
     WHERE registration_id IS NOT NULL
     GROUP BY registration_id
+),
+combined AS (
+    SELECT
+        c.registration_id,
+        c.license_id,
+        c.cityview_license_id,
+        c.issuance_status AS status,
+        a.submitted_date,
+        c.issuance_issued_date AS issued_date,
+        c.issuance_expires_date AS expires_date,
+        c.business_name,
+        coalesce(
+            [l.value FOR l IN c.locations IF l.label = 'Address'][1],
+            [l.value FOR l IN c.locations IF l.label IS DISTINCT FROM 'Property'][1]
+        ) AS registered_address,
+        a.community_council,
+        a.parcel_type,
+        a.geocoded_address,
+        a.geocoded_lat,
+        a.geocoded_lng,
+        'https://www.muni.org/CityViewPortal/License/Status?licenseId='
+            || c.cityview_license_id || '&category=B' AS status_url,
+        c.last_read_date AS license_read_date,
+        c.status AS license_status,
+        c.license_type,
+        c.description AS license_description,
+        c.business_name AS license_business_name,
+        c.locations AS license_locations,
+        c.issuances AS license_issuances,
+        s.first_seen_date,
+        s.last_seen_date,
+        c.issuance_status = 'Active' AS is_active
+    FROM certificates c
+    JOIN sightings s USING (registration_id)
+    LEFT JOIN archived a USING (registration_id)
+    UNION ALL
+    SELECT
+        a.registration_id,
+        a.license_id,
+        a.cityview_license_id,
+        a.status,
+        a.submitted_date,
+        a.issued_date,
+        a.expires_date,
+        a.business_name,
+        a.registered_address,
+        a.community_council,
+        a.parcel_type,
+        a.geocoded_address,
+        a.geocoded_lat,
+        a.geocoded_lng,
+        a.status_url,
+        NULL AS license_read_date,
+        NULL AS license_status,
+        NULL AS license_type,
+        NULL AS license_description,
+        NULL AS license_business_name,
+        NULL AS license_locations,
+        NULL AS license_issuances,
+        d.first_seen_date,
+        d.last_seen_date,
+        false AS is_active
+    FROM archived a
+    JOIN archived_dates d USING (registration_id)
+    WHERE a.registration_id NOT IN (SELECT registration_id FROM certificates)
 )
 SELECT
-    o.registration_id,
-    o.license_id,
-    o.cityview_license_id,
-    o.status,
-    o.submitted_date,
-    o.issued_date,
-    o.expires_date,
-    nullif(o.business_name, 'None') AS business_name,
-    o.registered_address,
-    o.community_council,
-    o.parcel_type,
-    o.geocoded_address,
+    r.registration_id,
+    r.license_id,
+    r.cityview_license_id,
+    r.status,
+    r.submitted_date,
+    r.issued_date,
+    r.expires_date,
+    nullif(r.business_name, 'None') AS business_name,
+    r.registered_address,
+    r.community_council,
+    r.parcel_type,
+    r.geocoded_address,
     -- NULL where the geocoder found no match, instead of its placeholder coordinate.
-    CASE WHEN o.geocoded_address IS DISTINCT FROM '${NO_MATCH_GEOCODED_ADDRESS}'
-         THEN o.geocoded_lat END AS geocoded_lat,
-    CASE WHEN o.geocoded_address IS DISTINCT FROM '${NO_MATCH_GEOCODED_ADDRESS}'
-         THEN o.geocoded_lng END AS geocoded_lng,
-    o.status_url,
-    o.published_at,
-    p.scrape_date AS license_read_date,
-    p.status AS license_status,
-    p.license_type,
-    p.description AS license_description,
-    p.business_name AS license_business_name,
+    CASE WHEN r.geocoded_address IS DISTINCT FROM '${NO_MATCH_GEOCODED_ADDRESS}'
+         THEN r.geocoded_lat END AS geocoded_lat,
+    CASE WHEN r.geocoded_address IS DISTINCT FROM '${NO_MATCH_GEOCODED_ADDRESS}'
+         THEN r.geocoded_lng END AS geocoded_lng,
+    r.status_url,
+    r.license_read_date,
+    r.license_status,
+    r.license_type,
+    r.license_description,
+    r.license_business_name,
     -- Parcel ids linked to property records. A parcel id typed as text has no
     -- label and is not included (license 13990).
-    [l.value FOR l IN p.locations IF l.label = 'Property'] AS license_parcel_ids,
-    [l.value FOR l IN p.locations IF l.label = 'Address'] AS license_addresses,
+    [l.value FOR l IN r.license_locations IF l.label = 'Property'] AS license_parcel_ids,
+    [l.value FOR l IN r.license_locations IF l.label = 'Address'] AS license_addresses,
     -- The parcel id when the license lists exactly one; join to
     -- anchorage-property's parcels on it.
-    CASE WHEN len([l FOR l IN p.locations IF l.label = 'Property']) = 1
-         THEN [l.value FOR l IN p.locations IF l.label = 'Property'][1] END AS parcel_id,
-    p.issuances AS license_issuances,
+    CASE WHEN len([l FOR l IN r.license_locations IF l.label = 'Property']) = 1
+         THEN [l.value FOR l IN r.license_locations IF l.label = 'Property'][1] END AS parcel_id,
+    r.license_issuances,
     coalesce(b.listings, 0) AS airbnb_listings_active,
-    a.first_seen_date,
-    a.last_seen_date,
-    a.last_seen_date = (SELECT scrape_date FROM latest_registry_date) AS is_active
-FROM latest o
-JOIN activity a USING (registration_id)
-LEFT JOIN license_pages_latest p ON p.cityview_license_id = o.cityview_license_id
+    r.first_seen_date,
+    r.last_seen_date,
+    r.is_active
+FROM combined r
 LEFT JOIN airbnb b USING (registration_id);
 
 CREATE OR REPLACE VIEW registrations_active AS
 SELECT * FROM registrations WHERE is_active;
 
 -- \`listings_active\` plus the registration its page cites. The registration
--- columns are NULL when the listing shows no number or the number is not in
--- the registry, which includes numbers issued since the layer's last publish.
+-- columns are NULL when the listing shows no number or no license page read
+-- shows it: a typo, a number on a license whose page is hidden, or one issued
+-- since the license scan last read new license ids.
 CREATE OR REPLACE VIEW listings_active_with_registration AS
 SELECT
     l.*,
@@ -568,7 +750,9 @@ SELECT
 FROM listings_active l
 LEFT JOIN registrations r ON r.registration_id = l.registration_id;
 
-COMMENT ON VIEW registrations IS 'One row per STR registration the Municipal Clerk has published, with its latest license page. is_active means it was in the latest registry run; the Muni publishes only active registrations.';
+COMMENT ON VIEW latest_registry_date IS 'The latest license scan that completed its writes (muni_license_runs with no error_summary).';
+COMMENT ON VIEW licenses IS 'One row per CityView license with a visible page, of any type (Short-Term Rentals, Business, Alcohol): its latest page read, first_read_date and last_read_date. Licenses whose latest read found the id hidden are left out. is_active means the most recent issuance''s status is Active or Issued.';
+COMMENT ON VIEW registrations IS 'One row per STR registration: each STR Certificate number on a Short-Term Rentals license page, plus registrations only the archived registration layer holds. is_active means the STR Certificate''s status is Active; archive-only registrations are not active. community_council, parcel_type, submitted_date and geocoded_* come from the archived layer and are NULL for registrations it never held.';
 COMMENT ON VIEW listings_active_with_registration IS 'listings_active plus the Municipal registration matching registration_id. Registration columns are NULL when there is no match.';
 `;
 
@@ -582,9 +766,14 @@ const DROPPED_VIEWS_SQL = `
 -- Renamed to host_listing_portfolios: a portfolio needs to say whose it is
 -- and what it counts.
 DROP VIEW IF EXISTS host_portfolios;
+-- Replaced by licenses, which leaves out ids whose latest read is hidden.
+DROP VIEW IF EXISTS license_pages_latest;
 `;
 
-/** Every view, in dependency order: `registrations` reads `listings_active`. */
+/**
+ * Every view, in dependency order: `registrations` reads `licenses` and
+ * `listings_active`.
+ */
 export function viewsSql(): string {
   const listingViews = LISTING_VIEWS_SQL.replaceAll('{grace}', String(RETIREMENT_GRACE_DAYS))
     .replaceAll('{hosting_start}', IMPLIED_HOSTING_START_SQL)

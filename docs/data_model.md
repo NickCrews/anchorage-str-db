@@ -23,21 +23,45 @@ reasons do not.
 | --- | --- | --- | --- |
 | Listing | `listings_active` | Airbnb `listing_id` | One Airbnb page a guest can book. |
 | Host | `hosts` | Airbnb `host_id` | The Airbnb account that runs the listing (`airbnb.com/users/show/<host_id>`). Often a property manager. |
-| Registration | `registrations` | `registration_id` | One STR certificate in the Muni's published layer, with a registrant, address and dates. |
+| Registration | `registrations` | `registration_id` | One STR Certificate number on a Short-Term Rentals license page, with a registrant, address and dates. |
+| License | `licenses` | `cityview_license_id` | One CityView license page of any type (Short-Term Rentals, Business, Alcohol), as last read. |
 
 `listings_active_with_registration` is every active listing with the
 registration its id matches, if any.
 
-A registration's **license** is not a fourth entity. Each license holds
-exactly one STR Certificate, whose number is the `registration_id`, so the
-two are one-to-one: on 2026-09-15 the layer held 2,564 registrations, 2,564
-`cityview_license_id`s and 2,564 `license_id`s, none shared. `registrations` carries
-the license's fields on the registration's own row for that reason. See
-[CONTEXT.md](../CONTEXT.md) for which id comes from where.
+A Short-Term Rentals license holds exactly one STR Certificate, whose
+number is the `registration_id`, so a registration and its license are
+one-to-one: on 2026-09-15 the layer held 2,564 registrations, 2,564
+`cityview_license_id`s and 2,564 `license_id`s, none shared. `registrations`
+carries the license's fields on the registration's own row for that reason,
+and `licenses` adds the Business and Alcohol licenses, which hold no
+registration. See [CONTEXT.md](../CONTEXT.md) for which id comes from where.
+
+`registrations` is built from `licenses`, one row per STR Certificate
+number:
+
+- `status`, `issued_date`, `expires_date` and `is_active` come from the STR
+  Certificate issuance; `is_active` means its status is `Active`.
+- `business_name`, `registered_address` (the page's Address location, else
+  the first location that is not a parcel id) and the `license_*` columns
+  come from the license's latest page read.
+- `first_seen_date` and `last_seen_date` are the first and latest page reads
+  that show the number.
+- `submitted_date`, `community_council`, `parcel_type` and `geocoded_*` come
+  from the registration's latest row in the archived registration layer
+  (`muni_str_registration_observations`), and are NULL for a registration
+  the layer never held.
+- A registration only the archive holds, whose number no license in
+  `licenses` shows, keeps its layer row with `is_active` false and NULL
+  `license_*` columns.
+
+`licenses` leaves out an id whose latest read found it hidden, so a
+registration whose license page goes hidden drops out of `registrations`
+unless the archive holds it.
 
 `cityview_license_id` (`13923`) is the odd one out: it is CityView's own row
-id for a license, read from the `licenseId` query parameter of the
-registration's `status_url`. It keys `muni_license_page_reads` because it is
+id for a license, the `licenseId` query parameter of the registration's
+`status_url`. It keys `muni_license_page_reads` and `licenses` because it is
 what fetches a page, and it means nothing outside the portal — never publish
 it as an identifier of anything.
 
@@ -87,8 +111,9 @@ The data cannot tell these apart.
 A registration with no Airbnb listing may be listed on another platform, not
 be operating, or be cited by a listing that shows no id.
 
-"Id not in registry" includes ids issued since the Muni last published its
-layer, so it is not proof of an invalid id.
+"Id not in registry" includes ids issued since the license scan last read
+new license ids, and ids on licenses whose page is hidden, so it is not
+proof of an invalid id.
 
 ### Host → listing: one-to-many
 
@@ -142,4 +167,5 @@ name matching across business names. The UI groups by host instead.
 - **Registrations**: one row per registration. It is the only place a
   registration with no Airbnb listing appears, and it shows fields that
   belong to the registration alone: issue and expiry dates, license
-  description, community council, and whether the Muni still publishes it.
+  description, community council, and whether its STR Certificate is
+  active.

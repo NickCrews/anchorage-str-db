@@ -137,8 +137,16 @@ and the Muni's license portal, stored as published:
   page says "Invalid License"
 - `muni_license_runs`: one row per license scan
 - `muni_str_registry_runs`: one row per registry run, an archive
-- `registrations` *(view)*: one row per registration ever published, with
-  its latest license page. `parcel_id` joins to
+- `licenses` *(view)*: one row per license with a visible page, of every
+  type: its latest page read, `first_read_date`, `last_read_date`, and
+  `is_active` (its most recent issuance is Active or Issued). An id whose
+  latest read is hidden is left out.
+- `registrations` *(view)*: one row per STR certificate number on a
+  Short-Term Rentals license, plus the registrations only the archived layer
+  holds. `is_active` means the certificate's status is Active.
+  `community_council`, `parcel_type`, `submitted_date` and the geocoded
+  coordinate come from the archived layer, and are NULL for registrations
+  it never held. `parcel_id` joins to
   [anchorage-property](https://github.com/NickCrews/anchorage-property)'s
   parcels. `airbnb_listings_active` counts the active Airbnb listings
   showing the id. `registrations_active` filters to `is_active`.
@@ -146,7 +154,7 @@ and the Muni's license portal, stored as published:
   the registration matching `registration_id`: its address, parcel,
   business name and description. `registration_found` is false when the
   listing shows no id, or one not in the registry, which includes ids
-  issued since the Muni's last publish.
+  issued since the last license scan.
 
 ## Known gaps
 
