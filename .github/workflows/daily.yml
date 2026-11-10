@@ -28,7 +28,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       DB_PATH: data/anchorage_str.duckdb
-      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
 
@@ -49,46 +48,19 @@ jobs:
       # The runner starts clean, so restore yesterday's database from the
       # release. A missing database fails the run unless `start_fresh` is set.
       - name: Restore previous database
-        env:
-          START_FRESH: ${{ inputs.start_fresh }}
-        run: |
-          mkdir -p data
-          asset=$(basename "$DB_PATH")
-          # "release not found" means empty; any other error is an outage.
-          if ! names=$(gh release view latest-data --repo "$GITHUB_REPOSITORY" \
-                         --json assets --jq '.assets[].name' 2>&1); then
-            if [[ "$names" == *"release not found"* ]]; then
-              names=""
-            else
-              echo "::error::could not list the latest-data release: $names"
-              exit 1
-            fi
-          fi
-          if grep -qxF "$asset" <<< "$names"; then
-            gh release download latest-data --repo "$GITHUB_REPOSITORY" \
-              --pattern "$asset" --output "$DB_PATH"
-            echo "restored previous database"
-          elif [ "$START_FRESH" = "true" ]; then
-            echo "no $asset on latest-data; starting a new archive (start_fresh)"
-          else
-            echo "::error::latest-data has no $asset. To start a new archive, run with start_fresh=true."
-            exit 1
-          fi
+        uses: ./.github/actions/restore-db
+        with:
+          db-path: ${{ env.DB_PATH }}
+          start-fresh: ${{ inputs.start_fresh }}
 
       - name: Scrape + merge + quality gate
         run: node packages/scraper/src/cli.ts --db "$DB_PATH" --verbose daily
 
       # Reached only if the quality checks passed.
       - name: Publish updated database
-        run: |
-          tag=latest-data
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release upload "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" --clobber
-          else
-            gh release create "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" \
-              --title "Latest data" \
-              --notes "The most recent successful daily scrape, replaced on every run. See airbnb_scrape_runs in the database for run history."
-          fi
+        uses: ./.github/actions/publish-db
+        with:
+          db-path: ${{ env.DB_PATH }}
 
       # When the newest backup is 7+ days old, plus every manual run. Keyed on
       # the newest backup rather than the weekday, so a run that fails on the
@@ -115,30 +87,18 @@ jobs:
 
       - name: Close the outage issue
         continue-on-error: true
-        run: |
-          for n in $(gh issue list --repo "$GITHUB_REPOSITORY" --label pipeline-down \
-                       --state open --json number --jq '.[].number'); do
-            gh issue close "$n" --repo "$GITHUB_REPOSITORY" --comment "Recovered: $RUN_URL"
-          done
+        uses: ./.github/actions/outage-issue
+        with:
+          action: close
+          label: pipeline-down
+          description: Daily scrape is failing
+          docs: '"How CI runs this" in CONTRIBUTING.md'
 
-      # A failed workflow run alone notifies no one.
       - name: Open an issue on failure
         if: failure() || cancelled()
-        env:
-          OWNER: ${{ github.repository_owner }}
-        run: |
-          gh label create pipeline-down --repo "$GITHUB_REPOSITORY" --color B60205 \
-            --description "The daily scrape is failing" 2>/dev/null || true
-          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label pipeline-down \
-                   --state open --json number --jq '.[0].number // empty')
-          if [ -n "$open" ]; then
-            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" \
-              --body "Failed again on $(date -u +%Y-%m-%d): $RUN_URL"
-            exit 0
-          fi
-          gh issue create --repo "$GITHUB_REPOSITORY" --label pipeline-down \
-            --title "Daily scrape is failing" --body-file - <<EOF
-          @$OWNER the daily scrape failed on $(date -u +%Y-%m-%d): $RUN_URL
-
-          The next successful run closes this issue. See "How CI runs this" in CONTRIBUTING.md.
-          EOF
+        uses: ./.github/actions/outage-issue
+        with:
+          action: open
+          label: pipeline-down
+          description: Daily scrape is failing
+          docs: '"How CI runs this" in CONTRIBUTING.md'
