@@ -18,7 +18,7 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 | `packages/db` | the DuckDB schema (Drizzle), its migrations, the views, and the connection | `utils`, `scraper-muni-str`, `@duckdb/node-api`, `drizzle-orm`, `@duckdbfan/drizzle-duckdb` |
 | `packages/scraper-airbnb` | searches Airbnb and fetches listing pages, calendars, price quotes and reviews | `utils`, `impit` |
 | `packages/scraper-muni-str` | fetches the Municipal Clerk's STR registration layers from ArcGIS | `utils` |
-| `packages/muni-licenses` | fetches and parses the Muni's CityView license pages | `utils` |
+| `packages/muni-licenses` | fetches and parses the Muni's CityView license pages, and finds the newest license id | `utils` |
 | `packages/utils` | dates, logging, concurrency, request pacing and retries, `fetch`, the Municipality boundary | none |
 | `packages/ui` | the browser viewer | |
 

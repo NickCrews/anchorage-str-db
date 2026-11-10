@@ -1,11 +1,13 @@
 /**
- * The Muni's CityView license status page for one STR registration, e.g.
+ * The Muni's CityView license status page for one license, e.g.
  * https://www.muni.org/CityViewPortal/License/Status?licenseId=13923&category=B
  *
- * The page has fields the ArcGIS registration layer lacks: the licensee's
- * description of the business ("Provides short term rentals, logistics,
- * meeting space and overnight lodging."), parcel ids, the license type, and
- * every certificate issued under the license.
+ * Every license type has one: Short-Term Rentals, Business (private
+ * detectives) and Alcohol among them. An STR license's page has fields the
+ * ArcGIS registration layer lacks: the licensee's description of the
+ * business ("Provides short term rentals, logistics, meeting space and
+ * overnight lodging."), parcel ids, the license type, and every certificate
+ * issued under the license.
  *
  * Fields are found by the text a reader sees, not by element ids or CSS
  * classes: a summary value by its label ("Business Name:"), a section by its
@@ -16,15 +18,17 @@
  *
  * Text is stored as the page shows it: entities decoded, leading and
  * trailing whitespace trimmed, and line breaks and repeated spaces inside a
- * description kept. An unknown `cityviewLicenseId` returns HTTP 200 with an
- * "Invalid License" page, which has no summary and is rejected.
+ * description kept.
+ *
+ * A hidden license id returns HTTP 200 with an "Invalid License" page headed
+ * "License Not Found", which parses to a `HiddenLicensePage`.
  */
 
 import { HTMLElement, NodeType, parse, type Node } from 'node-html-parser';
 
 import { mapWithConcurrency } from '@anchorage-str-db/utils/concurrency';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
-import { fetchText } from '@anchorage-str-db/utils/http';
+import { fetchCookies, fetchText } from '@anchorage-str-db/utils/http';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { Pacer } from '@anchorage-str-db/utils/pace';
 import { withRetries } from '@anchorage-str-db/utils/retry';
@@ -62,7 +66,26 @@ export interface LicenseIssuance {
   number: string | null;
 }
 
+/**
+ * One row of the Submittals table. The portal shows no date column; the date
+ * is the one it writes at the end of the name.
+ */
+export interface LicenseSubmittal {
+  /**
+   * As shown, the portal's sequence number, type and date:
+   * `1 Private Detective 10/13/2026`, or `1 06/06/2023` when the type is empty.
+   */
+  name: string | null;
+  /** `Private Detective`. */
+  type: string | null;
+  /** The `MM/DD/YYYY` date ending `name`; null when it ends in none. */
+  date: IsoDate | null;
+  /** `Pending`. */
+  status: string | null;
+}
+
 export interface LicensePage {
+  hidden: false;
   /** CityView's own row id, from the `licenseId` in the page's URL. */
   cityviewLicenseId: number;
   /**
@@ -72,14 +95,25 @@ export interface LicensePage {
    */
   licenseId: string;
   businessName: string | null;
-  /** `Short-Term Rentals`. */
+  /** `Short-Term Rentals`, `Business`, `Alcohol`. */
   licenseType: string | null;
-  /** `Active`. */
+  /**
+   * The page's "Application Status", `Active` on every page sampled, even one
+   * whose only issuance has expired. An issuance's `status` is the license's.
+   */
   status: string | null;
   description: string | null;
-  /** In page order (see `parseLocations`). */
+  /** In page order (see `parseLocations`); empty when the page has no Locations section. */
   locations: LicenseLocation[];
   issuances: LicenseIssuance[];
+  /** In page order; empty when the page says there are none. */
+  submittals: LicenseSubmittal[];
+}
+
+/** The "Invalid License" page of a hidden license id: nothing about the license is shown. */
+export interface HiddenLicensePage {
+  hidden: true;
+  cityviewLicenseId: number;
 }
 
 const PORTAL_ORIGIN = 'https://www.muni.org';
@@ -118,11 +152,16 @@ function summaryValue(root: HTMLElement, labels: readonly HTMLElement[], name: s
   return text === '' ? null : text;
 }
 
-/** The content of the section headed `heading`: what follows its `<legend>`. Throws when missing. */
-function section(root: HTMLElement, heading: string): HTMLElement {
+/** The content of the section headed `heading`: what follows its `<legend>`. Null when missing. */
+function optionalSection(root: HTMLElement, heading: string): HTMLElement | null {
   const legend = root.querySelectorAll('legend').find((element) => squash(element.textContent) === heading);
-  const container = legend?.parentNode;
-  if (!legend || !container) throw new Error(`no "${heading}" section`);
+  return legend?.parentNode ?? null;
+}
+
+/** `optionalSection`, throwing when missing. */
+function section(root: HTMLElement, heading: string): HTMLElement {
+  const container = optionalSection(root, heading);
+  if (!container) throw new Error(`no "${heading}" section`);
   return container;
 }
 
@@ -145,9 +184,11 @@ function isBlank(node: Node): boolean {
  * other item is a value without a label, such as an address typed in free
  * text (license 15993). The label is kept as shown, including the error
  * message the portal prints when its own parcel lookup fails (license 13966).
+ * A page may have no Locations section (Business license 16427).
  */
 function parseLocations(root: HTMLElement, labels: readonly HTMLElement[]): LicenseLocation[] {
-  const content = section(root, 'Locations');
+  const content = optionalSection(root, 'Locations');
+  if (!content) return [];
   const label = labels.find((element) => labelText(element) === 'Locations' && isWithin(element, content));
   const list = (label && labelledElement(root, label)) ?? content;
   const items = list.childNodes
@@ -181,48 +222,95 @@ function usDate(value: string | null): IsoDate | null {
   return `${match[3]}-${match[1]}-${match[2]}`;
 }
 
+/**
+ * The body rows of `table`, each as a cell value (squashed, null when empty)
+ * by column header. Throws when the table has no header row or lacks one of
+ * `columns`; `name` names the table in the error.
+ */
+function tableRows<C extends string>(
+  table: HTMLElement,
+  name: string,
+  columns: readonly C[],
+): Record<C, string | null>[] {
+  const rows = table.querySelectorAll('tr');
+  const headerRow = rows.find((row) => row.querySelector('th') !== null);
+  if (!headerRow) throw new Error(`the ${name} table has no header row`);
+  const headers = headerRow.querySelectorAll('th').map((cell) => squash(cell.textContent));
+  const index = columns.map((column) => {
+    const at = headers.indexOf(column);
+    if (at === -1) throw new Error(`the ${name} table has no "${column}" column (has ${headers.join(', ')})`);
+    return at;
+  });
+
+  return rows
+    .filter((row) => row !== headerRow && row.querySelector('td') !== null)
+    .map((row) => {
+      const cells = row.querySelectorAll('td').map((cell) => squash(cell.textContent) || null);
+      return Object.fromEntries(columns.map((column, i) => [column, cells[index[i]!] ?? null])) as Record<
+        C,
+        string | null
+      >;
+    });
+}
+
 const ISSUANCE_COLUMNS = ['Type', 'Date Issued', 'Date Expires', 'Status', 'Number'] as const;
 
 /** Rows of the Issuances table, by column header. A section with no table has no issuances. */
 function parseIssuances(root: HTMLElement): LicenseIssuance[] {
   const table = section(root, 'Issuances').querySelector('table');
   if (!table) return [];
-  const rows = table.querySelectorAll('tr');
-  const headerRow = rows.find((row) => row.querySelector('th') !== null);
-  if (!headerRow) throw new Error('the Issuances table has no header row');
-  const headers = headerRow.querySelectorAll('th').map((cell) => squash(cell.textContent));
-  const index = Object.fromEntries(
-    ISSUANCE_COLUMNS.map((column) => {
-      const at = headers.indexOf(column);
-      if (at === -1) throw new Error(`the Issuances table has no "${column}" column (has ${headers.join(', ')})`);
-      return [column, at];
-    }),
-  ) as Record<(typeof ISSUANCE_COLUMNS)[number], number>;
-
-  return rows
-    .filter((row) => row !== headerRow && row.querySelector('td') !== null)
-    .map((row) => {
-      const cells = row.querySelectorAll('td').map((cell) => squash(cell.textContent) || null);
-      return {
-        type: cells[index['Type']] ?? null,
-        issuedDate: usDate(cells[index['Date Issued']] ?? null),
-        expiresDate: usDate(cells[index['Date Expires']] ?? null),
-        status: cells[index['Status']] ?? null,
-        number: cells[index['Number']] ?? null,
-      };
-    });
+  return tableRows(table, 'Issuances', ISSUANCE_COLUMNS).map((row) => ({
+    type: row['Type'],
+    issuedDate: usDate(row['Date Issued']),
+    expiresDate: usDate(row['Date Expires']),
+    status: row['Status'],
+    number: row['Number'],
+  }));
 }
 
-/** Throws on a page without a license summary, such as the "Invalid License" page, or a changed layout. */
-export function parseLicensePage(html: string, cityviewLicenseId: number): LicensePage {
+const SUBMITTAL_COLUMNS = ['Name', 'Type', 'Status'] as const;
+const NO_SUBMITTALS = 'There are no submittals for this license application.';
+
+/**
+ * Rows of the Submittals table, by column header. Without a table, the
+ * section must say there are none; anything else throws.
+ */
+function parseSubmittals(root: HTMLElement): LicenseSubmittal[] {
+  const content = section(root, 'Submittals');
+  const table = content.querySelector('table');
+  if (!table) {
+    if (squash(content.textContent).endsWith(NO_SUBMITTALS)) return [];
+    throw new Error(`the Submittals section has neither a table nor "${NO_SUBMITTALS}"`);
+  }
+  return tableRows(table, 'Submittals', SUBMITTAL_COLUMNS).map((row) => ({
+    name: row['Name'],
+    type: row['Type'],
+    date: usDate(/\b(\d{2}\/\d{2}\/\d{4})$/.exec(row['Name'] ?? '')?.[1] ?? null),
+    status: row['Status'],
+  }));
+}
+
+/** The visible heading of the "Invalid License" page a hidden license id returns. */
+const HIDDEN_HEADING = 'License Not Found';
+
+/**
+ * A license page, or `HiddenLicensePage` for the "Invalid License" page. Throws
+ * on any other page without a license summary, or a changed layout.
+ */
+export function parseLicensePage(html: string, cityviewLicenseId: number): LicensePage | HiddenLicensePage {
   // The portal sends CRLF line endings. Browsers normalize them to LF when
   // parsing (HTML spec, input stream preprocessing); node-html-parser doesn't.
   const root = parse(html.replace(/\r\n?/g, '\n'));
   const labels = root.querySelectorAll('label');
+  const isHidden =
+    !labels.some((label) => labelText(label) === 'Licensee Number') &&
+    root.querySelectorAll('h1, h2, h3').some((heading) => squash(heading.textContent) === HIDDEN_HEADING);
+  if (isHidden) return { hidden: true, cityviewLicenseId };
   try {
     const licenseId = summaryValue(root, labels, 'Licensee Number');
     if (licenseId === null) throw new Error('empty "Licensee Number"');
     return {
+      hidden: false,
       cityviewLicenseId,
       licenseId,
       businessName: summaryValue(root, labels, 'Business Name'),
@@ -231,6 +319,7 @@ export function parseLicensePage(html: string, cityviewLicenseId: number): Licen
       description: summaryValue(root, labels, 'Description'),
       locations: parseLocations(root, labels),
       issuances: parseIssuances(root),
+      submittals: parseSubmittals(root),
     };
   } catch (err) {
     const title = squash(root.querySelector('title')?.textContent ?? '');
@@ -238,11 +327,10 @@ export function parseLicensePage(html: string, cityviewLicenseId: number): Licen
   }
 }
 
-export interface LicensePageResult {
-  cityviewLicenseId: number;
-  page: LicensePage | null;
-  error: string | null;
-}
+/** A read's page (a `HiddenLicensePage` for a hidden license id), or the error when it failed. */
+export type LicensePageResult =
+  | { cityviewLicenseId: number; page: LicensePage | HiddenLicensePage; error: null }
+  | { cityviewLicenseId: number; page: null; error: string };
 
 /**
  * Request tuning. A license page takes ~0.5s to serve; 2/s keeps the load on
@@ -256,11 +344,15 @@ const TIMEOUT_MS = 30_000;
 /** Backoff between retries of a failed read: `RETRY_BACKOFF_MS * attempt`. */
 const RETRY_BACKOFF_MS = 500;
 
-export type FetchOneLicensePage = (cityviewLicenseId: number) => Promise<LicensePage>;
+export type FetchOneLicensePage = (cityviewLicenseId: number) => Promise<LicensePage | HiddenLicensePage>;
+
+function portalPacer(): Pacer {
+  return new Pacer({ rate: REQUESTS_PER_SECOND, service: 'the CityView portal' });
+}
 
 /** Real requests, paced by one `Pacer` for all pages and retried. */
 export function liveLicensePageFetcher(
-  pacer = new Pacer({ rate: REQUESTS_PER_SECOND, service: 'the CityView portal' }),
+  pacer = portalPacer(),
 ): FetchOneLicensePage {
   return (cityviewLicenseId) =>
     // Parsing inside the retry means a truncated page is fetched again.
@@ -280,7 +372,7 @@ export interface FetchLicensePagesOptions {
   concurrency?: number;
 }
 
-/** Read each license page. A failure is recorded in its result rather than thrown. */
+/** Read each license page. A failure is recorded in its result rather than thrown; a hidden page is not a failure. */
 export async function fetchLicensePages(
   cityviewLicenseIds: readonly number[],
   options: FetchLicensePagesOptions = {},
@@ -301,4 +393,60 @@ export async function fetchLicensePages(
     if (result.error) log.warn(`license page ${result.cityviewLicenseId} failed: ${result.error}`);
   }
   return results;
+}
+
+const LOCATOR_URL = `${PORTAL_ORIGIN}/CityViewPortal/License/Locator`;
+const LOCATOR_RESULTS_URL =
+  `${PORTAL_ORIGIN}/CityViewPortal/License/LocatorResults` +
+  '?searchValue=*&jurisdictionFilter=&licenseType=&pageNumber=0';
+
+/**
+ * The highest `cityviewLicenseId` on the first page of the License Locator's
+ * results for `*`, from the `licenseId` of each item's "License Status"
+ * link. The response is JSON whose `View` is the results' HTML. The list runs
+ * newest first, but not entirely: on 2026-11-10 its first item was license
+ * 559, an Alcohol license, followed by 16459, 16458, ... So the
+ * newest id is the highest on the page, not the first. Throws on a response
+ * that is not that JSON or lists no license.
+ */
+export function parseNewestCityviewLicenseId(json: string): number {
+  let view: unknown;
+  try {
+    view = (JSON.parse(json) as { View?: unknown }).View;
+  } catch {
+    throw new Error(`the License Locator's results are not JSON: ${squash(json).slice(0, 200)}`);
+  }
+  if (typeof view !== 'string') throw new Error('the License Locator\'s results have no "View"');
+  const ids = parse(view)
+    .querySelectorAll('a')
+    .filter((anchor) => squash(anchor.textContent) === 'License Status')
+    .map((anchor) => {
+      const href = anchor.getAttribute('href') ?? '';
+      const id = new URL(href, PORTAL_ORIGIN).searchParams.get('licenseId');
+      if (id === null || !/^\d+$/.test(id)) throw new Error(`a License Status link without a licenseId: ${href}`);
+      return Number(id);
+    });
+  if (ids.length === 0) throw new Error('the License Locator listed no licenses');
+  return Math.max(...ids);
+}
+
+/**
+ * The newest `cityviewLicenseId` the License Locator lists, which is the
+ * newest visible license. Its results answer only within a session: the
+ * Locator page sets the session cookies, and without them the results
+ * redirect to an error page. Two requests, paced and retried together.
+ */
+export async function fetchNewestCityviewLicenseId(pacer = portalPacer()): Promise<number> {
+  return withRetries(
+    async () => {
+      const cookie = await fetchCookies(LOCATOR_URL, TIMEOUT_MS);
+      await pacer.waitTurn();
+      const json = await fetchText(LOCATOR_RESULTS_URL, TIMEOUT_MS, {
+        headers: { Cookie: cookie, 'X-Requested-With': 'XMLHttpRequest' },
+        redirect: 'manual',
+      });
+      return parseNewestCityviewLicenseId(json);
+    },
+    { label: 'the License Locator', attempts: MAX_RETRIES, backoffMs: RETRY_BACKOFF_MS, pacer },
+  );
 }

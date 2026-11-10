@@ -49,6 +49,7 @@ beforeAll(async () => {
   });
   for (const result of await fetchLicensePages(sampled)) {
     if (!result.page) throw new Error(`license ${result.cityviewLicenseId}: ${result.error}`);
+    if (result.page.hidden) throw new Error(`license ${result.cityviewLicenseId} is hidden`);
     pages.set(result.cityviewLicenseId, result.page);
   }
 });

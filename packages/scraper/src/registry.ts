@@ -66,7 +66,11 @@ export async function runRegistry(options: RunRegistryOptions): Promise<boolean>
       max: LICENSE_PAGE_MAX_PER_RUN,
     });
     const licenseResults = await fetchLicensePages(pending);
-    const pages = licenseResults.flatMap((result) => (result.page ? [result.page] : []));
+    // A hidden page means the registration's license is not public: a failed read here.
+    for (const result of licenseResults) {
+      if (result.page?.hidden) log.warn(`license page ${result.cityviewLicenseId} failed: hidden`);
+    }
+    const pages = licenseResults.flatMap((result) => (result.page && !result.page.hidden ? [result.page] : []));
     const licenseStats = { attempted: licenseResults.length, failed: licenseResults.length - pages.length };
     log.info(`license pages: ${licenseStats.attempted} fetched, ${licenseStats.failed} failed`);
 

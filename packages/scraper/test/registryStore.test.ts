@@ -60,6 +60,7 @@ function registration(number: string, cityviewLicenseId: number, overrides: Part
 
 function licensePage(cityviewLicenseId: number, overrides: Partial<LicensePage> = {}): LicensePage {
   return {
+    hidden: false,
     cityviewLicenseId,
     licenseId: 'LC260500349',
     businessName: 'Echo Ridge Mountain Retreat',
@@ -87,6 +88,7 @@ function licensePage(cityviewLicenseId: number, overrides: Partial<LicensePage> 
         number: 'STR20260309',
       },
     ],
+    submittals: [],
     ...overrides,
   };
 }

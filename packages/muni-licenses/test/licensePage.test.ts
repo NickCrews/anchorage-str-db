@@ -4,17 +4,17 @@
  * tests use no saved or synthetic HTML: when the Muni changes a page, they
  * fail.
  *
- * Expected values are the pages' contents on 2026-09-14. A failure on a single
- * field can also mean the licensee changed their license; open the page to
- * tell which.
+ * Expected values are the pages' contents on 2026-09-14 (Short-Term Rentals)
+ * and 2026-11-10 (Business, Alcohol, hidden ids). A failure on a single field
+ * can also mean the licensee changed their license; open the page to tell
+ * which.
  */
 
 import { describe, expect, it } from 'vitest';
 
-import { rootCause } from '@anchorage-str-db/utils/log';
-
 import {
   fetchLicensePages,
+  fetchNewestCityviewLicenseId,
   licensePageUrl,
   liveLicensePageFetcher,
   type LicensePage,
@@ -27,13 +27,17 @@ function search(encodedValue: string): string {
   return `https://www.muni.org/CityViewPortal/Property/PropertyReview?searchKey=desc&searchValue=${encodedValue}`;
 }
 
-function read(cityviewLicenseId: number): Promise<LicensePage> {
-  return fetchOne(cityviewLicenseId);
+/** A visible license's page; throws on a hidden license id. */
+async function read(cityviewLicenseId: number): Promise<LicensePage> {
+  const page = await fetchOne(cityviewLicenseId);
+  if (page.hidden) throw new Error(`license ${cityviewLicenseId} is hidden`);
+  return page;
 }
 
 describe('license pages on the live portal', () => {
   it('reads every summary field, a parcel and an address, and an issuance', async () => {
     expect(await read(13923)).toEqual({
+      hidden: false,
       cityviewLicenseId: 13923,
       licenseId: 'LC260500349',
       businessName: 'Echo Ridge Mountain Retreat',
@@ -57,6 +61,7 @@ describe('license pages on the live portal', () => {
           number: 'STR20260309',
         },
       ],
+      submittals: [],
     });
   });
 
@@ -153,22 +158,113 @@ describe('license pages on the live portal', () => {
     expect((await read(13625)).businessName).toBe('Wendy’s Girdwood Getaway');
   });
 
-  it('rejects the Invalid License page for an unknown id', async () => {
-    const err = await read(50).catch((e: unknown) => e);
+  it('reads a Business license with no Locations section and a submittal', async () => {
+    expect(await read(16427)).toEqual({
+      hidden: false,
+      cityviewLicenseId: 16427,
+      licenseId: 'LC261002840',
+      businessName: 'Frontier Intelligence Group',
+      licenseType: 'Business',
+      status: 'Active',
+      description: '2026-2028 New PD',
+      locations: [],
+      issuances: [
+        {
+          type: 'Business License',
+          issuedDate: '2026-10-15',
+          expiresDate: '2028-10-01',
+          status: 'Issued',
+          number: 'PD 1476',
+        },
+      ],
+      submittals: [
+        { name: '1 Private Detective 10/13/2026', type: 'Private Detective', date: '2026-10-13', status: 'Pending' },
+      ],
+    });
+  });
 
-    expect(String(rootCause(err))).toMatch(/license 50: .*Invalid License/);
+  it('reads an expired Business license whose page still says Active, with no submittals', async () => {
+    const page = await read(13400);
+
+    expect(page.locations).toEqual([]);
+    expect(page.submittals).toEqual([]);
+    expect(page.status).toBe('Active');
+    expect(page.issuances).toEqual([
+      {
+        type: 'Business License',
+        issuedDate: '2023-08-16',
+        expiresDate: '2025-10-01',
+        status: 'Expired',
+        number: 'PD 1348',
+      },
+    ]);
+  });
+
+  it('reads Business licenses with no Locations section', async () => {
+    for (const cityviewLicenseId of [9480, 13580]) {
+      expect((await read(cityviewLicenseId)).locations).toEqual([]);
+    }
+  });
+
+  it('reads a submittal with no type', async () => {
+    expect((await read(13270)).submittals).toEqual([
+      { name: '1 06/06/2023', type: null, date: '2023-06-06', status: 'Pending' },
+    ]);
+  });
+
+  it('reads an Alcohol license: a starred address label, a free-text parcel id, an undated issuance', async () => {
+    const page = await read(559);
+
+    expect(page.licenseId).toBe('LC01867');
+    expect(page.businessName).toBe("Chili's Bar and Grill");
+    expect(page.licenseType).toBe('Alcohol');
+    expect(page.locations).toEqual([
+      {
+        label: '* Address',
+        value: '800 East Dimond Blvd. Suite 162',
+        link: search('800%20East%20Dimond%20Blvd.%20Suite%20162'),
+      },
+      { label: null, value: '01309224000', link: null },
+    ]);
+    expect(page.issuances).toEqual([
+      { type: 'Alcohol License', issuedDate: null, expiresDate: null, status: 'Active', number: null },
+    ]);
+    expect(page.submittals).toEqual([]);
+  });
+
+  it('returns a hidden license id\'s Invalid License page as hidden', async () => {
+    expect(await fetchOne(50)).toEqual({ hidden: true, cityviewLicenseId: 50 });
+    expect(await fetchOne(14417)).toEqual({ hidden: true, cityviewLicenseId: 14417 });
   });
 });
 
 describe('fetchLicensePages', () => {
-  it('returns each page, and the error for a page that could not be read', async () => {
-    const results = await fetchLicensePages([13923, 50]);
+  it('returns each page, a hidden page as hidden, and the error for a page that could not be read', async () => {
+    const results = await fetchLicensePages([13923, 50, 0], {
+      fetchOne: (id) => (id === 0 ? Promise.reject(new Error('no such page')) : fetchOne(id)),
+    });
 
-    expect(results.map((result) => [result.cityviewLicenseId, result.page?.licenseId ?? null])).toEqual([
-      [13923, 'LC260500349'],
-      [50, null],
+    expect(
+      results.map((result) => [
+        result.cityviewLicenseId,
+        result.page === null ? null : result.page.hidden ? 'hidden' : result.page.licenseId,
+        result.error,
+      ]),
+    ).toEqual([
+      [13923, 'LC260500349', null],
+      [50, 'hidden', null],
+      [0, null, 'Error: no such page'],
     ]);
-    expect(results[1]!.error).toMatch(/Invalid License/);
+  });
+});
+
+describe('fetchNewestCityviewLicenseId', () => {
+  it('finds the newest license id in the License Locator', async () => {
+    const newest = await fetchNewestCityviewLicenseId();
+
+    expect(Number.isInteger(newest)).toBe(true);
+    // 16439 was a Short-Term Rentals license read on 2026-11-10; ids are never reused.
+    expect(newest).toBeGreaterThanOrEqual(16439);
   });
 });
 
