@@ -5,8 +5,8 @@
 
 import type { Database } from '@anchorage-str-db/db/database';
 import { missRate, type CoverageAudit, type SearchResult } from '@anchorage-str-db/scraper-airbnb/search';
+import { percent, type CheckResult, type Severity } from '@anchorage-str-db/utils/checks';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
-import { log } from '@anchorage-str-db/utils/log';
 import { inMunicipality } from '@anchorage-str-db/utils/muni_geography';
 
 import type { PageFetchStats, QuoteStats } from './store.ts';
@@ -37,8 +37,7 @@ const MAX_PAGE_FAILURE_RATE = 0.25;
  * fails, for each page field every listing has: `host_id`, `listing_type`,
  * `guest_capacity`, `beds`, `bathrooms`, and photos. Every real page sampled
  * (41 for the host, 44 for the rest) yielded each one, so a shortfall means
- * the extraction broke. `registryChecks.ts` holds license pages to the same
- * share.
+ * the extraction broke.
  */
 export const MIN_PAGE_FIELD_SHARE = 0.95;
 
@@ -47,6 +46,13 @@ export const MIN_PAGE_FIELD_SHARE = 0.95;
  * sampled pages had a bedroom or studio line.
  */
 const MIN_BEDROOMS_SHARE = 0.6;
+
+/**
+ * Warn when fewer than this share of the registration ids on active
+ * Airbnb listings appear in `registrations`. 1860 of 1879 matched on
+ * 2026-09-13; the rest were issued after the layer's last publish.
+ */
+const MIN_AIRBNB_REGISTRATION_MATCH_SHARE = 0.8;
 
 /** A price-quote failure rate above this fails the run. */
 const MAX_QUOTE_FAILURE_RATE = 0.25;
@@ -81,25 +87,12 @@ const MIN_HOST_PROFILE_SHARE = 0.95;
  */
 const HOST_START_MAX_SPREAD_DAYS = 45;
 
-export type Severity = 'error' | 'warn';
-
-export interface CheckResult {
-  name: string;
-  severity: Severity;
-  passed: boolean;
-  detail: string;
-}
-
 export interface CheckInputs {
   /** In-memory stats from this run's passes, which are not stored in the database. */
   pageStats: PageFetchStats;
   quoteStats: QuoteStats;
   searchResult: SearchResult;
   coverage: CoverageAudit;
-}
-
-function percent(fraction: number): string {
-  return `${Math.round(fraction * 100)}%`;
 }
 
 export async function runChecks(
@@ -452,18 +445,26 @@ export async function runChecks(
     `${backdated} airbnb_calendar_status rows with night_date before their own valid_from`,
   );
 
-  return results;
-}
-
-/** Log every check; return true iff no error-severity check failed. */
-export function report(results: readonly CheckResult[]): boolean {
-  let ok = true;
-  for (const result of results) {
-    const status = result.passed ? 'PASS' : `FAIL (${result.severity})`;
-    const line = `[${status}] ${result.name}: ${result.detail}`;
-    if (result.passed) log.info(line);
-    else log.warn(line);
-    if (!result.passed && result.severity === 'error') ok = false;
+  // A warning: a listing citing an unknown id is recorded either way, and
+  // `registrations` lags the ids the Muni issues.
+  const cited = await db.count(
+    'SELECT count(DISTINCT registration_id) FROM listings_active ' +
+      'WHERE registration_id IS NOT NULL',
+  );
+  if (cited) {
+    const matched = await db.count(
+      'SELECT count(DISTINCT registration_id) FROM listings_active_with_registration ' +
+        'WHERE registration_found',
+    );
+    const share = matched / cited;
+    check(
+      'airbnb_registration_match',
+      'warn',
+      share >= MIN_AIRBNB_REGISTRATION_MATCH_SHARE,
+      `${matched}/${cited} registration ids on active Airbnb listings are in registrations ` +
+        `(${percent(share)}, min ${percent(MIN_AIRBNB_REGISTRATION_MATCH_SHARE)})`,
+    );
   }
-  return ok;
+
+  return results;
 }

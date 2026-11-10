@@ -1,7 +1,7 @@
 # `@anchorage-str-db/muni-licenses`
 
 Fetches and parses the Municipality of Anchorage's CityView license status
-pages, in memory. `packages/scraper` chooses which to read and stores them.
+pages, in memory. `packages/licenses` chooses which to read and stores them.
 
 ```
 https://www.muni.org/CityViewPortal/License/Status?licenseId=13923&category=B
@@ -9,8 +9,8 @@ https://www.muni.org/CityViewPortal/License/Status?licenseId=13923&category=B
 
 `licenseId` is one counter across every license type, in creation order.
 Visible pages include Short-Term Rentals, Business (private detectives) and
-Alcohol licenses. Each STR registration in `scraper-muni-str` links to its
-license's page, which has what the registration layer lacks:
+Alcohol licenses. A Short-Term Rentals license's page has what the
+Municipal Clerk's registration layer lacked:
 
 | field | example |
 | --- | --- |

@@ -14,18 +14,20 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 
 | package | does | runtime dependencies |
 | --- | --- | --- |
-| `packages/scraper` | runs the providers below, decides what is stored, writes, checks and the CLI | the five packages below |
-| `packages/db` | the DuckDB schema (Drizzle), its migrations, the views, and the connection | `utils`, `scraper-muni-str`, `@duckdb/node-api`, `drizzle-orm`, `@duckdbfan/drizzle-duckdb` |
+| `packages/scraper` | the daily run over `scraper-airbnb`: decides what is stored, writes, checks and the CLI | `db`, `scraper-airbnb`, `utils` |
+| `packages/licenses` | the license scan over `muni-licenses`: chooses which license ids to read, writes, checks and the CLI | `db`, `muni-licenses`, `utils` |
+| `packages/db` | the DuckDB schema (Drizzle), its migrations, the views, and the connection | `utils`, `@duckdb/node-api`, `drizzle-orm`, `@duckdbfan/drizzle-duckdb` |
 | `packages/scraper-airbnb` | searches Airbnb and fetches listing pages, calendars, price quotes and reviews | `utils`, `impit` |
-| `packages/scraper-muni-str` | fetches the Municipal Clerk's STR registration layers from ArcGIS | `utils` |
+| `packages/scraper-muni-str` | queries the Muni's ArcGIS FeatureServer layers | `utils` |
 | `packages/muni-licenses` | fetches and parses the Muni's CityView license pages, and finds the newest license id | `utils` |
-| `packages/utils` | dates, logging, concurrency, request pacing and retries, `fetch`, the Municipality boundary | none |
+| `packages/utils` | dates, logging, check results, concurrency, request pacing and retries, `fetch`, the Municipality boundary | none |
 | `packages/ui` | the browser viewer | |
 
 Provider packages (`scraper-airbnb`, `scraper-muni-str`, `muni-licenses`)
 work in memory: they return typed records and never touch DuckDB, so each
-can be tested and debugged without a database. Only `packages/scraper`
-decides what is stored.
+can be tested and debugged without a database. Only the two apps,
+`packages/scraper` and `packages/licenses`, decide what is stored, and
+neither imports the other.
 
 Nothing is compiled. Each package exports its sources
 (`"exports": {"./*": "./src/*.ts"}`, imported as
@@ -39,10 +41,11 @@ extension, and Node strips the types when it runs them. For the same reason
 ```sh
 pnpm daily                 # Airbnb; writes data/anchorage_str.duckdb
 pnpm daily --verbose --db /tmp/scratch.duckdb
-pnpm registry              # the Municipal STR registry, same database
+pnpm licenses              # the Muni's license pages, same database
+pnpm licenses --max-reads 60 --db /tmp/scratch.duckdb
 ```
 
-The default `--db` is resolved from the scraper's source, so it is the repo's
+The default `--db` is resolved from each CLI's source, so it is the repo's
 `data/anchorage_str.duckdb` from any working directory.
 
 A run searches the Anchorage bounding box, keeps the listings inside the
@@ -207,40 +210,30 @@ The shared Airbnb request rate is in `scraper-airbnb/src/pace.ts`, and
 that every pass uses: a 429 aborts the run, a streak of timeouts halves the
 request rate, and any other error is retried.
 
-## The registry run
+## The license scan
 
-`pnpm registry` (`packages/scraper/src/registry.ts`) records the
-Municipality's STR registrations. It is a separate command from `daily`, with
-its own transaction, run log (`muni_str_registry_runs`) and checks
-(`registryChecks.ts`), so an outage at either source leaves the other's day
-intact. It takes 5 to 15 minutes, depending on how quickly the license
-portal responds.
+`pnpm licenses` (`packages/licenses/src/scan.ts`) records every license the
+Muni's CityView portal publishes: Short-Term Rentals, Business and Alcohol
+licenses, read from their license pages by id. It is a separate app and
+workflow from `daily`, with its own transaction, run log
+(`muni_license_runs`) and checks, so an outage at either source leaves the
+other's day intact. A scan reads at most `MAX_READS_PER_SCAN` (3000) pages,
+about 25 minutes at the portal's 2 requests a second.
 
-Each run:
-
-1. Fetches every registration from the Clerk's
-   [registration viewer](https://experience.arcgis.com/experience/22b40a78a9fc459e9950a16249b37ed2)
-   (`scraper-muni-str`). A layer that doesn't add up to the server's own
-   count fails the run, since a partial snapshot would read as registrations
-   lapsing.
-2. Reads up to `LICENSE_PAGE_MAX_PER_RUN` (500) CityView license pages
-   (`muni-licenses`), chosen by `chooseLicensePages`: never-read licenses
-   first, then licenses that left the layer and haven't been read since, then
-   licenses still in the layer whose latest read is
-   `LICENSE_PAGE_REFRESH_DAYS` (7) old.
-   A failed read writes nothing and is retried next run.
-3. Writes the day's layer snapshot and the pages, then runs the checks.
-
-The layer lists only `Active` registrations and is republished about weekly
-(`published_at`). A registration missing from a run's snapshot has lapsed or
-been withdrawn; the license page read after it leaves records its final
-status.
+License ids are one counter across every license type, and most ids are
+hidden license ids. The read history is the scan's state: each scan finds
+the newest id from the License Locator, then reads new ids, never-read ids,
+and ids whose latest read is due, in the order `chooseLicenseIds` documents
+([`packages/licenses/README.md`](packages/licenses/README.md)). A failed
+read writes nothing and is retried next scan.
 
 The license page is the only source for the licensee's own description of
 the business, the parcel id, and every certificate issued under the license.
-The layer's `StatusUrl` links to it; its `cityviewLicenseId` keys `muni_license_page_reads`.
 
-What the Muni publishes, and how it is cleaned:
+The Municipal Clerk's ArcGIS registration layer answers only with a token.
+What it published is kept in `muni_str_registration_observations` and
+`muni_str_registry_runs`, which nothing writes, and the `registrations` view
+reads them. What the Muni published there, and how it is cleaned:
 
 - `BusinessName` is the string `'None'` when none was given. Stored as
   published; `registrations.business_name` is NULL.
@@ -259,17 +252,21 @@ or run queries from [`docs/policy_questions.sql`](docs/policy_questions.sql).
 
 ## CI
 
-[`.github/workflows/daily.yml`](.github/workflows/daily.yml) runs `registry`
-then `daily` every day, after `pnpm typecheck` on `packages/scraper` and the
-packages it imports. Runners are ephemeral, so each run downloads the
-database from the `latest-data` release, scrapes, and re-uploads it if the
-`daily` checks pass.
+Two workflows write the one database:
 
-A failed registry run doesn't stop the Airbnb scrape or the upload: it rolled
-back its own writes, and the Airbnb day can't be scraped later. The job
-fails after uploading, which opens the outage issue.
+- [`.github/workflows/licenses.yml`](.github/workflows/licenses.yml) runs
+  the license scan at 08:00 UTC, after `pnpm typecheck` on
+  `packages/licenses` and the packages it imports.
+- [`.github/workflows/daily.yml`](.github/workflows/daily.yml) runs `daily`
+  at 12:00 UTC, after `pnpm typecheck` on `packages/scraper` and the
+  packages it imports.
 
-A successful run also creates a `backup-YYYY-MM-DD` release when the newest
+Runners are ephemeral, so each run downloads the database from the
+`latest-data` release, writes, and re-uploads it if its checks pass. Both
+workflows share the concurrency group `db-write`, so one waits for the
+other rather than uploading over its writes.
+
+A successful `daily` run also creates a `backup-YYYY-MM-DD` release when the newest
 one is 7 or more days old, and a manual run always creates one. The rule keys
 on the newest backup, not the weekday, so a failed run on backup day doesn't
 skip the week. After an outage, the next success catches up.
@@ -279,11 +276,12 @@ GB a year. GitHub puts no cap on total release storage, only 2 GiB per asset,
 and an old backup is often the only copy of history from before a breaking
 schema change. Revisit if the asset grows past a few hundred MB.
 
-A failed run opens a `pipeline-down` issue; the next successful run closes
-it. If `latest-data` has no database, the run fails unless dispatched with
+A failed daily run opens a `pipeline-down` issue and a failed license scan a
+`licenses-down` issue; the next successful run of the same workflow closes
+it. If `latest-data` has no database, either fails unless dispatched with
 `start_fresh=true`.
 
-The workflow needs no secrets; `gh` uses the automatic `GITHUB_TOKEN`.
+The workflows need no secrets; `gh` uses the automatic `GITHUB_TOKEN`.
 
 ### When the published database has an incompatible schema
 
@@ -339,14 +337,15 @@ Every run fails with `LegacySchemaError` until someone:
   where `listings_seen IS NOT NULL`: the first alone stops advancing on a day
   with no listings, and the second alone would let a failed run retire every
   listing.
-- **Registrations are stored raw, and joined to listings in views.**
-  `muni_str_registration_observations` and `muni_license_page_reads` hold what the Muni publishes, with its field values
-  unchanged. `registrations` derives one row per registration from them, and
-  `listings_active_with_registration` joins Airbnb listings on
+- **Licenses are stored raw, and joined to listings in views.**
+  `muni_license_page_reads` and the archived
+  `muni_str_registration_observations` hold what the Muni publishes, with its
+  field values unchanged. `registrations` derives one row per registration
+  from them, and `listings_active_with_registration` joins Airbnb listings on
   `registration_id`, so a cleaning or join rule is fixed by editing a
-  view. The registration snapshot is stored every run, like
-  `airbnb_listing_observations`, rather than change-only: ~2500 rows compress to
-  ~50 KB a day, and a row per run gives exact first- and last-seen dates.
+  view. A license page read is a whole page, stored every time it is read,
+  like `airbnb_listing_observations`, rather than change-only: the reads give
+  exact first- and last-read dates.
 - **Read `calendar_current`, not `airbnb_calendar_status`.** An inactive
   listing's calendar is no longer fetched, so its future nights stay
   `is_current` in the raw table for up to twelve months. `calendar_current` drops nights after
@@ -423,20 +422,19 @@ pnpm typecheck
 - `muni-licenses/test/licensePage.test.ts` reads real license pages from the
   Muni's portal, one per markup case the parser handles (listed in that
   package's README), so it fails when the portal's markup changes.
-- `scraper-muni-str/test/addresses.test.ts` and
-  `scraper/test/addressProvenance.test.ts` read the live registration layer
-  and license pages and check where each address field comes from:
-  `Location` is the license's address (a property record's, or typed text),
-  and the geocoded fields are derived from it.
-- `scraper/test/store.test.ts` and `registryStore.test.ts` run the merge
-  logic and views against a real DuckDB file.
+- `scraper/test/store.test.ts` and `registrations.test.ts` run the merge
+  logic and views against a real DuckDB file, and
+  `licenses/test/scan.test.ts` runs a license scan against one with
+  injected page reads. `licenses/test/select.test.ts` covers which ids a
+  scan reads.
 - `db/test/connect.test.ts` checks that migrations apply once and that an
   incompatible file is rejected; `database.test.ts` checks how `appendRows`
   converts values.
 
-The tests above need the network; no other test does. Fetching is injected: `searchAnchorage` takes a
+Only `muni-licenses/test/licensePage.test.ts` needs the network. Fetching is injected: `searchAnchorage` takes a
 `fetchPage`, `fetchCalendars` takes a `fetchOne`, `fetchFirstReviews` takes a
-`fetchPage`, and `fetchRegistrations` takes a `fetchJson`. The `live*Fetcher` functions are the
+`fetchPage`, `fetchLayer` takes a `fetchJson`, and `fetchLicensePages` takes
+a `fetchOne`. The `live*Fetcher` functions are the
 only places real requests are made.
 
 When Airbnb changes something, `scraper-airbnb/src/api/` and `parse.ts` break

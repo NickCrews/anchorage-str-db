@@ -132,8 +132,7 @@ export const RegistrationCard: FC = () => {
           <SpinnerPane className="h-12" />
         ) : s && s.registryDate == null ? (
           <p className="text-muted-foreground text-sm">
-            This database has no registry run. Run <code>pnpm registry</code> to
-            record the Muni's registrations.
+            This database has no registrations.
           </p>
         ) : s ? (
           <p className="text-sm">

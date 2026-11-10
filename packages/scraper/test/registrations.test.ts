@@ -1,3 +1,8 @@
+/**
+ * The registration views over the archived registration layer rows and the
+ * license page reads, seeded directly: no run writes the layer's tables.
+ */
+
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,20 +11,19 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { connect } from '@anchorage-str-db/db/connect';
 import type { Database } from '@anchorage-str-db/db/database';
-import type { LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
+import {
+  muniLicensePageReads,
+  muniStrRegistrationObservations,
+  muniStrRegistryRuns,
+} from '@anchorage-str-db/db/schema';
 import { emptyListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
-import type { Registration } from '@anchorage-str-db/scraper-muni-str/registrationLayers';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
-import {
-  chooseLicensePages,
-  logRegistryRun,
-  pendingLicensePages,
-  recordLicensePages,
-  recordRegistrations,
-} from '../src/registryStore.ts';
 import { recordObservations } from '../src/store.ts';
 import { makeListing } from './fixtures.ts';
+
+type Registration = Omit<typeof muniStrRegistrationObservations.$inferInsert, 'scrapeDate'>;
+type PageRead = Omit<typeof muniLicensePageReads.$inferInsert, 'scrapeDate'>;
 
 const temporary: string[] = [];
 const open: Database[] = [];
@@ -58,9 +62,8 @@ function registration(number: string, cityviewLicenseId: number, overrides: Part
   };
 }
 
-function licensePage(cityviewLicenseId: number, overrides: Partial<LicensePage> = {}): LicensePage {
+function licensePage(cityviewLicenseId: number, overrides: Partial<PageRead> = {}): PageRead {
   return {
-    hidden: false,
     cityviewLicenseId,
     licenseId: 'LC260500349',
     businessName: 'Echo Ridge Mountain Retreat',
@@ -82,8 +85,8 @@ function licensePage(cityviewLicenseId: number, overrides: Partial<LicensePage> 
     issuances: [
       {
         type: 'STR Certificate',
-        issuedDate: '2026-05-04',
-        expiresDate: '2027-04-30',
+        issued_date: '2026-05-04',
+        expires_date: '2027-04-30',
         status: 'Active',
         number: 'STR20260309',
       },
@@ -93,63 +96,25 @@ function licensePage(cityviewLicenseId: number, overrides: Partial<LicensePage> 
   };
 }
 
-/** Record a registry run the way `runRegistry` does, minus the network. */
+/** A registry run's rows in the archived layer tables, and its page reads. */
 async function registryRun(
   db: Database,
   scrapeDate: IsoDate,
   registrations: Registration[],
-  pages: LicensePage[] = [],
-) {
-  const stats = await recordRegistrations(db, scrapeDate, registrations);
-  await recordLicensePages(db, scrapeDate, pages);
-  await logRegistryRun(db, {
+  pages: PageRead[] = [],
+): Promise<void> {
+  await db.appendRows(
+    muniStrRegistrationObservations,
+    registrations.map((r) => ({ ...r, scrapeDate })),
+  );
+  if (pages.length) await db.appendRows(muniLicensePageReads, pages.map((p) => ({ ...p, scrapeDate })));
+  await db.orm.insert(muniStrRegistryRuns).values({
     scrapeDate,
     runStartedAt: `${scrapeDate} 00:00:00`,
     runFinishedAt: `${scrapeDate} 00:10:00`,
-    layerDataEditedAt: '2026-09-07 00:15:52',
-    registrationsSeen: stats.seen,
-    registrationsNew: stats.new,
-    registrationsLapsed: stats.lapsed,
-    licensePageAttempted: pages.length,
-    licensePageFailed: 0,
-    errorSummary: null,
+    registrationsSeen: registrations.length,
   });
-  return stats;
 }
-
-describe('recordRegistrations', () => {
-  it('counts new registrations and those gone since the previous run', async () => {
-    const db = await freshDb();
-    const first = await registryRun(db, '2026-09-10', [
-      registration('STR20260001', 1),
-      registration('STR20260002', 2),
-    ]);
-    const second = await registryRun(db, '2026-09-11', [
-      registration('STR20260002', 2),
-      registration('STR20260003', 3),
-    ]);
-
-    expect(first).toEqual({ seen: 2, new: 2, lapsed: 0 });
-    expect(second).toEqual({ seen: 2, new: 1, lapsed: 1 });
-  });
-
-  it('replaces a day that is recorded again, not counting its own earlier rows', async () => {
-    const db = await freshDb();
-    await registryRun(db, '2026-09-10', [registration('STR20260001', 1)]);
-    const again = await recordRegistrations(db, '2026-09-10', [registration('STR20260001', 1)]);
-
-    expect(again).toEqual({ seen: 1, new: 1, lapsed: 0 });
-    expect(await db.count('SELECT count(*) FROM muni_str_registration_observations')).toBe(1);
-  });
-
-  it('rejects a layer that repeats a registration id', async () => {
-    const db = await freshDb();
-
-    await expect(
-      recordRegistrations(db, '2026-09-10', [registration('STR20260001', 1), registration('STR20260001', 1)]),
-    ).rejects.toThrow(/repeats 1 registration ids/);
-  });
-});
 
 describe('registrations view', () => {
   it('marks registrations missing from the latest run as not current', async () => {
@@ -264,92 +229,5 @@ describe('listings_active_with_registration', () => {
         registration_airbnb_listings_active: null,
       },
     ]);
-  });
-});
-
-describe('recordLicensePages', () => {
-  it('keeps pages read earlier the same day and replaces a page read again', async () => {
-    const db = await freshDb();
-    await recordLicensePages(db, '2026-09-10', [licensePage(1), licensePage(2, { status: 'Active' })]);
-    await recordLicensePages(db, '2026-09-10', [licensePage(2, { status: 'Revoked' })]);
-
-    const rows = await db.rows('SELECT cityview_license_id, status FROM muni_license_page_reads ORDER BY 1');
-
-    expect(rows).toEqual([
-      { cityview_license_id: 1, status: 'Active' },
-      { cityview_license_id: 2, status: 'Revoked' },
-    ]);
-  });
-
-  it('stores issuance dates as dates and a license with no locations as an empty list', async () => {
-    const db = await freshDb();
-    await recordLicensePages(db, '2026-09-10', [licensePage(1, { locations: [] })]);
-
-    const [row] = await db.rows<{ locations: unknown[]; issued: string }>(
-      'SELECT locations, issuances[1].issued_date AS issued FROM muni_license_page_reads',
-    );
-
-    expect(row).toEqual({ locations: [], issued: '2026-05-04' });
-  });
-});
-
-describe('chooseLicensePages', () => {
-  const base = {
-    scrapeDate: '2026-09-20',
-    refreshDays: 7,
-    max: 100,
-  };
-
-  it('reads unread licenses, then lapsed ones, then stale ones oldest first', () => {
-    const chosen = chooseLicensePages({
-      ...base,
-      today: new Set([10, 11, 12, 13, 14]),
-      lastRead: new Map([
-        [11, '2026-09-19'], // fresh
-        [12, '2026-09-13'], // exactly refreshDays old
-        [13, '2026-09-01'], // stalest
-        [20, '2026-09-01'], // lapsed, read before it left
-        [21, '2026-09-18'], // lapsed, already read after it left
-      ]),
-      lastSeen: new Map([
-        [10, '2026-09-19'],
-        [20, '2026-09-15'],
-        [21, '2026-09-15'],
-        [22, '2026-09-15'], // lapsed, never read
-      ]),
-    });
-
-    expect(chosen).toEqual([10, 14, 20, 22, 13, 12]);
-  });
-
-  it('stops at max', () => {
-    const chosen = chooseLicensePages({
-      ...base,
-      max: 2,
-      today: new Set([3, 1, 2]),
-      lastRead: new Map(),
-      lastSeen: new Map(),
-    });
-
-    expect(chosen).toEqual([1, 2]);
-  });
-});
-
-describe('pendingLicensePages', () => {
-  it("reads history from the database and ignores a re-run's own day", async () => {
-    const db = await freshDb();
-    await registryRun(db, '2026-09-10', [registration('STR20260001', 1), registration('STR20260002', 2)], [
-      licensePage(1),
-    ]);
-    // Today's rows exist from an earlier run the same day.
-    await registryRun(db, '2026-09-11', [registration('STR20260001', 1)]);
-
-    const pending = await pendingLicensePages(db, '2026-09-11', [registration('STR20260001', 1)], {
-      refreshDays: 7,
-      max: 100,
-    });
-
-    // 2 left the layer and was never read; 1 was read yesterday.
-    expect(pending).toEqual([2]);
   });
 });

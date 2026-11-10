@@ -14,11 +14,12 @@ import { pace, resetPace } from '@anchorage-str-db/scraper-airbnb/pace';
 import { parseListing, type ParsedListing } from '@anchorage-str-db/scraper-airbnb/parse';
 import { fetchPriceQuotes, liveQuoteFetcher } from '@anchorage-str-db/scraper-airbnb/priceQuotes';
 import { auditCoverage, liveSearchFetcher, searchAnchorage } from '@anchorage-str-db/scraper-airbnb/search';
+import { report } from '@anchorage-str-db/utils/checks';
 import { addDays, toSqlTimestamp, todayUtc, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log } from '@anchorage-str-db/utils/log';
 import { inMunicipality } from '@anchorage-str-db/utils/muni_geography';
 
-import { report, runChecks } from './checks.ts';
+import { runChecks } from './checks.ts';
 import {
   logRun,
   mergeCalendar,

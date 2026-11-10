@@ -42,11 +42,12 @@ Municipality's boundary, fetches each listing's page and calendar, writes the
 day to the database in one transaction, and runs the data-quality checks.
 
 ```sh
-pnpm registry
+pnpm licenses
 ```
 
-This records the Municipality's STR registrations and a batch of their
-license pages in the same database.
+This reads a batch of the Muni's CityView license pages, every license type,
+into the same database. Each run picks up new license ids and re-reads the
+ones that are due.
 
 ## Tables
 
@@ -115,22 +116,27 @@ From the Municipal Clerk's
 [Short Term Rental Registration Viewer](https://experience.arcgis.com/experience/22b40a78a9fc459e9950a16249b37ed2)
 and the Muni's license portal, stored as published:
 
-- `muni_str_registration_observations`: one row per registration per registry run.
-  The Muni publishes only active registrations, so a registration missing
+- `muni_str_registration_observations`: one row per registration per registry
+  run, an archive: the layer answers only with a token, so nothing writes it.
+  The Muni published only active registrations, so a registration missing
   from a run has lapsed or been withdrawn. `registered_address` is the address
   on the license: a Muni property record's address, or the registrant's typed
   text.
   `geocoded_address`, the coordinate, `community_council` and `parcel_type` are
   the Muni's derivations from it.
-- `muni_license_page_reads`: the CityView license page
-  ([example](https://www.muni.org/CityViewPortal/License/Status?licenseId=13923&category=B))
-  of each registration, re-read about weekly: the licensee's own
+- `muni_license_page_reads`: each visible CityView license page read
+  ([example](https://www.muni.org/CityViewPortal/License/Status?licenseId=13923&category=B)),
+  of every license type, Short-Term Rentals re-read weekly and others
+  monthly: the licensee's own
   `description` of the business ("Provides short term rentals, logistics,
   meeting space and overnight lodging."), `locations`, and every
-  certificate `issuances` records. A location with a `link` comes from the
-  Muni's property records (a parcel id, or that record's address); one
-  without is text the registrant typed.
-- `muni_str_registry_runs`: one row per registry run
+  certificate `issuances` records, and the `submittals` the licensee filed.
+  A location with a `link` comes from the Muni's property records (a parcel
+  id, or that record's address); one without is text the registrant typed.
+- `muni_license_hidden_reads`: one row per read of a hidden license id, whose
+  page says "Invalid License"
+- `muni_license_runs`: one row per license scan
+- `muni_str_registry_runs`: one row per registry run, an archive
 - `registrations` *(view)*: one row per registration ever published, with
   its latest license page. `parcel_id` joins to
   [anchorage-property](https://github.com/NickCrews/anchorage-property)'s
@@ -162,15 +168,16 @@ and the Muni's license portal, stored as published:
 
 A pnpm workspace sharing `tsconfig.base.json`:
 
-- `packages/scraper`: runs the providers below, and owns the writes, quality
-  checks and CLI.
+- `packages/scraper`: the daily Airbnb run: its writes, quality checks and
+  CLI.
+- `packages/licenses`: the license scan: which license pages to read, the
+  writes, quality checks and CLI.
 - `packages/db`: the DuckDB schema, defined with Drizzle, its migrations and
   the views.
 - `packages/scraper-airbnb`: fetches and parses Airbnb listings, in memory.
   Uses `impit`, an HTTP client that impersonates Chrome's TLS fingerprint,
   which Airbnb requires. The endpoints are in `src/api/`.
-- `packages/scraper-muni-str`: fetches the Muni's STR registration layers, in
-  memory.
+- `packages/scraper-muni-str`: queries the Muni's ArcGIS layers, in memory.
 - `packages/muni-licenses`: fetches and parses the Muni's license pages, in
   memory.
 - `packages/utils`: dependency-free helpers shared by the scrapers.

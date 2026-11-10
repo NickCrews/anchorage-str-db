@@ -8,7 +8,7 @@ import { connect, LegacySchemaError } from '../src/connect.ts';
 import { Database } from '../src/database.ts';
 
 /** Migrations in `../drizzle`; every `connect` should end with exactly these applied. */
-const MIGRATION_COUNT = 4;
+const MIGRATION_COUNT = 5;
 
 const temporary: string[] = [];
 const open: Database[] = [];
@@ -157,6 +157,12 @@ describe('connect', () => {
     expect(
       await db.rows('SELECT listing_type FROM listings WHERE is_active'),
     ).toEqual([{ listing_type: 'Entire home/apt' }]);
+    // 0004: a read stored before submittals were has none recorded.
+    expect(
+      await db.rows('SELECT submittals FROM muni_license_page_reads'),
+    ).toEqual([{ submittals: null }]);
+    expect(await db.count('SELECT count(*) FROM muni_license_hidden_reads')).toBe(0);
+    expect(await db.count('SELECT count(*) FROM muni_license_runs')).toBe(0);
   });
 
   it('rejects a database with listings as a table', async () => {

@@ -9,9 +9,10 @@ import type { Database } from '@anchorage-str-db/db/database';
 import { collectHostCards, emptyListingPage, type ListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
 import type { ParsedListing } from '@anchorage-str-db/scraper-airbnb/parse';
 import { emptyAudit, PriceBand, type CoverageAudit, type SearchResult } from '@anchorage-str-db/scraper-airbnb/search';
+import { report, type CheckResult } from '@anchorage-str-db/utils/checks';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
-import { PLAUSIBLE_LISTING_COUNT, report, runChecks, type CheckResult } from '../src/checks.ts';
+import { PLAUSIBLE_LISTING_COUNT, runChecks } from '../src/checks.ts';
 import {
   emptyPageStats,
   type QuoteStats,
