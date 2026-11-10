@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Fetches the Municipality of Anchorage's short-term rental registration layers, in memory",
+  "description": "A client for the Municipality of Anchorage's ArcGIS FeatureServer layers, in memory",
   "license": "MIT",
   "exports": {
     "./*": "./src/*.ts"

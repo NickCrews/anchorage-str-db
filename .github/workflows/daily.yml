@@ -12,9 +12,9 @@ on:
         type: boolean
         default: false
 
-# Never let two runs write to the database at once.
+# Never let two runs write to the database at once, including licenses.yml.
 concurrency:
-  group: str-scrape
+  group: db-write
   cancel-in-progress: false
 
 jobs:
@@ -75,14 +75,6 @@ jobs:
             exit 1
           fi
 
-      # Its own step and transaction, so a Muni outage can't cost the day's
-      # Airbnb scrape, which can't be re-run later. A failure is reported
-      # after publishing, below.
-      - name: Municipal STR registry + quality gate
-        id: registry
-        continue-on-error: true
-        run: node packages/scraper/src/cli.ts --db "$DB_PATH" --verbose registry
-
       - name: Scrape + merge + quality gate
         run: node packages/scraper/src/cli.ts --db "$DB_PATH" --verbose daily
 
@@ -120,14 +112,6 @@ jobs:
               --title "Backup $today" \
               --notes "Dated snapshot, kept indefinitely (unlike latest-data, which is overwritten daily)."
           fi
-
-      # After publishing, so the Airbnb day is kept; failing here opens the
-      # outage issue below.
-      - name: Fail if the registry run failed
-        if: steps.registry.outcome == 'failure'
-        run: |
-          echo "::error::the registry run failed; see the 'Municipal STR registry' step"
-          exit 1
 
       - name: Close the outage issue
         continue-on-error: true

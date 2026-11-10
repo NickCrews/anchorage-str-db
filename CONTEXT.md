@@ -185,10 +185,7 @@ Turpin St is the literal reading and the Ski Inn the exception; see
 [rental-units](./docs/research/rental-units/README.md).
 
 On 2026-09-15, 115 (registrant, address) pairs held more than one of the
-2,564 active registrations, covering 293 of them.
-`packages/scraper/test/registrationGrain.test.ts` asserts this against the
-live layer, so a Muni change to the rule fails a test rather than quietly
-invalidating a join.
+2,564 active registrations in the registration layer, covering 293 of them.
 
 **License**:
 The Muni business license a registration is issued under, read from its
@@ -197,8 +194,7 @@ own description of the business, parcel ids, and every certificate issued.
 One license holds exactly one STR Certificate, so a license and a
 registration are the same thing seen from two systems — see **Three ids, one
 license** below. The portal publishes licenses of other types under the same
-ids — Business (private detectives) and Alcohol among them — and those hold
-no registration.
+ids — Business and Alcohol among them — and those hold no registration.
 _Avoid_: registration, permit, licence
 
 **Issuance**:
@@ -255,8 +251,6 @@ On 2026-09-15 the layer held 2,564
 registrations, 2,564 distinct `license_id`s and 2,564 distinct
 `cityview_license_id`s, with no value of any one shared across two of
 another, so joining on any of them is equivalent.
-`packages/scraper/test/identifiers.test.ts` asserts this against both live
-sources, and fails rather than drifts if the Muni changes how it issues them.
 
 **The `LC` id names the license, not the licensee**:
 Which is why it is `license_id` and not `licensee_id`, despite the portal
@@ -311,7 +305,7 @@ _Avoid_: active, running, in business, live
 **Active**:
 Of a listing: still appearing in search, within `RETIREMENT_GRACE_DAYS` of
 the latest completed run (`is_active`, `listings_active`). Of a registration:
-in the latest registry run's layer, which holds only active registrations.
+in the latest registry run's layer, which held only active registrations.
 The word for "still out there" in schema and UI alike, at the grain of one
 record: a listing was active from June 2025, a dwelling is operating. Licenses
 are valid or expired instead; neither is a synonym for this.
@@ -365,9 +359,11 @@ _Avoid_: snapshot, record, reading, sample, event
 
 **Run**:
 One execution of a pipeline, stamped with `scrape_date` and logged in a
-`*_runs` table. The **daily run** (`pnpm daily`) reads Airbnb; the
-**registry run** (`pnpm registry`) reads the Muni. A run records a whole day
-or nothing.
+`*_runs` table. The **daily run** (`pnpm daily`) reads Airbnb; the **license
+scan** (`pnpm licenses`, `muni_license_runs`) reads the Muni's license pages.
+A **registry run**, logged in `muni_str_registry_runs`, read the Clerk's
+registration layer; the layer answers only with a token, so those rows are an
+archive. A run records a whole day or nothing.
 _Avoid_: job, scrape, crawl, batch, pass (a pass is one stage within a run)
 
 **Seen**:

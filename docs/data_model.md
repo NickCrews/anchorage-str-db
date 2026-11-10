@@ -3,9 +3,9 @@
 The database joins two sources:
 
 - **Airbnb** (`packages/scraper-airbnb`): listings and the hosts who run them.
-- **The Municipality of Anchorage** (`packages/scraper-muni-str`,
-  `packages/muni-licenses`): the STR registrations the Municipal Clerk
-  publishes, and each registration's CityView license page.
+- **The Municipality of Anchorage** (`packages/muni-licenses`, read by
+  `packages/licenses`): every license's CityView license page, and the
+  archived STR registration layer the Municipal Clerk published.
 
 The only link between them is the STR registration id a listing page shows
 (`registration_id`, e.g. `STR20261754`). There is no shared address or owner
