@@ -27,8 +27,8 @@ const NO_MIGRATION =
   "There is no migration: see CONTRIBUTING.md, 'When the published database has an incompatible schema'.";
 
 /**
- * Open (or create) the database at `path`. The daily run and the license
- * scan both open it this way, so they see one schema.
+ * Open (or create) the database at `path`: apply the migrations it has not
+ * recorded, reject tables that differ from the schema, and recreate the views.
  */
 export async function connect(path: string): Promise<Database> {
   const db = await Database.open(path);
