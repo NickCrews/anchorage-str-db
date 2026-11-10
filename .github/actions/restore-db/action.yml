@@ -1,0 +1,42 @@
+name: Restore the database
+description: >-
+  Download the DuckDB file from the latest-data release. A missing file fails
+  the step unless start-fresh is true.
+inputs:
+  db-path:
+    description: Where to write the database.
+    required: true
+  start-fresh:
+    description: Start a new, empty archive if latest-data has no database.
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        DB_PATH: ${{ inputs.db-path }}
+        START_FRESH: ${{ inputs.start-fresh }}
+      run: |
+        mkdir -p "$(dirname "$DB_PATH")"
+        asset=$(basename "$DB_PATH")
+        # "release not found" means empty; any other error is an outage.
+        if ! names=$(gh release view latest-data --repo "$GITHUB_REPOSITORY" \
+                       --json assets --jq '.assets[].name' 2>&1); then
+          if [[ "$names" == *"release not found"* ]]; then
+            names=""
+          else
+            echo "::error::could not list the latest-data release: $names"
+            exit 1
+          fi
+        fi
+        if grep -qxF "$asset" <<< "$names"; then
+          gh release download latest-data --repo "$GITHUB_REPOSITORY" \
+            --pattern "$asset" --output "$DB_PATH"
+          echo "restored previous database"
+        elif [ "$START_FRESH" = "true" ]; then
+          echo "no $asset on latest-data; starting a new archive (start_fresh)"
+        else
+          echo "::error::latest-data has no $asset. To start a new archive, run with start_fresh=true."
+          exit 1
+        fi

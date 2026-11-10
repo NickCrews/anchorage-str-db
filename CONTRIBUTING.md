@@ -266,6 +266,10 @@ Runners are ephemeral, so each run downloads the database from the
 workflows share the concurrency group `db-write`, so one waits for the
 other rather than uploading over its writes.
 
+The steps both workflows run are composite actions in `.github/actions/`:
+`restore-db` (download from `latest-data`), `publish-db` (upload to it) and
+`outage-issue` (open or close the workflow's outage issue).
+
 A successful `daily` run also creates a `backup-YYYY-MM-DD` release when the newest
 one is 7 or more days old, and a manual run always creates one. The rule keys
 on the newest backup, not the weekday, so a failed run on backup day doesn't

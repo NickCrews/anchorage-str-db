@@ -1,0 +1,22 @@
+name: Publish the database
+description: Upload the DuckDB file to the latest-data release, replacing the previous one.
+inputs:
+  db-path:
+    description: The database to upload.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        DB_PATH: ${{ inputs.db-path }}
+      run: |
+        tag=latest-data
+        if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+          gh release upload "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" --clobber
+        else
+          gh release create "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" \
+            --title "Latest data" \
+            --notes "The database after the most recent successful run of either workflow, replaced on every run. See airbnb_scrape_runs and muni_license_runs in the database for run history."
+        fi
