@@ -93,6 +93,8 @@ export const RegistrationCard: FC = () => {
     `,
   });
 
+  // community_council is NULL when the address is not geocoded yet, the
+  // geocoder could not place it, or no council contains it.
   const { data: councilData, isLoading: councilLoading } = useSql<{
     council: string;
     registrations: number;
@@ -101,7 +103,7 @@ export const RegistrationCard: FC = () => {
     enabled,
     query: `
       SELECT
-        coalesce(community_council, 'Address not geocoded') AS "council",
+        coalesce(community_council, 'No community council') AS "council",
         count(*)::INT AS "registrations",
         sum(airbnb_listings_active)::INT AS "listings"
       FROM registrations_active

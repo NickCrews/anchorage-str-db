@@ -1,9 +1,9 @@
 {
-  "name": "@anchorage-str-db/scraper-muni-str",
+  "name": "@anchorage-str-db/muni-gis",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A client for the Municipality of Anchorage's ArcGIS FeatureServer layers, in memory",
+  "description": "Clients for the Municipality of Anchorage's ArcGIS services (feature layers, the address geocoder), in memory",
   "license": "MIT",
   "exports": {
     "./*": "./src/*.ts"
