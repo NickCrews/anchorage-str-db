@@ -72,8 +72,7 @@ export const RegistrationCard: FC = () => {
         (SELECT count(*) FROM registrations_active)::INT AS "registrations",
         (SELECT count(*) FROM registrations_active WHERE airbnb_listings_active = 0)::INT
           AS "registrationsWithoutListing",
-        (SELECT max(scrape_date) FROM muni_str_registry_runs WHERE registrations_seen IS NOT NULL)
-          AS "registryDate"
+        (SELECT scrape_date FROM latest_registry_date) AS "registryDate"
       FROM (${LISTINGS_WITH_STATUS})
     `,
   });
@@ -120,11 +119,10 @@ export const RegistrationCard: FC = () => {
       <CardHeader className="gap-2">
         <CardTitle className="text-sm font-medium">Municipal STR registration</CardTitle>
         <CardDescription className="text-xs">
-          Matches the registration id on each Airbnb listing page to the
-          Municipal Clerk's published registrations
-          {s?.registryDate ? ` as of ${shortDate(s.registryDate)}` : ''}. The Muni
-          publishes only active registrations, and a number issued since its last
-          publish shows as not in the registry.
+          Matches the registration id on each Airbnb listing page to the STR
+          certificates on the Muni's license pages
+          {s?.registryDate ? ` as of ${shortDate(s.registryDate)}` : ''}. A number
+          issued since the last license scan shows as not in the registry.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

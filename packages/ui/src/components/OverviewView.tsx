@@ -84,7 +84,7 @@ export const OverviewView: FC = () => {
       registry AS (
         SELECT
           (SELECT count(*) FROM registrations_active)::INT AS n,
-          (SELECT max(scrape_date) FROM muni_str_registry_runs WHERE registrations_seen IS NOT NULL) AS d
+          (SELECT scrape_date FROM latest_registry_date) AS d
       ),
       registered AS (
         SELECT count(*)::INT AS n
@@ -227,13 +227,13 @@ export const OverviewView: FC = () => {
           detail={
             kpi?.latestRegistryDate
               ? `UTC date. Registry last read ${shortDate(kpi.latestRegistryDate)}`
-              : 'UTC date. No registry run yet'
+              : 'UTC date. No license scan yet'
           }
         />
         <StatCard
           label="Active Muni STR registrations"
           value={kpiLoading ? '…' : (kpi?.registrationsActive ?? '—')}
-          detail="Published by the Municipal Clerk"
+          detail="Read from the Muni's license pages"
         />
         <StatCard
           label="Listings showing an active registration"

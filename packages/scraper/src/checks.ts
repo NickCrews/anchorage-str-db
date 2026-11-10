@@ -49,8 +49,10 @@ const MIN_BEDROOMS_SHARE = 0.6;
 
 /**
  * Warn when fewer than this share of the registration ids on active
- * Airbnb listings appear in `registrations`. 1860 of 1879 matched on
- * 2026-09-13; the rest were issued after the layer's last publish.
+ * Airbnb listings appear in `registrations`. 1860 of 1879 matched the
+ * registration layer on 2026-09-13. An id misses when it is mistyped, its
+ * license's page is hidden, or it was issued since the license scan last read
+ * new license ids.
  */
 const MIN_AIRBNB_REGISTRATION_MATCH_SHARE = 0.8;
 
@@ -446,7 +448,7 @@ export async function runChecks(
   );
 
   // A warning: a listing citing an unknown id is recorded either way, and
-  // `registrations` lags the ids the Muni issues.
+  // `registrations` lags the ids the Muni issues by up to a scan.
   const cited = await db.count(
     'SELECT count(DISTINCT registration_id) FROM listings_active ' +
       'WHERE registration_id IS NOT NULL',

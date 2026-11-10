@@ -155,16 +155,18 @@ _Avoid_: empire, holdings, inventory, tycoon
 
 **The Muni**:
 The Municipality of Anchorage. "The Municipal Clerk" specifically for the
-office that publishes the registration layer. Its boundary is the scope of
+office that published the registration layer. Its boundary is the scope of
 this database: the daily run searches a padded bounding box that also takes
 in Hope, Palmer and Wasilla, and drops every listing whose coordinate falls
 outside the boundary itself, so every count here is a count inside the Muni.
 _Avoid_: the city, Anchorage, MOA, the municipality
 
 **Registration**:
-One STR certificate the Municipal Clerk publishes, identified by
-`registration_id`. Required to operate a short-term rental; a listing prints
-its id on the listing page, which is the only link between the two sources.
+One STR Certificate number on a Short-Term Rentals license page, identified
+by `registration_id`. Required to operate a short-term rental; a listing
+prints its id on the listing page, which is the only link between the two
+sources. Registrations the archived registration layer holds and no license
+page shows are registrations too, and are not active.
 _Avoid_: permit, certificate, license, registration number, STR number
 
 **What a registration covers** has no fixed grain, so do not treat any tuple
@@ -289,7 +291,8 @@ fuzzed, blurred, approximate, obfuscated
 **Geocoded**:
 Of a registration: derived by the Muni from `registered_address` rather than
 given by the registrant — its coordinate, `geocoded_address`,
-`community_council` and `parcel_type`.
+`community_council` and `parcel_type`. Taken from the archived registration
+layer, so NULL for a registration the layer never held.
 
 ### Lifecycle
 
@@ -305,7 +308,9 @@ _Avoid_: active, running, in business, live
 **Active**:
 Of a listing: still appearing in search, within `RETIREMENT_GRACE_DAYS` of
 the latest completed run (`is_active`, `listings_active`). Of a registration:
-in the latest registry run's layer, which held only active registrations.
+its STR Certificate's status is `Active` on the latest read of its license
+page. Of a license (`licenses.is_active`): its most recent issuance's status
+is `Active` or `Issued`.
 The word for "still out there" in schema and UI alike, at the grain of one
 record: a listing was active from June 2025, a dwelling is operating. Licenses
 are valid or expired instead; neither is a synonym for this.
@@ -319,10 +324,11 @@ listings that went inactive on that run.
 _Avoid_: dead, gone, removed, delisted, expired
 
 **Lapsed**:
-Of a registration: no longer published by the Clerk, so its term ended, it
-was withdrawn, or the Muni stopped publishing it. The Airbnb equivalent is
-inactive. Not the same as expired, which is about the license term rather
-than about publication.
+Of a registration: not active. Its STR Certificate's status is something
+other than `Active`, or no license page shows its number and only the
+archived registration layer holds it. The Airbnb equivalent is inactive. Not
+the same as expired, which is a date test on the license term rather than
+the Muni's status.
 _Avoid_: departed, gone, expired, dropped, retired
 
 **Valid**:
@@ -334,10 +340,9 @@ verbatim in `license_status`, and is not this one.
 _Avoid_: active, current, live, in force, good standing
 
 **Expired**:
-Of a license: past its `expires_date`. Says nothing about whether the
-registration still appears in the layer: expired is about the term, lapsed
-about publication, and a registration can be either without the other until
-a renewal is observed.
+Of a license: past its `expires_date`. Says nothing about the
+certificate's status: expired is a date test, lapsed the Muni's status, and a
+registration can be either without the other until a renewal is observed.
 _Avoid_: lapsed, inactive, retired, dead, invalid
 
 **Version**:
@@ -367,8 +372,9 @@ archive. A run records a whole day or nothing.
 _Avoid_: job, scrape, crawl, batch, pass (a pass is one stage within a run)
 
 **Seen**:
-Of a listing or registration: present in a run's results (`first_seen_date`,
-`last_seen_date`). Distinct from read.
+Of a listing: present in a run's results. Of a registration: its number on
+a license page read, or, for one only the archive holds, in a registry run's
+layer (`first_seen_date`, `last_seen_date`). Distinct from read.
 _Avoid_: found, observed, present
 
 **Read**:
