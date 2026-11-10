@@ -3,8 +3,10 @@
 The database joins two sources:
 
 - **Airbnb** (`packages/scraper-airbnb`): listings and the hosts who run them.
-- **The Municipality of Anchorage** (`packages/muni-licenses`, read by
-  `packages/licenses`): every license's CityView license page, and the
+- **The Municipality of Anchorage** (`packages/muni-licenses` and
+  `packages/muni-gis`, read by `packages/licenses`): every license's
+  CityView license page, the Muni geocoder's reading of each license's
+  address with its community council, each parcel's property type, and the
   archived STR registration layer the Municipal Clerk published.
 
 The only link between them is the STR registration id a listing page shows
@@ -24,7 +26,7 @@ reasons do not.
 | Listing | `listings_active` | Airbnb `listing_id` | One Airbnb page a guest can book. |
 | Host | `hosts` | Airbnb `host_id` | The Airbnb account that runs the listing (`airbnb.com/users/show/<host_id>`). Often a property manager. |
 | Registration | `registrations` | `registration_id` | One STR Certificate number on a Short-Term Rentals license page, with a registrant, address and dates. |
-| License | `licenses` | `cityview_license_id` | One CityView license page of any type (Short-Term Rentals, Business, Alcohol), as last read. |
+| License | `licenses` | `cityview_license_id` | One CityView license page of any type (Short-Term Rentals, Business, Alcohol), as last read, with its address geocoded and its parcel's type. |
 
 `listings_active_with_registration` is every active listing with the
 registration its id matches, if any.
@@ -42,15 +44,22 @@ number:
 
 - `status`, `issued_date`, `expires_date` and `is_active` come from the STR
   Certificate issuance; `is_active` means its status is `Active`.
-- `business_name`, `registered_address` (the page's Address location, else
-  the first location that is not a parcel id) and the `license_*` columns
-  come from the license's latest page read.
+- `business_name`, `registered_address` (the license's `address`: the
+  page's Address location, else the first location that is not a parcel id)
+  and the `license_*` columns come from the license's latest page read.
 - `first_seen_date` and `last_seen_date` are the first and latest page reads
   that show the number.
-- `submitted_date`, `community_council`, `parcel_type` and `geocoded_*` come
-  from the registration's latest row in the archived registration layer
-  (`muni_str_registration_observations`), and are NULL for a registration
-  the layer never held.
+- `geocoded_*` and `community_council` are the license's: the Muni
+  geocoder's match for its address (`muni_address_geocodes`) and the
+  council containing it. When the address has no match, or has not been
+  geocoded yet, they come from the registration's latest row in the
+  archived registration layer (`muni_str_registration_observations`), and
+  are NULL for a registration the layer never held. The two sources are
+  never mixed on one row.
+- `parcel_type` is the `Property_Type` of the license's parcel
+  (`muni_parcel_types`) when it names exactly one. The archived layer's
+  `ParcelType` is a different classification and is not used.
+- `submitted_date` comes from the archived layer alone.
 - A registration only the archive holds, whose number no license in
   `licenses` shows, keeps its layer row with `is_active` false and NULL
   `license_*` columns.

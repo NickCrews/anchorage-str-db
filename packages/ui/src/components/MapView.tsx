@@ -29,7 +29,10 @@ const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json
  * `@sqlrooms/deck` (needs the spatial extension loaded in `store.ts`): every
  * active Airbnb listing, plus every active Muni registration that no active
  * Airbnb listing cites (units listed elsewhere, such as VRBO, or not listed).
- * Registrations the Muni's geocoder could not place are left out.
+ * Registrations the Muni's geocoder could not place, or has not been asked
+ * about yet, are left out: their `geocoded_lat`/`geocoded_lng` are NULL,
+ * since a geocode without a match stores no coordinate and `registrations`
+ * drops the archived layer's no-match placeholder coordinate.
  *
  * A listing's coordinate is the Muni's geocoding of the registration it cites when
  * there is one, otherwise Airbnb's pin. `is_precise` is true for a geocoded

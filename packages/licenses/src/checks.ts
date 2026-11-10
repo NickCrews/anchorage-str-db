@@ -9,6 +9,7 @@ import type { LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
 import { percent, type CheckResult, type Severity } from '@anchorage-str-db/utils/checks';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
+import type { GeocodePassStats } from './geocode.ts';
 import { SHORT_TERM_RENTALS } from './select.ts';
 
 /** A license-page failure rate above this fails the scan. */
@@ -21,9 +22,26 @@ const MAX_LICENSE_PAGE_FAILURE_RATE = 0.25;
  */
 const MIN_PAGE_FIELD_SHARE = 0.95;
 
+/**
+ * A geocoding-pass failure rate above this fails `geocode_failure_rate`. A
+ * warning: a failed geocode or parcel read is retried next scan, and the page
+ * reads are written already.
+ */
+const MAX_GEOCODE_FAILURE_RATE = 0.25;
+
+/**
+ * The share of geocoded addresses with a match below which
+ * `geocode_match_rate` fails. 97% of a sample of registered addresses
+ * matched (2026-11-10), so a drop means the geocoder or the license pages'
+ * addresses changed.
+ */
+const MIN_GEOCODE_MATCH_SHARE = 0.85;
+
 export interface ScanCheckInputs {
   /** This scan's visible page reads. */
   pages: readonly LicensePage[];
+  /** What the geocoding pass did, or why it failed. */
+  geocoding: GeocodePassStats | { error: string };
 }
 
 export async function runScanChecks(
@@ -112,6 +130,38 @@ export async function runScanChecks(
       'warn',
       found > 0,
       `the newest license, ${newest}, has ${found > 0 ? 'been' : 'never been'} read`,
+    );
+  }
+
+  const { geocoding } = inputs;
+  if ('error' in geocoding) {
+    check('geocode_failure_rate', 'warn', false, `the geocoding pass failed: ${geocoding.error}`);
+  } else {
+    const attempted = geocoding.addressesAttempted + geocoding.parcelsAttempted;
+    const failed = geocoding.addressesFailed + geocoding.parcelsFailed;
+    const rate = attempted ? failed / attempted : 0;
+    check(
+      'geocode_failure_rate',
+      'warn',
+      rate <= MAX_GEOCODE_FAILURE_RATE,
+      `${geocoding.addressesFailed}/${geocoding.addressesAttempted} geocodes and ` +
+        `${geocoding.parcelsFailed}/${geocoding.parcelsAttempted} parcel type reads failed ` +
+        `(${percent(rate)}, max ${percent(MAX_GEOCODE_FAILURE_RATE)})`,
+    );
+  }
+
+  // Over every address ever geocoded, so a day of retried misses doesn't trip it.
+  const [geocodes] = await db.rows<{ total: number; matched: number }>(
+    'SELECT count(*)::INTEGER AS total, count(matched_address)::INTEGER AS matched FROM muni_address_geocodes',
+  );
+  if (geocodes?.total) {
+    const share = geocodes.matched / geocodes.total;
+    check(
+      'geocode_match_rate',
+      'warn',
+      share >= MIN_GEOCODE_MATCH_SHARE,
+      `${geocodes.matched}/${geocodes.total} license addresses geocoded to a match ` +
+        `(${percent(share)}, min ${percent(MIN_GEOCODE_MATCH_SHARE)})`,
     );
   }
 

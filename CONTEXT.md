@@ -222,9 +222,18 @@ A Muni property record, identified by `parcel_id`. The join key to
 [anchorage-property](https://github.com/NickCrews/anchorage-property).
 _Avoid_: lot, property, tax record
 
+**Parcel type**:
+The assessor's category for a parcel, `parcel_type`: the `Property_Type` of
+the Muni's property information layer, verbatim (`RESIDENTIAL`, `CONDO`,
+`APARTMENT`, `COMMERCIAL`, ...). A license has one when it names exactly one
+parcel. The archived registration layer's `ParcelType` (`Residential`,
+`Commercial`) is a different classification and is not a parcel type.
+_Avoid_: property type (except quoting the field), land use, zoning, class
+
 **Community council**:
-The Muni's neighborhood district, derived by the Muni from a registration's
-coordinate. Only registrations have one.
+The Muni's neighborhood district containing a license's geocoded
+coordinate, from the Muni's council polygons (`community_council`).
+Licenses and their registrations have one; listings do not.
 _Avoid_: neighborhood, district, area
 
 ### Identifiers
@@ -270,14 +279,15 @@ the listing page prints, which may match no registration.
 
 **Coordinate**:
 A `lat`/`lng` pair. A listing's is Airbnb's (`location_lat`/`location_lng`);
-a registration's is the Muni geocoder's (`geocoded_lat`/`geocoded_lng`).
+a license's or registration's is the Muni geocoder's (`geocoded_lat`/`geocoded_lng`).
 ArcGIS's own "point layer" stays verbatim, as a source's label does.
 _Avoid_: point, location, position, pin, geo
 
 **Address**:
 A street address as text. A listing has one only when the host published it
-(`location_exact_address`); a registration's is `registered_address`, either
-a property record's or the registrant's typed text.
+(`location_exact_address`); a license's is `address`, either a property
+record's or the licensee's typed text, and its registration carries it as
+`registered_address`.
 _Avoid_: location, street, place
 
 **Exact and jittered**:
@@ -289,10 +299,16 @@ _Avoid_: for exact — precise, real, verified, unjittered; for jittered —
 fuzzed, blurred, approximate, obfuscated
 
 **Geocoded**:
-Of a registration: derived by the Muni from `registered_address` rather than
-given by the registrant — its coordinate, `geocoded_address`,
-`community_council` and `parcel_type`. Taken from the archived registration
-layer, so NULL for a registration the layer never held.
+Of a license or registration: derived from its address by the Muni's
+geocoder rather than given by the licensee — its coordinate,
+`geocoded_address` (the address as the geocoder writes it), and the
+`community_council` containing the coordinate. The license scan asks the
+geocoder about each license's address once (`muni_address_geocodes`). A
+**match** places the address itself; an answer that places only its street,
+or no answer, is no match, and the geocoded columns are NULL. A registration
+whose license has no match takes the archived registration layer's
+geocoding instead.
+_Avoid_: located, mapped, resolved
 
 ### Lifecycle
 

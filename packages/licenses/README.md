@@ -2,12 +2,15 @@
 
 The license scan: records every license the Muni's CityView portal
 publishes, by reading license pages by id, and writes them to the database
-defined in `packages/db`. An app like `packages/scraper`, over
-`muni-licenses`; it never imports `scraper`.
+defined in `packages/db`, then geocodes their addresses. An app like
+`packages/scraper`, over `muni-licenses` and `muni-gis`; it never imports
+`scraper`.
 
 - `cli.ts`: the `scan` command (run from the repo root as `pnpm licenses`)
-- `scan.ts`: the scan: newest id, choose ids, read pages, write, check
+- `scan.ts`: the scan: newest id, choose ids, read pages, write, geocode,
+  check
 - `select.ts`: `chooseLicenseIds`, which ids a scan reads
+- `geocode.ts`: `runGeocodePass`, the geocoding pass
 - `store.ts`: the read history, the writes and the run log
 - `checks.ts`: the quality checks each scan ends with
 
@@ -55,6 +58,43 @@ a `muni_license_runs` row with `error_summary` after the rollback.
 the scrape date; `licenses_status_changed` counts those whose page status or
 issuance statuses differ from the license's previous visible read.
 
+## The geocoding pass
+
+After the page reads are written, `runGeocodePass` fills
+`muni_address_geocodes` and `muni_parcel_types` (see `packages/muni-gis`
+for the services):
+
+1. It takes the `address` of every license in `licenses`, of every type,
+   that has no row in `muni_address_geocodes`, then those whose row has no
+   match and is 90 days old or more, at most 1000 a scan, Short-Term Rentals
+   licenses first. From an empty database the ~3,000 addresses take three
+   scans; after that a scan geocodes the day's new licenses.
+2. If there are any, it fetches the community council polygons, geocodes
+   each address, and finds the council of each match.
+3. It takes every parcel id on a license (each location labelled
+   `Property`) with no row in `muni_parcel_types` or a row 90 days old or
+   more, at most 3000 a scan, and reads their `Property_Type`, 50 to a
+   request.
+4. One transaction writes the rows; a row replaces the address's or parcel
+   id's earlier one.
+
+An address the geocoder answered without a match is stored with NULL
+`matched_address`, coordinate and council, and its best candidate's `score`
+and `match_type` (`StreetName` when it placed only the street), so it is
+not asked about again for 90 days. A match is kept for good: an address
+does not move, and its council is the one containing it when it was
+geocoded. A failed request writes nothing and is retried next scan.
+
+The pass runs after the page reads' transaction, so it can read the
+addresses those reads hold from `licenses`, and so its failure leaves them
+written: the scan logs the error and the `geocode_failure_rate` check warns.
+Its counts are logged, not stored in `muni_license_runs`; the rows'
+`geocoded_date` and `read_date` record which scan wrote them.
+
+The council is stored on the geocode rather than joined in SQL from stored
+polygons, so neither the views nor the browser viewer need DuckDB's spatial
+extension, and a council follows the coordinate it was found from.
+
 ## Checks
 
 | check | severity | fails when |
@@ -64,9 +104,11 @@ issuance statuses differ from the license's previous visible read.
 | `license_page_fields_present` | error | fewer than 95% of visible pages read had a status and an issuance |
 | `registration_id_format` | warn | an STR Certificate read has a number that is not `STR` + 8 digits |
 | `newest_license_read` | warn | the newest id has never been read |
+| `geocode_failure_rate` | warn | the geocoding pass failed, or more than 25% of its geocodes and parcel reads failed |
+| `geocode_match_rate` | warn | fewer than 85% of all addresses in `muni_address_geocodes` have a match |
 
 ## Tests
 
 `pnpm test` in this package runs offline: `test/select.test.ts` covers the
-order above, and `test/scan.test.ts` runs the scan against a real DuckDB
-file with injected page reads.
+order above, and `test/scan.test.ts` runs the scan, geocoding pass included,
+against a real DuckDB file with injected page reads and GIS services.
