@@ -1,7 +1,7 @@
 /**
  * The `licenses`, `registrations` and `latest_registry_date` views over
- * license page reads, hidden reads, scan runs and the archived registration
- * layer, seeded directly.
+ * license page reads, hidden reads, scan runs, geocodes, parcel types and the
+ * archived registration layer, seeded directly.
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -13,9 +13,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { connect } from '../src/connect.ts';
 import type { Database } from '../src/database.ts';
 import {
+  muniAddressGeocodes,
   muniLicenseHiddenReads,
   muniLicensePageReads,
   muniLicenseRuns,
+  muniParcelTypes,
   muniStrRegistrationObservations,
   type LicenseIssuance,
 } from '../src/schema.ts';
@@ -123,6 +125,26 @@ async function readHidden(db: Database, scrapeDate: string, ids: number[]): Prom
   await db.appendRows(muniLicenseHiddenReads, ids.map((cityviewLicenseId) => ({ cityviewLicenseId, scrapeDate })));
 }
 
+/** 257 ECHO RIDGE DR as the Muni geocoder matched it, 2026-11-10. */
+const ECHO_RIDGE_GEOCODE: typeof muniAddressGeocodes.$inferInsert = {
+  address: '257 ECHO RIDGE DR, GIRDWOOD, AK 99587',
+  geocodedDate: '2026-11-08',
+  matchedAddress: '257 Echo Ridge Dr, Girdwood, AK, 99587',
+  lat: 60.951486,
+  lng: -149.120567,
+  communityCouncil: 'Girdwood',
+  score: 100,
+  matchType: 'PointAddress',
+};
+
+async function geocode(db: Database, rows: (typeof muniAddressGeocodes.$inferInsert)[]): Promise<void> {
+  await db.appendRows(muniAddressGeocodes, rows);
+}
+
+async function parcelTypes(db: Database, rows: (typeof muniParcelTypes.$inferInsert)[]): Promise<void> {
+  await db.appendRows(muniParcelTypes, rows);
+}
+
 async function archive(db: Database, scrapeDate: string, rows: ArchivedRegistration[]): Promise<void> {
   await db.appendRows(muniStrRegistrationObservations, rows.map((r) => ({ ...r, scrapeDate })));
 }
@@ -199,6 +221,68 @@ describe('licenses view', () => {
   });
 });
 
+describe('licenses view geocodes', () => {
+  it('joins the geocode of its address and the Property_Type of its one parcel', async () => {
+    const db = await freshDb();
+    await readPages(db, '2026-11-08', [
+      strPage(13923, 'STR20260309'),
+      strPage(13924, 'STR20260310', {
+        locations: [{ label: null, value: '1234 Nonexistent Street, Anchorage', link: null }],
+      }),
+      businessPage(16427, 'Issued'),
+    ]);
+    await geocode(db, [
+      ECHO_RIDGE_GEOCODE,
+      {
+        address: '1234 Nonexistent Street, Anchorage',
+        geocodedDate: '2026-11-08',
+        matchedAddress: null,
+        lat: null,
+        lng: null,
+        communityCouncil: null,
+        score: null,
+        matchType: null,
+      },
+    ]);
+    await parcelTypes(db, [{ parcelId: '07606227000', readDate: '2026-11-08', inLayer: true, propertyType: 'RESIDENTIAL' }]);
+
+    const rows = await db.rows(
+      'SELECT cityview_license_id, address, parcel_id, geocoded_address, geocoded_lat, community_council, parcel_type ' +
+        'FROM licenses ORDER BY 1',
+    );
+
+    expect(rows).toEqual([
+      {
+        cityview_license_id: 13923,
+        address: '257 ECHO RIDGE DR, GIRDWOOD, AK 99587',
+        parcel_id: '07606227000',
+        geocoded_address: '257 Echo Ridge Dr, Girdwood, AK, 99587',
+        geocoded_lat: 60.951486,
+        community_council: 'Girdwood',
+        parcel_type: 'RESIDENTIAL',
+      },
+      {
+        cityview_license_id: 13924,
+        address: '1234 Nonexistent Street, Anchorage',
+        parcel_id: null,
+        geocoded_address: null,
+        geocoded_lat: null,
+        community_council: null,
+        parcel_type: null,
+      },
+      {
+        cityview_license_id: 16427,
+        address: null,
+        parcel_id: null,
+        geocoded_address: null,
+        geocoded_lat: null,
+        community_council: null,
+        parcel_type: null,
+      },
+    ]);
+  });
+});
+
 describe('registrations view', () => {
   it('has one row per STR Certificate number, on Short-Term Rentals licenses only', async () => {
     const db = await freshDb();
@@ -251,7 +335,7 @@ describe('registrations view', () => {
     ]);
   });
 
-  it('takes the layer fields from the archive, and NULL for a registration it never held', async () => {
+  it('falls back to the archive without a geocode, and is NULL for a registration it never held', async () => {
     const db = await freshDb();
     await archive(db, '2026-09-10', [archived('STR20260309', 13923, { communityCouncil: 'Turnagain Arm' })]);
     await archive(db, '2026-09-11', [archived('STR20260309', 13923)]);
@@ -267,7 +351,8 @@ describe('registrations view', () => {
         registration_id: 'STR20260309',
         submitted_date: '2026-05-01',
         community_council: 'Girdwood',
-        parcel_type: 'Residential',
+        // The layer's ParcelType is a different classification, so it is not used.
+        parcel_type: null,
         geocoded_lat: 60.96,
         first_seen_date: '2026-11-08',
       },
@@ -278,6 +363,70 @@ describe('registrations view', () => {
         parcel_type: null,
         geocoded_lat: null,
         first_seen_date: '2026-11-08',
+      },
+    ]);
+  });
+
+  it("prefers the license's geocode and parcel type to the archive's", async () => {
+    const db = await freshDb();
+    await archive(db, '2026-09-11', [
+      archived('STR20260309', 13923, { communityCouncil: 'Turnagain Arm', geocodedLat: 60.96 }),
+      archived('STR20260310', 13924, {
+        registeredAddress: '311 MELODY PL',
+        geocodedAddress: 'Incomplete address provided. No Match.',
+        geocodedLat: 61.153442,
+        geocodedLng: -150.20935,
+        communityCouncil: null,
+      }),
+    ]);
+    await readPages(db, '2026-11-08', [
+      strPage(13923, 'STR20260309'),
+      strPage(13924, 'STR20260310', {
+        locations: [
+          { label: 'Property', value: '00606148000', link: null },
+          { label: 'Address', value: '311 MELODY PL', link: null },
+        ],
+      }),
+    ]);
+    await geocode(db, [
+      ECHO_RIDGE_GEOCODE,
+      {
+        address: '311 MELODY PL',
+        geocodedDate: '2026-11-08',
+        matchedAddress: '311 Melody Pl, Anchorage, AK, 99504',
+        lat: 61.220231,
+        lng: -149.739024,
+        communityCouncil: 'Northeast',
+        score: 100,
+        matchType: 'PointAddress',
+      },
+    ]);
+    await parcelTypes(db, [
+      { parcelId: '07606227000', readDate: '2026-11-08', inLayer: true, propertyType: 'RESIDENTIAL' },
+      { parcelId: '00606148000', readDate: '2026-11-08', inLayer: true, propertyType: 'CONDO' },
+    ]);
+
+    const rows = await db.rows(
+      'SELECT registration_id, geocoded_address, geocoded_lat, geocoded_lng, community_council, parcel_type ' +
+        'FROM registrations ORDER BY 1',
+    );
+
+    expect(rows).toEqual([
+      {
+        registration_id: 'STR20260309',
+        geocoded_address: '257 Echo Ridge Dr, Girdwood, AK, 99587',
+        geocoded_lat: 60.951486,
+        geocoded_lng: -149.120567,
+        community_council: 'Girdwood',
+        parcel_type: 'RESIDENTIAL',
+      },
+      {
+        registration_id: 'STR20260310',
+        geocoded_address: '311 Melody Pl, Anchorage, AK, 99504',
+        geocoded_lat: 61.220231,
+        geocoded_lng: -149.739024,
+        community_council: 'Northeast',
+        parcel_type: 'CONDO',
       },
     ]);
   });

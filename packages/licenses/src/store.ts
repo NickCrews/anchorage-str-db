@@ -4,11 +4,17 @@
  */
 
 import type { Database } from '@anchorage-str-db/db/database';
-import { muniLicenseHiddenReads, muniLicensePageReads, muniLicenseRuns } from '@anchorage-str-db/db/schema';
+import {
+  muniAddressGeocodes,
+  muniLicenseHiddenReads,
+  muniLicensePageReads,
+  muniLicenseRuns,
+  muniParcelTypes,
+} from '@anchorage-str-db/db/schema';
 import type { HiddenLicensePage, LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
-import type { LatestRead } from './select.ts';
+import { SHORT_TERM_RENTALS, type LatestRead } from './select.ts';
 
 /** Each id's latest read, visible or hidden. */
 export async function latestReads(db: Database): Promise<LatestRead[]> {
@@ -129,4 +135,70 @@ export type LicenseRunRow = Required<typeof muniLicenseRuns.$inferInsert>;
 
 export async function logLicenseRun(db: Database, run: LicenseRunRow): Promise<void> {
   await db.orm.insert(muniLicenseRuns).values(run);
+}
+
+/**
+ * Addresses of licenses in `licenses` to send to the geocoder, at most `max`:
+ * those never sent, then those last sent on or before `retryMissesBy`
+ * without a match. A match is never asked about again. Within each, a
+ * Short-Term Rentals license's address comes first, then the newest license.
+ */
+export async function addressesToGeocode(db: Database, retryMissesBy: IsoDate, max: number): Promise<string[]> {
+  const rows = await db.rows<{ address: string }>(
+    'SELECT l.address FROM licenses l LEFT JOIN muni_address_geocodes g USING (address) ' +
+      'WHERE l.address IS NOT NULL AND (g.address IS NULL OR ' +
+      '(g.matched_address IS NULL AND g.geocoded_date <= CAST(? AS DATE))) ' +
+      'GROUP BY l.address ' +
+      'ORDER BY bool_or(g.address IS NULL) DESC, bool_or(l.license_type = ?) DESC, ' +
+      'max(l.cityview_license_id) DESC, l.address LIMIT ?',
+    [retryMissesBy, SHORT_TERM_RENTALS, max],
+  );
+  return rows.map((row) => row.address);
+}
+
+/**
+ * Parcel ids on licenses in `licenses` (every location labelled `Property`)
+ * to read the `Property_Type` of, at most `max`: those never read, then those
+ * last read on or before `refreshBy`, oldest first.
+ */
+export async function parcelIdsToRead(db: Database, refreshBy: IsoDate, max: number): Promise<string[]> {
+  const rows = await db.rows<{ parcel_id: string }>(
+    'SELECT p.parcel_id FROM (' +
+      "SELECT DISTINCT unnest([l.value FOR l IN locations IF l.label = 'Property']) AS parcel_id FROM licenses" +
+      ') p LEFT JOIN muni_parcel_types t USING (parcel_id) ' +
+      'WHERE p.parcel_id IS NOT NULL AND (t.parcel_id IS NULL OR t.read_date <= CAST(? AS DATE)) ' +
+      'ORDER BY t.read_date NULLS FIRST, p.parcel_id LIMIT ?',
+    [refreshBy, max],
+  );
+  return rows.map((row) => row.parcel_id);
+}
+
+export type AddressGeocodeRow = typeof muniAddressGeocodes.$inferInsert;
+export type ParcelTypeRow = typeof muniParcelTypes.$inferInsert;
+
+/**
+ * Store geocodes and parcel types. A row replaces any earlier row for the
+ * same address or parcel id.
+ */
+export async function recordGisReads(
+  db: Database,
+  geocodes: readonly AddressGeocodeRow[],
+  parcelTypes: readonly ParcelTypeRow[],
+): Promise<void> {
+  const replace = async <T extends typeof muniAddressGeocodes | typeof muniParcelTypes>(
+    table: T,
+    name: string,
+    key: string,
+    rows: readonly T['$inferInsert'][],
+  ): Promise<void> => {
+    if (!rows.length) return;
+    const staging = `stg_${name}`;
+    await db.run(`CREATE OR REPLACE TEMP TABLE ${staging} AS SELECT * FROM ${name} LIMIT 0`);
+    await db.appendRows(table, rows, { into: staging });
+    await db.run(`DELETE FROM ${name} WHERE ${key} IN (SELECT ${key} FROM ${staging})`);
+    await db.run(`INSERT INTO ${name} SELECT * FROM ${staging}`);
+    await db.run(`DROP TABLE ${staging}`);
+  };
+  await replace(muniAddressGeocodes, 'muni_address_geocodes', 'address', geocodes);
+  await replace(muniParcelTypes, 'muni_parcel_types', 'parcel_id', parcelTypes);
 }
