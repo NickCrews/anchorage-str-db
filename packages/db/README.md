@@ -6,7 +6,8 @@ The DuckDB database, and the only package that uses DuckDB directly.
 - `views.ts`: the views, as DuckDB SQL, and `RETIREMENT_GRACE_DAYS`.
   `licenses` is each visible license's latest page read; `registrations` is
   one row per STR Certificate number on a Short-Term Rentals license, with
-  the geocoded fields from the archived registration layer
+  the license's geocode and parcel type, falling back to the archived
+  registration layer's geocode
 - `connect.ts`: `connect(path)`, which applies the migrations, checks the
   tables and recreates the views
 - `database.ts`: `Database`, a wrapper over one connection with raw SQL,

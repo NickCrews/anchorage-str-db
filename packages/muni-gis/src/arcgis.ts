@@ -1,8 +1,8 @@
 /**
- * ArcGIS FeatureServer layer queries.
+ * ArcGIS REST queries: FeatureServer layers, and the JSON fetcher every
+ * client in this package uses.
  *
- * A query returns at most the layer's `maxRecordCount` features (2000 for
- * the registration layers), so `fetchLayer` pages with `resultOffset` in
+ * A query returns at most the layer's `maxRecordCount` features, so `fetchLayer` pages with `resultOffset` in
  * `OBJECTID` order until the server stops reporting `exceededTransferLimit`,
  * then compares the total against the server's own count. ArcGIS reports
  * most failures as HTTP 200 with an `error` body, which `getJson` turns into
@@ -10,13 +10,16 @@
  */
 
 import { fetchText } from '@anchorage-str-db/utils/http';
-import type { Pacer } from '@anchorage-str-db/utils/pace';
+import { Pacer } from '@anchorage-str-db/utils/pace';
 import { withRetries } from '@anchorage-str-db/utils/retry';
 
 export interface ArcgisFeature {
   attributes: Record<string, unknown>;
-  /** `{x, y}` in the requested `outSR` for a point layer; absent when not requested. */
-  geometry?: { x?: number | null; y?: number | null } | null;
+  /**
+   * In the requested `outSR`: `{x, y}` for a point layer, `{rings}` for a
+   * polygon layer (each ring `[x, y]` pairs). Absent when not requested.
+   */
+  geometry?: { x?: number | null; y?: number | null; rings?: [number, number][][] } | null;
 }
 
 export interface LayerQueryResult {
@@ -60,6 +63,19 @@ export function liveJsonFetcher(options: LiveJsonFetcherOptions): FetchJson {
         pacer: options.pacer,
       },
     );
+}
+
+/** The Muni's ArcGIS Online services: community councils, property information. */
+export const MUNI_ARCGIS_SERVICES = 'https://services2.arcgis.com/Ce3DhLRthdwbHlfF/arcgis/rest/services';
+
+/**
+ * Real requests to `MUNI_ARCGIS_SERVICES`, at 2 a second with one `Pacer`
+ * per fetcher. ArcGIS Online answers a layer query in well under a second.
+ */
+export function liveMuniArcgisFetcher(
+  pacer = new Pacer({ rate: 2, service: "the Muni's ArcGIS Online services" }),
+): FetchJson {
+  return liveJsonFetcher({ pacer, timeoutMs: 60_000, attempts: 3, backoffMs: 1000 });
 }
 
 export interface FetchLayerOptions {

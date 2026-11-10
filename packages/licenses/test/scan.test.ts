@@ -6,8 +6,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { connect } from '@anchorage-str-db/db/connect';
 import type { Database } from '@anchorage-str-db/db/database';
+import type { CouncilPolygon } from '@anchorage-str-db/muni-gis/councils';
+import type { GeocodeCandidate } from '@anchorage-str-db/muni-gis/geocoder';
 import type { HiddenLicensePage, LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
 
+import type { GisClients } from '../src/geocode.ts';
 import { runScan } from '../src/scan.ts';
 import { latestReads, recordLicenseReads } from '../src/store.ts';
 
@@ -56,6 +59,37 @@ function licensePage(cityviewLicenseId: number, overrides: Partial<LicensePage> 
 }
 
 const hiddenPage = (cityviewLicenseId: number): HiddenLicensePage => ({ hidden: true, cityviewLicenseId });
+
+/** One council over all of Anchorage, and a square of sea west of it that no council covers. */
+const COUNCILS: CouncilPolygon[] = [
+  { council: 'Downtown', rings: [[[-150, 60], [-150, 62], [-149, 62], [-149, 60], [-150, 60]]] },
+];
+
+/**
+ * Offline GIS: an address with 'nowhere' in it has no candidate, one with
+ * 'street' only a street, 'sea' is placed outside every council, and one
+ * containing `failing` fails. Every parcel is RESIDENTIAL.
+ */
+function fakeGis(asked: string[] = [], failing = 'boom'): GisClients {
+  return {
+    fetchCouncils: async () => COUNCILS,
+    geocodeOne: async (address): Promise<GeocodeCandidate | null> => {
+      asked.push(address);
+      if (address.includes(failing)) throw new Error('HTTP 500');
+      if (address.includes('nowhere')) return null;
+      return {
+        matchedAddress: address.toUpperCase(),
+        lat: 61.2,
+        lng: address.includes('sea') ? -151 : -149.9,
+        score: 100,
+        matchType: address.includes('street') ? 'StreetName' : 'PointAddress',
+      };
+    },
+    fetchPropertyTypes: async (ids) => ids.map((parcelId) => ({ parcelId, found: true, propertyType: 'RESIDENTIAL' })),
+  };
+}
+
+const at = (address: string) => [{ label: 'Address', value: address, link: null }];
 
 describe('recordLicenseReads', () => {
   it('stores visible pages with their submittals, and hidden ids', async () => {
@@ -157,9 +191,17 @@ describe('runScan', () => {
       maxReads: 4,
       fetchNewest: async () => 6,
       fetchOne,
+      gis: fakeGis(),
     });
     // The second scan picks up below the first, then retries the failed id.
-    await runScan({ dbPath: path, scrapeDate: '2026-11-11', maxReads: 4, fetchNewest: async () => 6, fetchOne });
+    await runScan({
+      dbPath: path,
+      scrapeDate: '2026-11-11',
+      maxReads: 4,
+      fetchNewest: async () => 6,
+      fetchOne,
+      gis: fakeGis(),
+    });
 
     const db = await opened(path);
     expect(await db.rows(
@@ -201,6 +243,7 @@ describe('runScan', () => {
         if (id > 3) throw new Error('timed out');
         return licensePage(id);
       },
+      gis: fakeGis(),
     });
     expect(ok).toBe(false);
   });
@@ -215,6 +258,7 @@ describe('runScan', () => {
           throw new Error('the License Locator is down');
         },
         fetchOne,
+        gis: fakeGis(),
       }),
     ).rejects.toThrow(/License Locator is down/);
 
@@ -231,7 +275,110 @@ describe('runScan', () => {
       scrapeDate: '2026-11-10',
       fetchNewest: async () => 4,
       fetchOne: async (id) => (id % 2 === 0 ? licensePage(id) : hiddenPage(id)),
+      gis: fakeGis(),
     });
     expect(ok).toBe(true);
+  });
+});
+
+describe('the geocoding pass', () => {
+  /** Ids 1..6, each at its own address; 6 is a private detective license with none. */
+  const pages: Record<number, LicensePage> = {
+    1: licensePage(1, { locations: at('1 nowhere st') }),
+    2: licensePage(2, { locations: at('2 street only') }),
+    3: licensePage(3, { locations: at('3 boom ave') }),
+    4: licensePage(4, { locations: [{ label: 'Property', value: '00606148000', link: null }, ...at('4 sea view')] }),
+    5: licensePage(5, { licenseType: 'Alcohol', locations: at('5 W 4th Ave') }),
+    6: licensePage(6, { licenseType: 'Business', locations: [] }),
+  };
+  const scan = (path: string, scrapeDate: string, gis: GisClients) =>
+    runScan({
+      dbPath: path,
+      scrapeDate,
+      fetchNewest: async () => 6,
+      fetchOne: async (id) => pages[id]!,
+      gis,
+    });
+
+  it("geocodes every license's address once, keeping misses, and reads its parcels' types", async () => {
+    const path = await freshPath();
+    const asked: string[] = [];
+    const ok = await scan(path, '2026-11-10', fakeGis(asked));
+    // The next day asks only about the address whose request failed, and it answers.
+    const askedNextDay: string[] = [];
+    await scan(path, '2026-11-11', fakeGis(askedNextDay, 'no failures'));
+
+    const db = await opened(path);
+    expect(asked.sort()).toEqual(['1 nowhere st', '2 street only', '3 boom ave', '4 sea view', '5 W 4th Ave']);
+    expect(askedNextDay).toEqual(['3 boom ave']);
+    expect(
+      await db.rows(
+        'SELECT address, geocoded_date, matched_address, community_council, score, match_type ' +
+          'FROM muni_address_geocodes ORDER BY address',
+      ),
+    ).toEqual([
+      { address: '1 nowhere st', geocoded_date: '2026-11-10', matched_address: null, community_council: null, score: null, match_type: null },
+      // The street alone is a candidate, not a match.
+      { address: '2 street only', geocoded_date: '2026-11-10', matched_address: null, community_council: null, score: 100, match_type: 'StreetName' },
+      { address: '3 boom ave', geocoded_date: '2026-11-11', matched_address: '3 BOOM AVE', community_council: 'Downtown', score: 100, match_type: 'PointAddress' },
+      { address: '4 sea view', geocoded_date: '2026-11-10', matched_address: '4 SEA VIEW', community_council: null, score: 100, match_type: 'PointAddress' },
+      { address: '5 W 4th Ave', geocoded_date: '2026-11-10', matched_address: '5 W 4TH AVE', community_council: 'Downtown', score: 100, match_type: 'PointAddress' },
+    ]);
+    expect(await db.rows('SELECT parcel_id, read_date, in_layer, property_type FROM muni_parcel_types')).toEqual([
+      { parcel_id: '00606148000', read_date: '2026-11-10', in_layer: true, property_type: 'RESIDENTIAL' },
+    ]);
+    expect(await db.rows('SELECT cityview_license_id, geocoded_lng, community_council, parcel_type FROM licenses ORDER BY 1')).toEqual([
+      { cityview_license_id: 1, geocoded_lng: null, community_council: null, parcel_type: null },
+      { cityview_license_id: 2, geocoded_lng: null, community_council: null, parcel_type: null },
+      { cityview_license_id: 3, geocoded_lng: -149.9, community_council: 'Downtown', parcel_type: null },
+      { cityview_license_id: 4, geocoded_lng: -151, community_council: null, parcel_type: 'RESIDENTIAL' },
+      { cityview_license_id: 5, geocoded_lng: -149.9, community_council: 'Downtown', parcel_type: null },
+      { cityview_license_id: 6, geocoded_lng: null, community_council: null, parcel_type: null },
+    ]);
+    // 1 of 5 geocodes and 0 of 1 parcel reads failed; the match rate is a warning.
+    expect(ok).toBe(true);
+  });
+
+  it('asks about a miss again after 90 days, and re-reads parcel types after 90 days', async () => {
+    const path = await freshPath();
+    await scan(path, '2026-11-10', fakeGis());
+    const asked: string[] = [];
+    await scan(path, '2027-02-08', fakeGis(asked));
+
+    const db = await opened(path);
+    // 3 fails every time, so it is asked about every scan.
+    expect(asked.sort()).toEqual(['1 nowhere st', '2 street only', '3 boom ave']);
+    expect(await db.value('SELECT read_date FROM muni_parcel_types')).toBe('2027-02-08');
+  });
+
+  it('caps the addresses per scan, Short-Term Rentals licenses first', async () => {
+    const path = await freshPath();
+    const asked: string[] = [];
+    await runScan({
+      dbPath: path,
+      scrapeDate: '2026-11-10',
+      fetchNewest: async () => 6,
+      fetchOne: async (id) => pages[id]!,
+      gis: fakeGis(asked),
+      maxGeocodes: 4,
+    });
+
+    expect(asked).not.toContain('5 W 4th Ave');
+    expect(asked).toHaveLength(4);
+  });
+
+  it('keeps the page reads when it fails, and warns', async () => {
+    const path = await freshPath();
+    const ok = await scan(path, '2026-11-10', {
+      ...fakeGis(),
+      fetchCouncils: async () => {
+        throw new Error('ArcGIS is down');
+      },
+    });
+
+    const db = await opened(path);
+    expect(ok).toBe(true);
+    expect(await db.count('SELECT count(*) FROM licenses')).toBe(6);
+    expect(await db.count('SELECT count(*) FROM muni_address_geocodes')).toBe(0);
   });
 });

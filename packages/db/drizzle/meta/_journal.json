@@ -36,6 +36,13 @@
       "when": 1794296051459,
       "tag": "0004_license_scan",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794297829058,
+      "tag": "0005_muni_gis",
+      "breakpoints": true
     }
   ]
 }

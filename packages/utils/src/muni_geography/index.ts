@@ -86,13 +86,13 @@ export function boundingBox(collection: PolygonCollection): BoundingBox {
 export const MUNICIPALITY_BOUNDING_BOX: BoundingBox = boundingBox(MUNICIPALITY_BOUNDARY);
 
 /**
- * Whether a coordinate lies inside the boundary, by even-odd ray casting over
+ * Whether a coordinate lies inside `rings`, by even-odd ray casting over
  * every ring, so a polygon's holes count as outside. Coordinates are treated
- * as planar, as GeoJSON edges are.
+ * as planar, as GeoJSON and ArcGIS edges are.
  */
-export function inMunicipality(lat: number, lng: number): boolean {
+export function inRings(rings: readonly Ring[], lat: number, lng: number): boolean {
   let inside = false;
-  for (const ring of MUNICIPALITY_RINGS) {
+  for (const ring of rings) {
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
       const [xi, yi] = ring[i]!;
       const [xj, yj] = ring[j]!;
@@ -102,4 +102,9 @@ export function inMunicipality(lat: number, lng: number): boolean {
     }
   }
   return inside;
+}
+
+/** Whether a coordinate lies inside the boundary (`inRings`). */
+export function inMunicipality(lat: number, lng: number): boolean {
+  return inRings(MUNICIPALITY_RINGS, lat, lng);
 }
