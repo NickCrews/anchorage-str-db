@@ -48,7 +48,8 @@
  *   registration layer and then a batch of license pages.
  *
  * The layer answers only with a token, so these two tables are an archive
- * that nothing writes.
+ * that nothing writes. `registrations` takes the layer's geocoded fields from
+ * it.
  *
  * - `muni_license_page_reads`: one row per visible CityView license page
  *   read, of any license type. Pages are read on a rolling schedule, not

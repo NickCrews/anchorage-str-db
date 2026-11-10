@@ -76,7 +76,7 @@ const RENTALS_QUERY = `
     business_name AS name,
     '${NOT_ON_AIRBNB}' AS registration_status,
     registration_id AS registration_id,
-    location AS registration_address,
+    registered_address AS registration_address,
     'License address' AS location_source,
     true AS is_precise,
     ST_AsWKB(ST_Point(geocoded_lng, geocoded_lat)) AS geometry

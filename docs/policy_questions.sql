@@ -209,8 +209,8 @@ ORDER BY
 
 -- ============================================================
 -- Q: Which listings show a registration id the Muni hasn't published?
--- Either a typo, a lapsed registration, or one issued since the Muni's last
--- publish (registrations.published_at).
+-- Either a typo, a license whose page is hidden, or a number issued since the
+-- last license scan (latest_registry_date).
 -- ============================================================
 SELECT
     listing_id,
@@ -233,7 +233,7 @@ ORDER BY
 SELECT
     registration_id,
     business_name,
-    location,
+    registered_address,
     airbnb_listings_active
 FROM
     registrations_active
@@ -279,7 +279,7 @@ ORDER BY
 -- exemption? Joins on the license's parcel id, so no spatial match is needed.
 -- ============================================================
 -- ATTACH 'https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage-current.duckdb' AS parcels (READ_ONLY);
--- SELECT r.registration_id, r.business_name, r.location, p.owner_name,
+-- SELECT r.registration_id, r.business_name, r.registered_address, p.owner_name,
 --        r.airbnb_listings_active
 -- FROM registrations_active r
 -- JOIN parcels.parcels_current p ON p.parcel_id = r.parcel_id
