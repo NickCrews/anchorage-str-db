@@ -11,6 +11,7 @@ third-party library belongs in the package that uses it.
 | --- | --- |
 | `dates` | ISO `YYYY-MM-DD` dates, the representation used throughout |
 | `log` | leveled logging to stderr; `describeError` and `rootCause` for run logs |
+| `checks` | `CheckResult` and `report`: the data-quality checks a run ends with, logged, and whether any error-severity one failed |
 | `concurrency` | `mapWithConcurrency`: one job per item, at most N at a time |
 | `pace` | `TokenBucket` and `Pacer`: a request rate per remote service, halved after a streak of timeouts |
 | `retry` | `withRetries`: the paced attempt loop, given the service's pacer and what counts as its rate limit |

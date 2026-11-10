@@ -1,0 +1,120 @@
+name: Muni license scan
+
+on:
+  schedule:
+    # 08:00 UTC = 00:00 AKDT / 23:00 AKST, well before the daily scrape at 12:00.
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+    inputs:
+      start_fresh:
+        description: Start a new, empty archive if latest-data has no database.
+        type: boolean
+        default: false
+
+# Never let two runs write to the database at once, including daily.yml.
+concurrency:
+  group: db-write
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    # A scan reads at most 3000 pages at about 2 a second: about 25 minutes,
+    # longer when the portal slows and the pacer backs off.
+    timeout-minutes: 90
+    permissions:
+      contents: write # to upload the updated database as a release asset
+      issues: write # to open an issue when a scan fails
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DB_PATH: data/anchorage_str.duckdb
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Node runs the TypeScript sources directly and ignores types, so check
+      # them here. `...` includes the workspace packages the scan imports.
+      - run: pnpm --filter "@anchorage-str-db/licenses..." typecheck
+
+      # The runner starts clean, so restore the database from the release. A
+      # missing database fails the scan unless `start_fresh` is set.
+      - name: Restore previous database
+        env:
+          START_FRESH: ${{ inputs.start_fresh }}
+        run: |
+          mkdir -p data
+          asset=$(basename "$DB_PATH")
+          # "release not found" means empty; any other error is an outage.
+          if ! names=$(gh release view latest-data --repo "$GITHUB_REPOSITORY" \
+                         --json assets --jq '.assets[].name' 2>&1); then
+            if [[ "$names" == *"release not found"* ]]; then
+              names=""
+            else
+              echo "::error::could not list the latest-data release: $names"
+              exit 1
+            fi
+          fi
+          if grep -qxF "$asset" <<< "$names"; then
+            gh release download latest-data --repo "$GITHUB_REPOSITORY" \
+              --pattern "$asset" --output "$DB_PATH"
+            echo "restored previous database"
+          elif [ "$START_FRESH" = "true" ]; then
+            echo "no $asset on latest-data; starting a new archive (start_fresh)"
+          else
+            echo "::error::latest-data has no $asset. To start a new archive, run with start_fresh=true."
+            exit 1
+          fi
+
+      - name: Scan license pages + quality gate
+        run: node packages/licenses/src/cli.ts --db "$DB_PATH" --verbose scan
+
+      # Reached only if the quality checks passed.
+      - name: Publish updated database
+        run: |
+          tag=latest-data
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" \
+              --title "Latest data" \
+              --notes "The most recent successful run, replaced on every run. See airbnb_scrape_runs and muni_license_runs in the database for run history."
+          fi
+
+      - name: Close the outage issue
+        continue-on-error: true
+        run: |
+          for n in $(gh issue list --repo "$GITHUB_REPOSITORY" --label licenses-down \
+                       --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --repo "$GITHUB_REPOSITORY" --comment "Recovered: $RUN_URL"
+          done
+
+      # A failed workflow run alone notifies no one.
+      - name: Open an issue on failure
+        if: failure() || cancelled()
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          gh label create licenses-down --repo "$GITHUB_REPOSITORY" --color B60205 \
+            --description "The license scan is failing" 2>/dev/null || true
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label licenses-down \
+                   --state open --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" \
+              --body "Failed again on $(date -u +%Y-%m-%d): $RUN_URL"
+            exit 0
+          fi
+          gh issue create --repo "$GITHUB_REPOSITORY" --label licenses-down \
+            --title "License scan is failing" --body-file - <<EOF
+          @$OWNER the license scan failed on $(date -u +%Y-%m-%d): $RUN_URL
+
+          The next successful scan closes this issue. See "CI" in CONTRIBUTING.md.
+          EOF

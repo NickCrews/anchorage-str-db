@@ -42,6 +42,7 @@ describe('appendRows', () => {
             number: 'STR20260309',
           },
         ],
+        submittals: [{ name: '1 Private Detective 10/13/2026', type: 'Private Detective', date: '2026-10-13', status: 'Pending' }],
       },
     ]);
 
@@ -64,6 +65,7 @@ describe('appendRows', () => {
             number: 'STR20260309',
           },
         ],
+        submittals: [{ name: '1 Private Detective 10/13/2026', type: 'Private Detective', date: '2026-10-13', status: 'Pending' }],
       },
     ]);
   });

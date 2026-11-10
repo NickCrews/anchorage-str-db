@@ -44,14 +44,20 @@
  *   (registration, registry run) from the Clerk's ArcGIS layer. The layer
  *   lists only active registrations, so a registration's absence from a run
  *   is the only record that it lapsed.
- * - `muni_license_page_reads`: one row per CityView license page read. Pages
- *   are read on a rolling schedule, not every run.
- * - `muni_str_registry_runs`: one row per registry run, which reads the
+ * - `muni_str_registry_runs`: one row per registry run, which read the
  *   registration layer and then a batch of license pages.
  *
- * Registrations are stored as a daily snapshot rather than change-only:
- * ~2500 rows compress to ~50 KB a day, and a snapshot per run gives exact
- * first- and last-seen dates without interval logic.
+ * The layer answers only with a token, so these two tables are an archive
+ * that nothing writes.
+ *
+ * - `muni_license_page_reads`: one row per visible CityView license page
+ *   read, of any license type. Pages are read on a rolling schedule, not
+ *   every run.
+ * - `muni_license_hidden_reads`: one row per read of a hidden license id.
+ * - `muni_license_runs`: one row per license scan.
+ *
+ * Together the two read tables are the scan's state: which ids have been
+ * read, when, and what they were.
  *
  * Column order is the physical order: `appendRows` writes values in the
  * order the columns are declared here, and `connect` rejects a database
@@ -299,6 +305,13 @@ export interface LicenseIssuance {
   number: string | null;
 }
 
+export interface LicenseSubmittal {
+  name: string | null;
+  type: string | null;
+  date: string | null;
+  status: string | null;
+}
+
 /** A failed read writes no row. Text is as the page shows it. */
 export const muniLicensePageReads = pgTable(
   'muni_license_page_reads',
@@ -326,11 +339,52 @@ export const muniLicensePageReads = pgTable(
       'issuances',
       'STRUCT(type VARCHAR, issued_date DATE, expires_date DATE, status VARCHAR, number VARCHAR)[]',
     ).notNull(),
+    // In page order; an empty list when the page says there are none. NULL on
+    // the reads made by the registry run, which did not store them.
+    submittals: structList<LicenseSubmittal>(
+      'submittals',
+      'STRUCT(name VARCHAR, type VARCHAR, date DATE, status VARCHAR)[]',
+    ),
   },
   (t) => [primaryKey({ columns: [t.cityviewLicenseId, t.scrapeDate] })],
 );
 
-/** Counts are NULL on a failed run, which wrote nothing else. */
+/**
+ * A read of a hidden license id: the portal's "Invalid License" page, which
+ * shows nothing about the license. A failed read writes no row.
+ */
+export const muniLicenseHiddenReads = pgTable(
+  'muni_license_hidden_reads',
+  {
+    cityviewLicenseId: integer('cityview_license_id').notNull(),
+    scrapeDate: day('scrape_date').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.cityviewLicenseId, t.scrapeDate] })],
+);
+
+/** Counts are NULL on a failed scan, which wrote nothing else. */
+export const muniLicenseRuns = pgTable('muni_license_runs', {
+  scrapeDate: day('scrape_date').notNull(),
+  runStartedAt: naiveTimestamp('run_started_at').notNull(),
+  runFinishedAt: naiveTimestamp('run_finished_at'),
+  // The highest id on the License Locator's first page: the newest visible license.
+  newestCityviewLicenseId: integer('newest_cityview_license_id'),
+  // Ids whose page the scan tried to read; the next three add up to it.
+  pagesAttempted: integer('pages_attempted'),
+  // Visible pages read, stored in muni_license_page_reads.
+  pagesRead: integer('pages_read'),
+  // Hidden license ids read, stored in muni_license_hidden_reads.
+  hiddenRead: integer('hidden_read'),
+  pagesFailed: integer('pages_failed'),
+  // Visible pages of licenses with no visible read before this scrape date.
+  licensesNew: integer('licenses_new'),
+  // Visible pages whose page or issuance statuses differ from the license's
+  // previous visible read.
+  licensesStatusChanged: integer('licenses_status_changed'),
+  errorSummary: varchar('error_summary'),
+});
+
+/** Counts are NULL on a failed run, which wrote nothing else. Not written. */
 export const muniStrRegistryRuns = pgTable('muni_str_registry_runs', {
   scrapeDate: day('scrape_date').notNull(),
   runStartedAt: naiveTimestamp('run_started_at').notNull(),

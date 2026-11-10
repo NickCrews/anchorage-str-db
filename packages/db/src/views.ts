@@ -21,13 +21,18 @@
  * migration.
  */
 
-import { NO_MATCH_GEOCODED_ADDRESS } from '@anchorage-str-db/scraper-muni-str/registrationLayers';
-
 /**
  * Days a listing may be absent from search before `listings.is_active` goes
  * false. Search occasionally omits a listing for a day.
  */
 export const RETIREMENT_GRACE_DAYS = 5;
+
+/**
+ * The registration layer's `GeocodedAddress` for an address the Muni's
+ * geocoder could not match, which comes with a placeholder coordinate
+ * (-150.20935, 61.153442).
+ */
+export const NO_MATCH_GEOCODED_ADDRESS = 'Incomplete address provided. No Match.';
 
 /**
  * The start date one `timeAsHost` reading implies. Airbnb reports whole

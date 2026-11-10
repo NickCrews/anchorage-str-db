@@ -14,9 +14,6 @@ importers:
 
   packages/db:
     dependencies:
-      '@anchorage-str-db/scraper-muni-str':
-        specifier: workspace:*
-        version: link:../scraper-muni-str
       '@anchorage-str-db/utils':
         specifier: workspace:*
         version: link:../utils
@@ -36,6 +33,28 @@ importers:
       drizzle-kit:
         specifier: 0.31.10
         version: 0.31.10
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.11
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.13.4)(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
+
+  packages/licenses:
+    dependencies:
+      '@anchorage-str-db/db':
+        specifier: workspace:*
+        version: link:../db
+      '@anchorage-str-db/muni-licenses':
+        specifier: workspace:*
+        version: link:../muni-licenses
+      '@anchorage-str-db/utils':
+        specifier: workspace:*
+        version: link:../utils
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.4
       typescript:
         specifier: 5.9.2
         version: 5.9.2
@@ -67,15 +86,9 @@ importers:
       '@anchorage-str-db/db':
         specifier: workspace:*
         version: link:../db
-      '@anchorage-str-db/muni-licenses':
-        specifier: workspace:*
-        version: link:../muni-licenses
       '@anchorage-str-db/scraper-airbnb':
         specifier: workspace:*
         version: link:../scraper-airbnb
-      '@anchorage-str-db/scraper-muni-str':
-        specifier: workspace:*
-        version: link:../scraper-muni-str
       '@anchorage-str-db/utils':
         specifier: workspace:*
         version: link:../utils
