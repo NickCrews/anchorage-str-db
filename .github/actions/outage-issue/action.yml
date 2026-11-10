@@ -1,0 +1,61 @@
+name: Outage issue
+description: >-
+  Open (or comment on) an issue labelled `label` when a workflow fails, or
+  close the open ones when it succeeds. A failed workflow run alone notifies
+  no one.
+inputs:
+  action:
+    description: "`open` after a failure, `close` after a success."
+    required: true
+  label:
+    description: The label that marks this workflow's outage issue, e.g. pipeline-down.
+    required: true
+  description:
+    description: The label's description, e.g. "The daily scrape is failing".
+    required: true
+  docs:
+    description: Where the issue body points for help, e.g. "How CI runs this" in CONTRIBUTING.md.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ACTION: ${{ inputs.action }}
+        LABEL: ${{ inputs.label }}
+        DESCRIPTION: ${{ inputs.description }}
+        DOCS: ${{ inputs.docs }}
+        OWNER: ${{ github.repository_owner }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        today=$(date -u +%Y-%m-%d)
+        case "$ACTION" in
+          close)
+            for n in $(gh issue list --repo "$GITHUB_REPOSITORY" --label "$LABEL" \
+                         --state open --json number --jq '.[].number'); do
+              gh issue close "$n" --repo "$GITHUB_REPOSITORY" --comment "Recovered: $RUN_URL"
+            done
+            ;;
+          open)
+            gh label create "$LABEL" --repo "$GITHUB_REPOSITORY" --color B60205 \
+              --description "$DESCRIPTION" 2>/dev/null || true
+            open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label "$LABEL" \
+                     --state open --json number --jq '.[0].number // empty')
+            if [ -n "$open" ]; then
+              gh issue comment "$open" --repo "$GITHUB_REPOSITORY" \
+                --body "Failed again on $today: $RUN_URL"
+              exit 0
+            fi
+            gh issue create --repo "$GITHUB_REPOSITORY" --label "$LABEL" \
+              --title "$DESCRIPTION" --body-file - <<BODY
+        @$OWNER $GITHUB_WORKFLOW failed on $today: $RUN_URL
+
+        The next successful run closes this issue. See $DOCS.
+        BODY
+            ;;
+          *)
+            echo "::error::outage-issue action must be open or close, got: $ACTION"
+            exit 1
+            ;;
+        esac
