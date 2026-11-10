@@ -1,10 +1,13 @@
 /**
  * The license scan: find the newest license id, choose which ids to read
  * (`chooseLicenseIds`), read their CityView pages, write the reads to
- * DuckDB, and run the scan's checks.
+ * DuckDB, run the geocoding pass (`runGeocodePass`), and run the scan's
+ * checks.
  *
  * Like the daily run, it makes every request before writing, then writes in
- * one transaction.
+ * one transaction. The geocoding pass does the same on its own, after the
+ * page reads are written: it geocodes the addresses those reads hold, and a
+ * failure in it leaves them written.
  */
 
 import { connect } from '@anchorage-str-db/db/connect';
@@ -20,6 +23,7 @@ import { toSqlTimestamp, todayUtc, type IsoDate } from '@anchorage-str-db/utils/
 import { describeError, log } from '@anchorage-str-db/utils/log';
 
 import { runScanChecks } from './checks.ts';
+import { runGeocodePass, type GeocodePassStats, type GisClients } from './geocode.ts';
 import { chooseLicenseIds, MAX_READS_PER_SCAN } from './select.ts';
 import { latestReads, logLicenseRun, recordLicenseReads, type LicenseRunRow } from './store.ts';
 
@@ -32,6 +36,10 @@ export interface RunScanOptions {
   fetchNewest?: () => Promise<number>;
   /** One page read; the live portal by default. */
   fetchOne?: FetchOneLicensePage;
+  /** The Muni GIS services; the live ones by default. */
+  gis?: GisClients;
+  /** Addresses to geocode; `MAX_GEOCODES_PER_SCAN` by default. */
+  maxGeocodes?: number;
 }
 
 /** Resolves to true iff every error-severity check passed. */
@@ -81,7 +89,18 @@ export async function runScan(options: RunScanOptions): Promise<boolean> {
       log.info(`licenses: ${stats.licensesNew} new, ${stats.licensesStatusChanged} with a changed status`);
     });
 
-    const ok = report(await runScanChecks(db, scrapeDate, { pages }));
+    let geocoding: GeocodePassStats | { error: string };
+    try {
+      geocoding = await runGeocodePass(db, scrapeDate, {
+        ...options.gis,
+        ...(options.maxGeocodes === undefined ? {} : { maxGeocodes: options.maxGeocodes }),
+      });
+    } catch (err) {
+      log.error(`the geocoding pass failed: ${describeError(err)}`);
+      geocoding = { error: describeError(err) };
+    }
+
+    const ok = report(await runScanChecks(db, scrapeDate, { pages, geocoding }));
     log.info(`=== license scan ${scrapeDate}: ${ok ? 'PASSED' : 'FAILED'} ===`);
     return ok;
   } catch (err) {

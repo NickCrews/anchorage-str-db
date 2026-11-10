@@ -1,7 +1,7 @@
 # A source for the Muni's STR registrations after the registry layer went private
 
 Measured 2026-10-27 from the sandbox, anonymous requests. Concerns
-`packages/scraper-muni-str`.
+`packages/scraper-muni-str`, since renamed `packages/muni-gis`.
 
 **Summary:** The ArcGIS service `ShortTermRental_Registrations_Hosted` now
 answers `499 Token Required`: it was made private, not deleted, and no public
