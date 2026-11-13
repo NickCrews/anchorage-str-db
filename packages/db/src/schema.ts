@@ -4,9 +4,9 @@
  *
  * Each table name starts with its source: `airbnb_`, `muni_str_` for the
  * Municipal Clerk's STR registration layer, `muni_license_` for the Muni's
- * CityView license pages, and `muni_address_` and `muni_parcel_` for the
- * Muni's GIS services. Views are named for what they derive
- * (`listings`, `registrations`) and carry no prefix.
+ * CityView license pages, and `muni_address_` for the Muni's geocoder. Views
+ * are named for what they derive (`listings`, `registrations`) and carry no
+ * prefix.
  *
  * Airbnb:
  *
@@ -62,12 +62,8 @@
  * read, when, and what they were.
  *
  * - `muni_address_geocodes`: one row per license address the Muni's geocoder
- *   was asked about, with its community council.
- * - `muni_parcel_types`: one row per parcel id on a license, with its
- *   `Property_Type` from the Muni's property information layer.
- *
- * The license scan writes both after its page reads. `licenses` and
- * `registrations` join them on the address and the parcel id.
+ *   was asked about, with its community council. The license scan writes it
+ *   after its page reads, and `licenses` joins it on the address.
  *
  * Column order is the physical order: `appendRows` writes values in the
  * order the columns are declared here, and `connect` rejects a database
@@ -439,20 +435,4 @@ export const muniAddressGeocodes = pgTable('muni_address_geocodes', {
   // the street alone). NULL when it had no candidate.
   score: doublePrecision('score'),
   matchType: varchar('match_type'),
-});
-
-/**
- * One row per parcel id a license names, read from the Muni's
- * `PropertyInformation_Hosted` layer. Re-read after the license scan's refresh
- * interval; the next read replaces the row. A failed query writes no row.
- */
-export const muniParcelTypes = pgTable('muni_parcel_types', {
-  parcelId: varchar('parcel_id').primaryKey(),
-  // The scrape date of the license scan that read it.
-  readDate: day('read_date').notNull(),
-  // Whether the layer has a row for the parcel id.
-  inLayer: boolean('in_layer').notNull(),
-  // The layer's Property_Type, verbatim: 'RESIDENTIAL', 'CONDO',
-  // 'APARTMENT', 'COMMERCIAL', ... NULL when not in the layer or blank there.
-  propertyType: varchar('property_type'),
 });

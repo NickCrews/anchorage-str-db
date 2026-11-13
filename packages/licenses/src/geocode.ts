@@ -1,9 +1,8 @@
 /**
  * The geocoding pass: after a scan writes its page reads, geocode the
  * addresses of licenses in `licenses` that have no geocode yet, place each
- * match in a community council, and read the `Property_Type` of their parcel
- * ids. Like the page reads, every request comes first, then one transaction
- * writes `muni_address_geocodes` and `muni_parcel_types`.
+ * match in a community council. Like the page reads, every request comes
+ * first, then one transaction writes `muni_address_geocodes`.
  *
  * The council is found when the address is geocoded, against the council
  * polygons fetched that scan, and stored on the geocode, so the views need no
@@ -17,17 +16,10 @@ import {
   isAddressMatch,
   type GeocodeOne,
 } from '@anchorage-str-db/muni-gis/geocoder';
-import { BATCH_SIZE, fetchPropertyTypes, type ParcelPropertyType } from '@anchorage-str-db/muni-gis/parcels';
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
-import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
+import { log } from '@anchorage-str-db/utils/log';
 
-import {
-  addressesToGeocode,
-  parcelIdsToRead,
-  recordGisReads,
-  type AddressGeocodeRow,
-  type ParcelTypeRow,
-} from './store.ts';
+import { addressesToGeocode, recordGeocodes, type AddressGeocodeRow } from './store.ts';
 
 /**
  * Addresses geocoded per scan. About 3,000 licenses have an address (2,237
@@ -40,18 +32,10 @@ export const MAX_GEOCODES_PER_SCAN = 1000;
 /** Days before an address the geocoder could not match is asked about again. */
 export const GEOCODE_MISS_RETRY_DAYS = 90;
 
-/** Parcel ids read per scan, 50 to a request. */
-export const MAX_PARCEL_READS_PER_SCAN = 3000;
-
-/** Days before a parcel's `Property_Type` is read again. */
-export const PARCEL_TYPE_REFRESH_DAYS = 90;
-
 /** The Muni GIS services, injectable for tests. */
 export interface GisClients {
   geocodeOne?: GeocodeOne;
   fetchCouncils?: () => Promise<CouncilPolygon[]>;
-  /** One query's worth of parcel ids, at most `BATCH_SIZE`. */
-  fetchPropertyTypes?: (parcelIds: readonly string[]) => Promise<ParcelPropertyType[]>;
 }
 
 export interface GeocodePassOptions extends GisClients {
@@ -68,8 +52,6 @@ export interface GeocodePassStats {
   addressesFailed: number;
   /** Matched addresses outside every community council. */
   matchedWithoutCouncil: number;
-  parcelsAttempted: number;
-  parcelsFailed: number;
 }
 
 export async function runGeocodePass(
@@ -116,34 +98,8 @@ export async function runGeocodePass(
       (withoutCouncil ? `; ${withoutCouncil} matches in no community council` : ''),
   );
 
-  const parcelIds = await parcelIdsToRead(
-    db,
-    addDays(scrapeDate, -PARCEL_TYPE_REFRESH_DAYS),
-    MAX_PARCEL_READS_PER_SCAN,
-  );
-  const parcelTypes: ParcelTypeRow[] = [];
-  let parcelsFailed = 0;
-  const fetchBatch = options.fetchPropertyTypes ?? ((ids: readonly string[]) => fetchPropertyTypes(ids));
-  for (let start = 0; start < parcelIds.length; start += BATCH_SIZE) {
-    const batch = parcelIds.slice(start, start + BATCH_SIZE);
-    try {
-      for (const { parcelId, found, propertyType } of await fetchBatch(batch)) {
-        parcelTypes.push({ parcelId, readDate: scrapeDate, inLayer: found, propertyType });
-      }
-    } catch (err) {
-      parcelsFailed += batch.length;
-      log.warn(`reading ${batch.length} parcel types failed: ${describeError(rootCause(err))}`);
-    }
-  }
-  if (parcelIds.length) {
-    log.info(
-      `parcel types: ${parcelTypes.length} read of ${parcelIds.length}, ` +
-        `${parcelTypes.filter((p) => !p.inLayer).length} not in the property layer`,
-    );
-  }
-
   // ---- write phase -------------------------------------------------------
-  await db.transaction(() => recordGisReads(db, geocodes, parcelTypes));
+  await db.transaction(() => recordGeocodes(db, geocodes));
 
   return {
     addressesAttempted: addresses.length,
@@ -151,7 +107,5 @@ export async function runGeocodePass(
     addressesUnmatched: geocodes.length - matched,
     addressesFailed: failed,
     matchedWithoutCouncil: withoutCouncil,
-    parcelsAttempted: parcelIds.length,
-    parcelsFailed,
   };
 }

@@ -18,7 +18,7 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 | `packages/licenses` | the license scan over `muni-licenses` and `muni-gis`: chooses which license ids to read, geocodes, writes, checks and the CLI | `db`, `muni-gis`, `muni-licenses`, `utils` |
 | `packages/db` | the DuckDB schema (Drizzle), its migrations, the views, and the connection | `utils`, `@duckdb/node-api`, `drizzle-orm`, `@duckdbfan/drizzle-duckdb` |
 | `packages/scraper-airbnb` | searches Airbnb and fetches listing pages, calendars, price quotes and reviews | `utils`, `impit` |
-| `packages/muni-gis` | queries the Muni's ArcGIS services: feature layers, the address geocoder, community councils, parcel property types | `utils` |
+| `packages/muni-gis` | queries the Muni's ArcGIS services: feature layers, the address geocoder, community councils | `utils` |
 | `packages/muni-licenses` | fetches and parses the Muni's CityView license pages, and finds the newest license id | `utils` |
 | `packages/utils` | dates, logging, check results, concurrency, request pacing and retries, `fetch`, the Municipality boundary | none |
 | `packages/ui` | the browser viewer | |
@@ -65,8 +65,8 @@ that the schema does not declare, and recreates the views. A run against an
 empty database creates everything.
 
 A table's name starts with its source (`airbnb_`, `muni_str_`,
-`muni_license_`, and `muni_address_` and `muni_parcel_` for the Muni's GIS
-services), so a new source gets a new prefix. Views have none.
+`muni_license_`, and `muni_address_` for the Muni's geocoder), so a new
+source gets a new prefix. Views have none.
 
 To change a table:
 
@@ -235,22 +235,20 @@ The `licenses` view holds each license's latest read, and `registrations`
 one row per STR Certificate number on a Short-Term Rentals license.
 
 After the page reads are written, the scan's geocoding pass sends each new
-license address to the Muni's geocoder (at most 1000 a scan), stores the
-match and the community council containing it in `muni_address_geocodes`,
-and reads the property type of each new parcel id into `muni_parcel_types`.
-It makes its requests first and writes in its own transaction, so a failure
+license address to the Muni's geocoder (at most 1000 a scan) and stores
+the match and the community council containing it in
+`muni_address_geocodes`. It makes its requests first and writes in its own transaction, so a failure
 in it leaves the page reads written. An address with no match is asked about
-again after 90 days, a parcel re-read after 90 days. See
+again after 90 days. See
 [`packages/licenses/README.md`](packages/licenses/README.md).
 
 The Municipal Clerk's ArcGIS registration layer answers only with a token.
 What it published is kept in `muni_str_registration_observations` and
 `muni_str_registry_runs`, which nothing writes. `registrations` takes the
-submitted date from it, and the layer's geocoded coordinate and community
-council where the license's own address has no match; it keeps the
-registrations only the layer holds, as not active. The layer's parcel type
-is a different classification from the property type of the parcel and is
-not used. What the Muni published there, and how it is cleaned:
+submitted date and parcel type from it, and the layer's geocoded coordinate
+and community council where the license's own address has no match; it
+keeps the registrations only the layer holds, as not active. What the Muni
+published there, and how it is cleaned:
 
 - `BusinessName` is the string `'None'` when none was given. Stored as
   published; `registrations.business_name` is NULL.
@@ -449,9 +447,9 @@ pnpm typecheck
 - `muni-licenses/test/licensePage.test.ts` reads real license pages from the
   Muni's portal, one per markup case the parser handles (listed in that
   package's README), so it fails when the portal's markup changes.
-- `muni-gis/test/geocoder.test.ts`, `councils.test.ts` and `parcels.test.ts`
-  test parsing, matching and batching offline, then ask the live geocoder,
-  council layer and property layer.
+- `muni-gis/test/geocoder.test.ts` and `councils.test.ts` test parsing,
+  matching and council lookup offline, then ask the live geocoder and
+  council layer.
 - `scraper/test/store.test.ts` and `registrations.test.ts` run the merge
   logic and views against a real DuckDB file, and
   `licenses/test/scan.test.ts` runs a license scan, geocoding pass included,
@@ -464,11 +462,10 @@ pnpm typecheck
 Only `muni-licenses/test/licensePage.test.ts` and the live tests in
 `muni-gis` need the network. Fetching is injected: `searchAnchorage` takes a
 `fetchPage`, `fetchCalendars` takes a `fetchOne`, `fetchFirstReviews` takes a
-`fetchPage`, `fetchLayer`, `fetchCommunityCouncils` and `fetchPropertyTypes`
-take a `fetchJson`, `fetchLicensePages` takes a `fetchOne`,
-`geocodeAddresses` takes a `geocodeOne`, and `runScan` takes all of the
-license scan's. The `live*` functions are the only places real requests are
-made.
+`fetchPage`, `fetchLayer` and `fetchCommunityCouncils` take a `fetchJson`,
+`fetchLicensePages` takes a `fetchOne`, `geocodeAddresses` takes a
+`geocodeOne`, and `runScan` takes all of the license scan's. The `live*`
+functions are the only places real requests are made.
 
 When Airbnb changes something, `scraper-airbnb/src/api/` and `parse.ts` break
 without failing a test. To debug a production failure, run `searchAnchorage` over a

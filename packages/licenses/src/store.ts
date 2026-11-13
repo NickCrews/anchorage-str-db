@@ -9,7 +9,6 @@ import {
   muniLicenseHiddenReads,
   muniLicensePageReads,
   muniLicenseRuns,
-  muniParcelTypes,
 } from '@anchorage-str-db/db/schema';
 import type { HiddenLicensePage, LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
@@ -156,49 +155,14 @@ export async function addressesToGeocode(db: Database, retryMissesBy: IsoDate, m
   return rows.map((row) => row.address);
 }
 
-/**
- * Parcel ids on licenses in `licenses` (every location labelled `Property`)
- * to read the `Property_Type` of, at most `max`: those never read, then those
- * last read on or before `refreshBy`, oldest first.
- */
-export async function parcelIdsToRead(db: Database, refreshBy: IsoDate, max: number): Promise<string[]> {
-  const rows = await db.rows<{ parcel_id: string }>(
-    'SELECT p.parcel_id FROM (' +
-      "SELECT DISTINCT unnest([l.value FOR l IN locations IF l.label = 'Property']) AS parcel_id FROM licenses" +
-      ') p LEFT JOIN muni_parcel_types t USING (parcel_id) ' +
-      'WHERE p.parcel_id IS NOT NULL AND (t.parcel_id IS NULL OR t.read_date <= CAST(? AS DATE)) ' +
-      'ORDER BY t.read_date NULLS FIRST, p.parcel_id LIMIT ?',
-    [refreshBy, max],
-  );
-  return rows.map((row) => row.parcel_id);
-}
-
 export type AddressGeocodeRow = typeof muniAddressGeocodes.$inferInsert;
-export type ParcelTypeRow = typeof muniParcelTypes.$inferInsert;
 
-/**
- * Store geocodes and parcel types. A row replaces any earlier row for the
- * same address or parcel id.
- */
-export async function recordGisReads(
-  db: Database,
-  geocodes: readonly AddressGeocodeRow[],
-  parcelTypes: readonly ParcelTypeRow[],
-): Promise<void> {
-  const replace = async <T extends typeof muniAddressGeocodes | typeof muniParcelTypes>(
-    table: T,
-    name: string,
-    key: string,
-    rows: readonly T['$inferInsert'][],
-  ): Promise<void> => {
-    if (!rows.length) return;
-    const staging = `stg_${name}`;
-    await db.run(`CREATE OR REPLACE TEMP TABLE ${staging} AS SELECT * FROM ${name} LIMIT 0`);
-    await db.appendRows(table, rows, { into: staging });
-    await db.run(`DELETE FROM ${name} WHERE ${key} IN (SELECT ${key} FROM ${staging})`);
-    await db.run(`INSERT INTO ${name} SELECT * FROM ${staging}`);
-    await db.run(`DROP TABLE ${staging}`);
-  };
-  await replace(muniAddressGeocodes, 'muni_address_geocodes', 'address', geocodes);
-  await replace(muniParcelTypes, 'muni_parcel_types', 'parcel_id', parcelTypes);
+/** Store geocodes. A row replaces any earlier row for the same address. */
+export async function recordGeocodes(db: Database, geocodes: readonly AddressGeocodeRow[]): Promise<void> {
+  if (!geocodes.length) return;
+  await db.run('CREATE OR REPLACE TEMP TABLE stg_muni_address_geocodes AS SELECT * FROM muni_address_geocodes LIMIT 0');
+  await db.appendRows(muniAddressGeocodes, geocodes, { into: 'stg_muni_address_geocodes' });
+  await db.run('DELETE FROM muni_address_geocodes WHERE address IN (SELECT address FROM stg_muni_address_geocodes)');
+  await db.run('INSERT INTO muni_address_geocodes SELECT * FROM stg_muni_address_geocodes');
+  await db.run('DROP TABLE stg_muni_address_geocodes');
 }

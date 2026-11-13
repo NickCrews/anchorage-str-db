@@ -68,7 +68,7 @@ const COUNCILS: CouncilPolygon[] = [
 /**
  * Offline GIS: an address with 'nowhere' in it has no candidate, one with
  * 'street' only a street, 'sea' is placed outside every council, and one
- * containing `failing` fails. Every parcel is RESIDENTIAL.
+ * containing `failing` fails.
  */
 function fakeGis(asked: string[] = [], failing = 'boom'): GisClients {
   return {
@@ -85,7 +85,6 @@ function fakeGis(asked: string[] = [], failing = 'boom'): GisClients {
         matchType: address.includes('street') ? 'StreetName' : 'PointAddress',
       };
     },
-    fetchPropertyTypes: async (ids) => ids.map((parcelId) => ({ parcelId, found: true, propertyType: 'RESIDENTIAL' })),
   };
 }
 
@@ -300,7 +299,7 @@ describe('the geocoding pass', () => {
       gis,
     });
 
-  it("geocodes every license's address once, keeping misses, and reads its parcels' types", async () => {
+  it("geocodes every license's address once, keeping misses", async () => {
     const path = await freshPath();
     const asked: string[] = [];
     const ok = await scan(path, '2026-11-10', fakeGis(asked));
@@ -324,22 +323,19 @@ describe('the geocoding pass', () => {
       { address: '4 sea view', geocoded_date: '2026-11-10', matched_address: '4 SEA VIEW', community_council: null, score: 100, match_type: 'PointAddress' },
       { address: '5 W 4th Ave', geocoded_date: '2026-11-10', matched_address: '5 W 4TH AVE', community_council: 'Downtown', score: 100, match_type: 'PointAddress' },
     ]);
-    expect(await db.rows('SELECT parcel_id, read_date, in_layer, property_type FROM muni_parcel_types')).toEqual([
-      { parcel_id: '00606148000', read_date: '2026-11-10', in_layer: true, property_type: 'RESIDENTIAL' },
+    expect(await db.rows('SELECT cityview_license_id, geocoded_lng, community_council FROM licenses ORDER BY 1')).toEqual([
+      { cityview_license_id: 1, geocoded_lng: null, community_council: null },
+      { cityview_license_id: 2, geocoded_lng: null, community_council: null },
+      { cityview_license_id: 3, geocoded_lng: -149.9, community_council: 'Downtown' },
+      { cityview_license_id: 4, geocoded_lng: -151, community_council: null },
+      { cityview_license_id: 5, geocoded_lng: -149.9, community_council: 'Downtown' },
+      { cityview_license_id: 6, geocoded_lng: null, community_council: null },
     ]);
-    expect(await db.rows('SELECT cityview_license_id, geocoded_lng, community_council, parcel_type FROM licenses ORDER BY 1')).toEqual([
-      { cityview_license_id: 1, geocoded_lng: null, community_council: null, parcel_type: null },
-      { cityview_license_id: 2, geocoded_lng: null, community_council: null, parcel_type: null },
-      { cityview_license_id: 3, geocoded_lng: -149.9, community_council: 'Downtown', parcel_type: null },
-      { cityview_license_id: 4, geocoded_lng: -151, community_council: null, parcel_type: 'RESIDENTIAL' },
-      { cityview_license_id: 5, geocoded_lng: -149.9, community_council: 'Downtown', parcel_type: null },
-      { cityview_license_id: 6, geocoded_lng: null, community_council: null, parcel_type: null },
-    ]);
-    // 1 of 5 geocodes and 0 of 1 parcel reads failed; the match rate is a warning.
+    // 1 of 5 geocodes failed; the match rate is a warning.
     expect(ok).toBe(true);
   });
 
-  it('asks about a miss again after 90 days, and re-reads parcel types after 90 days', async () => {
+  it('asks about a miss again after 90 days', async () => {
     const path = await freshPath();
     await scan(path, '2026-11-10', fakeGis());
     const asked: string[] = [];
@@ -348,7 +344,7 @@ describe('the geocoding pass', () => {
     const db = await opened(path);
     // 3 fails every time, so it is asked about every scan.
     expect(asked.sort()).toEqual(['1 nowhere st', '2 street only', '3 boom ave']);
-    expect(await db.value('SELECT read_date FROM muni_parcel_types')).toBe('2027-02-08');
+    expect(await db.value("SELECT geocoded_date FROM muni_address_geocodes WHERE address = '1 nowhere st'")).toBe('2027-02-08');
   });
 
   it('caps the addresses per scan, Short-Term Rentals licenses first', async () => {

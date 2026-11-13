@@ -223,12 +223,10 @@ A Muni property record, identified by `parcel_id`. The join key to
 _Avoid_: lot, property, tax record
 
 **Parcel type**:
-The assessor's category for a parcel, `parcel_type`: the `Property_Type` of
-the Muni's property information layer, verbatim (`RESIDENTIAL`, `CONDO`,
-`APARTMENT`, `COMMERCIAL`, ...). A license has one when it names exactly one
-parcel. The archived registration layer's `ParcelType` (`Residential`,
-`Commercial`) is a different classification and is not a parcel type.
-_Avoid_: property type (except quoting the field), land use, zoning, class
+A registration's `parcel_type`: the archived registration layer's
+`ParcelType` (`Residential`, `Commercial`), which the Muni derived from the
+registered address. A registration the layer never held has none.
+_Avoid_: property type, land use, zoning, class
 
 **Community council**:
 The Muni's neighborhood district containing a license's geocoded

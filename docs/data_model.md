@@ -6,8 +6,8 @@ The database joins two sources:
 - **The Municipality of Anchorage** (`packages/muni-licenses` and
   `packages/muni-gis`, read by `packages/licenses`): every license's
   CityView license page, the Muni geocoder's reading of each license's
-  address with its community council, each parcel's property type, and the
-  archived STR registration layer the Municipal Clerk published.
+  address with its community council, and the archived STR registration
+  layer the Municipal Clerk published.
 
 The only link between them is the STR registration id a listing page shows
 (`registration_id`, e.g. `STR20261754`). There is no shared address or owner
@@ -26,7 +26,7 @@ reasons do not.
 | Listing | `listings_active` | Airbnb `listing_id` | One Airbnb page a guest can book. |
 | Host | `hosts` | Airbnb `host_id` | The Airbnb account that runs the listing (`airbnb.com/users/show/<host_id>`). Often a property manager. |
 | Registration | `registrations` | `registration_id` | One STR Certificate number on a Short-Term Rentals license page, with a registrant, address and dates. |
-| License | `licenses` | `cityview_license_id` | One CityView license page of any type (Short-Term Rentals, Business, Alcohol), as last read, with its address geocoded and its parcel's type. |
+| License | `licenses` | `cityview_license_id` | One CityView license page of any type (Short-Term Rentals, Business, Alcohol), as last read, with its address geocoded. |
 
 `listings_active_with_registration` is every active listing with the
 registration its id matches, if any.
@@ -56,10 +56,7 @@ number:
   archived registration layer (`muni_str_registration_observations`), and
   are NULL for a registration the layer never held. The two sources are
   never mixed on one row.
-- `parcel_type` is the `Property_Type` of the license's parcel
-  (`muni_parcel_types`) when it names exactly one. The archived layer's
-  `ParcelType` is a different classification and is not used.
-- `submitted_date` comes from the archived layer alone.
+- `parcel_type` and `submitted_date` come from the archived layer alone.
 - A registration only the archive holds, whose number no license in
   `licenses` shows, keeps its layer row with `is_active` false and NULL
   `license_*` columns.

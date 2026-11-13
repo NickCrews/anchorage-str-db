@@ -24,7 +24,7 @@ const MIN_PAGE_FIELD_SHARE = 0.95;
 
 /**
  * A geocoding-pass failure rate above this fails `geocode_failure_rate`. A
- * warning: a failed geocode or parcel read is retried next scan, and the page
+ * warning: a failed geocode is retried next scan, and the page
  * reads are written already.
  */
 const MAX_GEOCODE_FAILURE_RATE = 0.25;
@@ -137,15 +137,12 @@ export async function runScanChecks(
   if ('error' in geocoding) {
     check('geocode_failure_rate', 'warn', false, `the geocoding pass failed: ${geocoding.error}`);
   } else {
-    const attempted = geocoding.addressesAttempted + geocoding.parcelsAttempted;
-    const failed = geocoding.addressesFailed + geocoding.parcelsFailed;
-    const rate = attempted ? failed / attempted : 0;
+    const rate = geocoding.addressesAttempted ? geocoding.addressesFailed / geocoding.addressesAttempted : 0;
     check(
       'geocode_failure_rate',
       'warn',
       rate <= MAX_GEOCODE_FAILURE_RATE,
-      `${geocoding.addressesFailed}/${geocoding.addressesAttempted} geocodes and ` +
-        `${geocoding.parcelsFailed}/${geocoding.parcelsAttempted} parcel type reads failed ` +
+      `${geocoding.addressesFailed}/${geocoding.addressesAttempted} geocodes failed ` +
         `(${percent(rate)}, max ${percent(MAX_GEOCODE_FAILURE_RATE)})`,
     );
   }

@@ -163,9 +163,8 @@ describe('connect', () => {
     ).toEqual([{ submittals: null }]);
     expect(await db.count('SELECT count(*) FROM muni_license_hidden_reads')).toBe(0);
     expect(await db.count('SELECT count(*) FROM muni_license_runs')).toBe(0);
-    // 0005: the geocode and parcel type tables start empty.
+    // 0005: the geocode table starts empty.
     expect(await db.count('SELECT count(*) FROM muni_address_geocodes')).toBe(0);
-    expect(await db.count('SELECT count(*) FROM muni_parcel_types')).toBe(0);
   });
 
   it('rejects a database with listings as a table', async () => {
