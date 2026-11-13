@@ -8,10 +8,3 @@ CREATE TABLE "muni_address_geocodes" (
 	"score" double precision,
 	"match_type" varchar
 );
---> statement-breakpoint
-CREATE TABLE "muni_parcel_types" (
-	"parcel_id" varchar PRIMARY KEY NOT NULL,
-	"read_date" date NOT NULL,
-	"in_layer" boolean NOT NULL,
-	"property_type" varchar
-);

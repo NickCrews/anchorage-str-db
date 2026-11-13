@@ -61,8 +61,7 @@ issuance statuses differ from the license's previous visible read.
 ## The geocoding pass
 
 After the page reads are written, `runGeocodePass` fills
-`muni_address_geocodes` and `muni_parcel_types` (see `packages/muni-gis`
-for the services):
+`muni_address_geocodes` (see `packages/muni-gis` for the services):
 
 1. It takes the `address` of every license in `licenses`, of every type,
    that has no row in `muni_address_geocodes`, then those whose row has no
@@ -71,12 +70,8 @@ for the services):
    scans; after that a scan geocodes the day's new licenses.
 2. If there are any, it fetches the community council polygons, geocodes
    each address, and finds the council of each match.
-3. It takes every parcel id on a license (each location labelled
-   `Property`) with no row in `muni_parcel_types` or a row 90 days old or
-   more, at most 3000 a scan, and reads their `Property_Type`, 50 to a
-   request.
-4. One transaction writes the rows; a row replaces the address's or parcel
-   id's earlier one.
+3. One transaction writes the rows; a row replaces the address's earlier
+   one.
 
 An address the geocoder answered without a match is stored with NULL
 `matched_address`, coordinate and council, and its best candidate's `score`
@@ -89,7 +84,7 @@ The pass runs after the page reads' transaction, so it can read the
 addresses those reads hold from `licenses`, and so its failure leaves them
 written: the scan logs the error and the `geocode_failure_rate` check warns.
 Its counts are logged, not stored in `muni_license_runs`; the rows'
-`geocoded_date` and `read_date` record which scan wrote them.
+`geocoded_date` records which scan wrote them.
 
 The council is stored on the geocode rather than joined in SQL from stored
 polygons, so neither the views nor the browser viewer need DuckDB's spatial
@@ -104,7 +99,7 @@ extension, and a council follows the coordinate it was found from.
 | `license_page_fields_present` | error | fewer than 95% of visible pages read had a status and an issuance |
 | `registration_id_format` | warn | an STR Certificate read has a number that is not `STR` + 8 digits |
 | `newest_license_read` | warn | the newest id has never been read |
-| `geocode_failure_rate` | warn | the geocoding pass failed, or more than 25% of its geocodes and parcel reads failed |
+| `geocode_failure_rate` | warn | the geocoding pass failed, or more than 25% of its geocodes failed |
 | `geocode_match_rate` | warn | fewer than 85% of all addresses in `muni_address_geocodes` have a match |
 
 ## Tests

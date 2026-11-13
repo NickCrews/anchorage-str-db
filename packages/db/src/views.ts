@@ -506,7 +506,7 @@ WHERE error_summary IS NULL;
 -- licensee typed. parcel_id: the parcel id when the page names exactly one.
 -- geocoded_* and community_council are the Muni geocoder's match for the
 -- address (muni_address_geocodes), NULL when it has none or has not been
--- asked yet; parcel_type is the parcel's Property_Type (muni_parcel_types).
+-- asked yet.
 CREATE OR REPLACE VIEW licenses AS
 WITH read_dates AS (
     SELECT
@@ -563,15 +563,13 @@ SELECT
     g.matched_address AS geocoded_address,
     g.lat AS geocoded_lat,
     g.lng AS geocoded_lng,
-    g.community_council,
-    t.property_type AS parcel_type
+    g.community_council
 FROM latest l
 JOIN read_dates d ON d.cityview_license_id = l.cityview_license_id
 JOIN places p ON p.cityview_license_id = l.cityview_license_id
 LEFT JOIN hidden_dates h ON h.cityview_license_id = l.cityview_license_id
 LEFT JOIN latest_issuance i ON i.cityview_license_id = l.cityview_license_id
 LEFT JOIN muni_address_geocodes g ON g.address = p.address
-LEFT JOIN muni_parcel_types t ON t.parcel_id = p.parcel_id
 WHERE h.last_hidden_date IS NULL OR h.last_hidden_date < d.last_read_date;
 
 -- One row per registration: each STR Certificate number on a Short-Term
@@ -586,10 +584,9 @@ WHERE h.last_hidden_date IS NULL OR h.last_hidden_date < d.last_read_date;
 --
 -- geocoded_* and community_council are the license's own geocode when the
 -- geocoder matched its address, else the registration's latest row in the
--- archived layer. parcel_type is the license's parcel's Property_Type only:
--- the layer's ParcelType is a different classification ('Residential',
--- 'Commercial'), so it is not mixed in. submitted_date comes from the
--- archive alone. Each is NULL when its source has nothing.
+-- archived layer. parcel_type ('Residential', 'Commercial') and
+-- submitted_date come from the archived layer alone. Each is NULL when its
+-- source has nothing.
 --
 -- A registration in the archive whose number no license in \`licenses\`
 -- shows keeps its layer row: is_active is false, the license_* columns are
@@ -666,7 +663,7 @@ combined AS (
         -- a coordinate and its council always come from one geocoding.
         CASE WHEN c.geocoded_address IS NOT NULL THEN c.community_council
              ELSE a.community_council END AS community_council,
-        c.parcel_type,
+        a.parcel_type,
         coalesce(c.geocoded_address, a.geocoded_address) AS geocoded_address,
         CASE WHEN c.geocoded_address IS NOT NULL THEN c.geocoded_lat
              ELSE a.geocoded_lat END AS geocoded_lat,
@@ -699,7 +696,7 @@ combined AS (
         a.business_name,
         a.registered_address,
         a.community_council,
-        NULL AS parcel_type,
+        a.parcel_type,
         a.geocoded_address,
         a.geocoded_lat,
         a.geocoded_lng,
@@ -784,8 +781,8 @@ FROM listings_active l
 LEFT JOIN registrations r ON r.registration_id = l.registration_id;
 
 COMMENT ON VIEW latest_registry_date IS 'The latest license scan that completed its writes (muni_license_runs with no error_summary).';
-COMMENT ON VIEW licenses IS 'One row per CityView license with a visible page, of any type (Short-Term Rentals, Business, Alcohol): its latest page read, first_read_date and last_read_date. Licenses whose latest read found the id hidden are left out. is_active means the most recent issuance''s status is Active or Issued. geocoded_* and community_council are the Muni geocoder''s match for address; parcel_type is the Property_Type of parcel_id.';
-COMMENT ON VIEW registrations IS 'One row per STR registration: each STR Certificate number on a Short-Term Rentals license page, plus registrations only the archived registration layer holds. is_active means the STR Certificate''s status is Active; archive-only registrations are not active. geocoded_* and community_council are the license''s geocode, else the archived layer''s; parcel_type is the license''s parcel''s Property_Type; submitted_date comes from the archived layer.';
+COMMENT ON VIEW licenses IS 'One row per CityView license with a visible page, of any type (Short-Term Rentals, Business, Alcohol): its latest page read, first_read_date and last_read_date. Licenses whose latest read found the id hidden are left out. is_active means the most recent issuance''s status is Active or Issued. geocoded_* and community_council are the Muni geocoder''s match for address.';
+COMMENT ON VIEW registrations IS 'One row per STR registration: each STR Certificate number on a Short-Term Rentals license page, plus registrations only the archived registration layer holds. is_active means the STR Certificate''s status is Active; archive-only registrations are not active. geocoded_* and community_council are the license''s geocode, else the archived layer''s; parcel_type and submitted_date come from the archived layer.';
 COMMENT ON VIEW listings_active_with_registration IS 'listings_active plus the Municipal registration matching registration_id. Registration columns are NULL when there is no match.';
 `;
 

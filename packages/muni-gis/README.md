@@ -1,7 +1,7 @@
 # `@anchorage-str-db/muni-gis`
 
 Clients for the Muni's ArcGIS services, in memory: feature layers, the
-address geocoder, community councils and parcel property types. A provider
+address geocoder and community councils. A provider
 like `muni-licenses`: it returns typed records and never touches DuckDB;
 `packages/licenses` decides what is stored.
 
@@ -50,13 +50,6 @@ even-odd ray casting (`utils`' `inRings`), or null. The polygons do not
 overlap: each of the archive's 2,564 geocoded coordinates fell in exactly
 one, the council the layer named.
 
-`parcels.ts`: `fetchPropertyTypes(parcelIds)` reads `Property_Type` from
-`PropertyInformation_Hosted/FeatureServer/0` with `where Parcel_ID IN (...)`,
-50 ids a query (ArcGIS Online answers 404 to a GET much past 2 KB), and
-reports which ids the layer has no row for. `Property_Type` is the
-assessor's category (`RESIDENTIAL`, `CONDO`, `APARTMENT`, `COMMERCIAL`, ...),
-not the archived layer's `ParcelType` (`Residential`, `Commercial`).
-
 The Municipal Clerk's STR registration layer
 (`ShortTermRental_Registrations_Hosted/FeatureServer`) answers only with a
 token. What it published is archived in `muni_str_registration_observations`
@@ -66,6 +59,6 @@ token. What it published is archived in `muni_str_registration_observations`
 ## Tests
 
 `test/arcgis.test.ts` tests paging and the count check against a fake
-server. `geocoder.test.ts`, `councils.test.ts` and `parcels.test.ts` test
-parsing, matching, council lookup and batching offline, and each ends with
-a test against the live service, so they fail when the Muni changes one.
+server. `geocoder.test.ts` and `councils.test.ts` test parsing, matching
+and council lookup offline, and each ends with a test against the live
+service, so they fail when the Muni changes one.

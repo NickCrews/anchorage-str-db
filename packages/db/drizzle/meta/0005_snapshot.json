@@ -774,43 +774,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.muni_parcel_types": {
-      "name": "muni_parcel_types",
-      "schema": "",
-      "columns": {
-        "parcel_id": {
-          "name": "parcel_id",
-          "type": "varchar",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "read_date": {
-          "name": "read_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "in_layer": {
-          "name": "in_layer",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "property_type": {
-          "name": "property_type",
-          "type": "varchar",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.muni_str_registration_observations": {
       "name": "muni_str_registration_observations",
       "schema": "",

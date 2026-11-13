@@ -48,14 +48,13 @@ pnpm licenses
 This reads a batch of the Muni's CityView license pages, every license type,
 into the same database. Each run picks up new license ids and re-reads the
 ones that are due, then geocodes the licenses' new addresses with the Muni's
-geocoder and reads their parcels' property types.
+geocoder.
 
 ## Tables
 
 Each table name starts with its source: `airbnb_`, `muni_str_` (the
 Municipal Clerk's STR registration layer), `muni_license_` (the Muni's
-CityView license pages), or `muni_address_` and `muni_parcel_` (the Muni's
-GIS services). Views have no prefix.
+CityView license pages), or `muni_address_` (the Muni's geocoder). Views have no prefix.
 
 - `airbnb_listing_observations`: one row per listing per scrape date, including
   whether its page was read (`page_fetch_ok`) and a price quote: Airbnb's
@@ -142,22 +141,19 @@ and the Muni's license portal, stored as published:
   geocoder: its `matched_address`, coordinate and `community_council`, all
   NULL when the geocoder could not place it, plus its best candidate's
   `score` and `match_type`
-- `muni_parcel_types`: one row per parcel id on a license, with its
-  `property_type` from the Muni's property information layer (`RESIDENTIAL`,
-  `CONDO`, ...)
 - `muni_str_registry_runs`: one row per registry run, an archive
 - `licenses` *(view)*: one row per license with a visible page, of every
   type: its latest page read, `first_read_date`, `last_read_date`, and
   `is_active` (its most recent issuance is Active or Issued), its `address`
-  and `parcel_id`, the geocoded coordinate and `community_council` of the
-  address, and the `parcel_type` of the parcel. An id whose latest read is
+  and `parcel_id`, and the geocoded coordinate and `community_council` of the
+  address. An id whose latest read is
   hidden is left out.
 - `registrations` *(view)*: one row per STR certificate number on a
   Short-Term Rentals license, plus the registrations only the archived layer
   holds. `is_active` means the certificate's status is Active.
   The geocoded coordinate and `community_council` are the license's own,
-  else the archived layer's; `parcel_type` is the license's parcel's
-  property type; `submitted_date` comes from the archived layer alone.
+  else the archived layer's; `parcel_type` and `submitted_date` come from
+  the archived layer alone.
   `parcel_id` joins to
   [anchorage-property](https://github.com/NickCrews/anchorage-property)'s
   parcels. `airbnb_listings_active` counts the active Airbnb listings
@@ -198,8 +194,7 @@ A pnpm workspace sharing `tsconfig.base.json`:
   Uses `impit`, an HTTP client that impersonates Chrome's TLS fingerprint,
   which Airbnb requires. The endpoints are in `src/api/`.
 - `packages/muni-gis`: queries the Muni's ArcGIS services, in memory: its
-  feature layers, the address geocoder, community councils and parcel
-  property types.
+  feature layers, the address geocoder and community councils.
 - `packages/muni-licenses`: fetches and parses the Muni's license pages, in
   memory.
 - `packages/utils`: dependency-free helpers shared by the scrapers.

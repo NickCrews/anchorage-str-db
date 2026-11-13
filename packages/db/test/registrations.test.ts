@@ -1,7 +1,7 @@
 /**
  * The `licenses`, `registrations` and `latest_registry_date` views over
- * license page reads, hidden reads, scan runs, geocodes, parcel types and the
- * archived registration layer, seeded directly.
+ * license page reads, hidden reads, scan runs, geocodes and the archived
+ * registration layer, seeded directly.
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -17,7 +17,6 @@ import {
   muniLicenseHiddenReads,
   muniLicensePageReads,
   muniLicenseRuns,
-  muniParcelTypes,
   muniStrRegistrationObservations,
   type LicenseIssuance,
 } from '../src/schema.ts';
@@ -141,10 +140,6 @@ async function geocode(db: Database, rows: (typeof muniAddressGeocodes.$inferIns
   await db.appendRows(muniAddressGeocodes, rows);
 }
 
-async function parcelTypes(db: Database, rows: (typeof muniParcelTypes.$inferInsert)[]): Promise<void> {
-  await db.appendRows(muniParcelTypes, rows);
-}
-
 async function archive(db: Database, scrapeDate: string, rows: ArchivedRegistration[]): Promise<void> {
   await db.appendRows(muniStrRegistrationObservations, rows.map((r) => ({ ...r, scrapeDate })));
 }
@@ -222,7 +217,7 @@ describe('licenses view', () => {
 });
 
 describe('licenses view geocodes', () => {
-  it('joins the geocode of its address and the Property_Type of its one parcel', async () => {
+  it('joins the geocode of its address', async () => {
     const db = await freshDb();
     await readPages(db, '2026-11-08', [
       strPage(13923, 'STR20260309'),
@@ -244,10 +239,8 @@ describe('licenses view geocodes', () => {
         matchType: null,
       },
     ]);
-    await parcelTypes(db, [{ parcelId: '07606227000', readDate: '2026-11-08', inLayer: true, propertyType: 'RESIDENTIAL' }]);
-
     const rows = await db.rows(
-      'SELECT cityview_license_id, address, parcel_id, geocoded_address, geocoded_lat, community_council, parcel_type ' +
+      'SELECT cityview_license_id, address, parcel_id, geocoded_address, geocoded_lat, community_council ' +
         'FROM licenses ORDER BY 1',
     );
 
@@ -259,7 +252,6 @@ describe('licenses view geocodes', () => {
         geocoded_address: '257 Echo Ridge Dr, Girdwood, AK, 99587',
         geocoded_lat: 60.951486,
         community_council: 'Girdwood',
-        parcel_type: 'RESIDENTIAL',
       },
       {
         cityview_license_id: 13924,
@@ -268,7 +260,6 @@ describe('licenses view geocodes', () => {
         geocoded_address: null,
         geocoded_lat: null,
         community_council: null,
-        parcel_type: null,
       },
       {
         cityview_license_id: 16427,
@@ -277,7 +268,6 @@ describe('licenses view geocodes', () => {
         geocoded_address: null,
         geocoded_lat: null,
         community_council: null,
-        parcel_type: null,
       },
     ]);
   });
@@ -351,8 +341,7 @@ describe('registrations view', () => {
         registration_id: 'STR20260309',
         submitted_date: '2026-05-01',
         community_council: 'Girdwood',
-        // The layer's ParcelType is a different classification, so it is not used.
-        parcel_type: null,
+        parcel_type: 'Residential',
         geocoded_lat: 60.96,
         first_seen_date: '2026-11-08',
       },
@@ -367,7 +356,7 @@ describe('registrations view', () => {
     ]);
   });
 
-  it("prefers the license's geocode and parcel type to the archive's", async () => {
+  it("prefers the license's geocode to the archive's, and takes parcel_type from the archive", async () => {
     const db = await freshDb();
     await archive(db, '2026-09-11', [
       archived('STR20260309', 13923, { communityCouncil: 'Turnagain Arm', geocodedLat: 60.96 }),
@@ -377,6 +366,7 @@ describe('registrations view', () => {
         geocodedLat: 61.153442,
         geocodedLng: -150.20935,
         communityCouncil: null,
+        parcelType: 'Commercial',
       }),
     ]);
     await readPages(db, '2026-11-08', [
@@ -401,10 +391,6 @@ describe('registrations view', () => {
         matchType: 'PointAddress',
       },
     ]);
-    await parcelTypes(db, [
-      { parcelId: '07606227000', readDate: '2026-11-08', inLayer: true, propertyType: 'RESIDENTIAL' },
-      { parcelId: '00606148000', readDate: '2026-11-08', inLayer: true, propertyType: 'CONDO' },
-    ]);
 
     const rows = await db.rows(
       'SELECT registration_id, geocoded_address, geocoded_lat, geocoded_lng, community_council, parcel_type ' +
@@ -418,7 +404,7 @@ describe('registrations view', () => {
         geocoded_lat: 60.951486,
         geocoded_lng: -149.120567,
         community_council: 'Girdwood',
-        parcel_type: 'RESIDENTIAL',
+        parcel_type: 'Residential',
       },
       {
         registration_id: 'STR20260310',
@@ -426,7 +412,7 @@ describe('registrations view', () => {
         geocoded_lat: 61.220231,
         geocoded_lng: -149.739024,
         community_council: 'Northeast',
-        parcel_type: 'CONDO',
+        parcel_type: 'Commercial',
       },
     ]);
   });
