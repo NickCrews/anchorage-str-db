@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { connect } from '@anchorage-str-db/db/connect';
 import type { Database } from '@anchorage-str-db/db/database';
-import { muniLicensePageReads } from '@anchorage-str-db/db/schema';
+import { muniLicensePageReads } from '@anchorage-str-db/db/schema/muniLicenses';
 import { emptyListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
 
 import { recordObservations } from '../src/store.ts';

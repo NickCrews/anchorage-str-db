@@ -20,7 +20,7 @@ import {
   muniParcelTypes,
   muniStrRegistrationObservations,
   type LicenseIssuance,
-} from '../src/schema.ts';
+} from '../src/schema/index.ts';
 
 type PageRead = Omit<typeof muniLicensePageReads.$inferInsert, 'scrapeDate'>;
 type ArchivedRegistration = Omit<typeof muniStrRegistrationObservations.$inferInsert, 'scrapeDate'>;

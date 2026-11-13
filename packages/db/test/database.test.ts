@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { connect } from '../src/connect.ts';
 import type { Database } from '../src/database.ts';
-import { muniLicensePageReads, airbnbListingPhotos, muniStrRegistryRuns } from '../src/schema.ts';
+import { muniLicensePageReads, airbnbListingPhotos, muniStrRegistryRuns } from '../src/schema/index.ts';
 
 const temporary: string[] = [];
 const open: Database[] = [];

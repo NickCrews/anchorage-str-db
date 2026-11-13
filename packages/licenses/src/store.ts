@@ -1,16 +1,16 @@
 /**
  * Reads and writes for the license scan. The tables are defined in
- * `@anchorage-str-db/db/schema`.
+ * `@anchorage-str-db/db/schema/muniLicenses` and
+ * `@anchorage-str-db/db/schema/muniGis`.
  */
 
 import type { Database } from '@anchorage-str-db/db/database';
+import { muniAddressGeocodes, muniParcelTypes } from '@anchorage-str-db/db/schema/muniGis';
 import {
-  muniAddressGeocodes,
   muniLicenseHiddenReads,
   muniLicensePageReads,
   muniLicenseRuns,
-  muniParcelTypes,
-} from '@anchorage-str-db/db/schema';
+} from '@anchorage-str-db/db/schema/muniLicenses';
 import type { HiddenLicensePage, LicensePage } from '@anchorage-str-db/muni-licenses/licensePage';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 

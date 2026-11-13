@@ -57,7 +57,8 @@ It exits non-zero if an error-severity check fails; the log names which one.
 
 ### Changing the schema
 
-The tables are defined with Drizzle in `packages/db/src/schema.ts`. Every run
+The tables are defined with Drizzle in `packages/db/src/schema/`, one file
+per source. Every run
 opens the database with `connect` (`packages/db/src/connect.ts`), which
 applies the migrations in `packages/db/drizzle` that the database has not
 recorded, rejects any table that differs from what the migrations create or
@@ -66,11 +67,12 @@ empty database creates everything.
 
 A table's name starts with its source (`airbnb_`, `muni_str_`,
 `muni_license_`, and `muni_address_` and `muni_parcel_` for the Muni's GIS
-services), so a new source gets a new prefix. Views have none.
+services), so a new source gets a new prefix and its own file in
+`schema/`. Views have none.
 
 To change a table:
 
-1. Edit `schema.ts`. Add a column at the end of its table: `appendRows`
+1. Edit the source's file in `schema/`. Add a column at the end of its table: `appendRows`
    writes values in declared order.
 2. Run `pnpm --filter @anchorage-str-db/db generate --name <change>`.
 3. Read the generated SQL. drizzle-kit writes Postgres DDL, which DuckDB
@@ -85,12 +87,14 @@ To **rename** a column, hand-write the migration instead: drizzle-kit reads a
 rename as a drop and an add, which would discard the archive.
 `0001_ubiquitous_language.sql` is the worked example — `ALTER TABLE … RENAME
 COLUMN` keeps each column's position, which `appendRows` depends on. Edit
-`schema.ts` and `meta/<n>_snapshot.json` to match, add the `_journal.json`
+the table in `schema/` and `meta/<n>_snapshot.json` to match, add the `_journal.json`
 entry, and cover it the way `connect.test.ts` covers 0001: seed a database
 from `0000_baseline.sql` under the old names and assert the rows survive.
 
-Views are SQL in `packages/db/src/views.ts`. They need no migration. To
-**rename** one, add its old name to `DROPPED_VIEWS_SQL` there: `CREATE OR
+Views are SQL in `packages/db/src/views/`: one file per source for the views
+over that source's tables, and `combined.ts` for the views that join sources.
+They need no migration. To **rename** one, add its old name to
+`DROPPED_VIEWS_SQL` in `views/index.ts`: `CREATE OR
 REPLACE VIEW` cannot remove a view, so the published database would keep
 answering queries under the old name from a definition nothing maintains.
 
@@ -329,7 +333,7 @@ Every run fails with `LegacySchemaError` until someone:
     derives first/last/page-seen dates.
 - **Add listing columns to `airbnb_listing_observations`, not `listings`.** If a
   change to the column should open a new version, also add it to
-  `VERSION_KEY_SQL` in `packages/db/src/views.ts`. Leave out values that move most days
+  `VERSION_KEY_SQL` in `packages/db/src/views/airbnb.ts`. Leave out values that move most days
   (price, review count).
 - **Hosts are stored the same way.** `airbnb_host_observations` is append-only with
   a `profile_read_ok` flag, and `hosts` rebuilds versions with the same

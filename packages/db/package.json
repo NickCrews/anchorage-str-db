@@ -6,6 +6,8 @@
   "description": "The DuckDB database: Drizzle schema, migrations, views and the connection",
   "license": "MIT",
   "exports": {
+    "./schema": "./src/schema/index.ts",
+    "./views": "./src/views/index.ts",
     "./*": "./src/*.ts"
   },
   "scripts": {

@@ -1,6 +1,6 @@
 /**
  * Opening the database: reject an incompatible file, apply the migrations in
- * `../drizzle`, check the tables against `schema.ts`, and recreate the views.
+ * `../drizzle`, check the tables against `schema/`, and recreate the views.
  */
 
 import { fileURLToPath } from 'node:url';
@@ -10,8 +10,8 @@ import { getTableName, is } from 'drizzle-orm';
 import { PgTable } from 'drizzle-orm/pg-core';
 
 import { Database } from './database.ts';
-import * as schema from './schema.ts';
-import { viewsSql } from './views.ts';
+import * as schema from './schema/index.ts';
+import { viewsSql } from './views/index.ts';
 
 const MIGRATIONS_FOLDER = fileURLToPath(new URL('../drizzle', import.meta.url));
 
@@ -49,7 +49,7 @@ const TABLE_NAMES: ReadonlySet<string> = new Set(
 );
 
 /**
- * Every table must be one `schema.ts` declares. A table from an older schema
+ * Every table must be one `schema/` declares. A table from an older schema
  * (tables named without their source prefix, or `listings` as a table rather
  * than a view) means the file predates the migrations, and migrating it would
  * add empty tables beside the old data.

@@ -1,7 +1,7 @@
 /**
  * Writes for the daily Airbnb run. The tables are defined in
- * `@anchorage-str-db/db/schema` and the views that read them in
- * `@anchorage-str-db/db/views`.
+ * `@anchorage-str-db/db/schema/airbnb` and the views that read them in
+ * `@anchorage-str-db/db/views/airbnb`.
  */
 
 import type { Database } from '@anchorage-str-db/db/database';
@@ -12,8 +12,8 @@ import {
   airbnbListingObservations,
   airbnbListingPhotos,
   airbnbScrapeRuns,
-} from '@anchorage-str-db/db/schema';
-import { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views';
+} from '@anchorage-str-db/db/schema/airbnb';
+import { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views/airbnb';
 import type { CalendarResult } from '@anchorage-str-db/scraper-airbnb/calendars';
 import type { FirstReviewCandidate, FirstReviewResult } from '@anchorage-str-db/scraper-airbnb/firstReviews';
 import type { HostCard, Layer, ListingPage } from '@anchorage-str-db/scraper-airbnb/listingPage';
@@ -359,7 +359,7 @@ export interface CalendarMergeStats {
   nightsChanged: number;
 }
 
-/** SCD2-merge one run's calendar. See `airbnbCalendarStatus` in `@anchorage-str-db/db/schema`. */
+/** SCD2-merge one run's calendar. See `airbnbCalendarStatus` in `@anchorage-str-db/db/schema/airbnb`. */
 export async function mergeCalendar(
   db: Database,
   scrapeDate: IsoDate,

@@ -4,6 +4,6 @@ import { defineConfig } from 'drizzle-kit';
 // review each generated migration for Postgres-only syntax before committing.
 export default defineConfig({
   dialect: 'postgresql',
-  schema: './src/schema.ts',
+  schema: './src/schema/index.ts',
   out: './drizzle',
 });

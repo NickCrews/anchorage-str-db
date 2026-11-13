@@ -24,7 +24,7 @@ import type { PgTable } from 'drizzle-orm/pg-core';
 
 import { epochDays } from '@anchorage-str-db/utils/dates';
 
-import * as schema from './schema.ts';
+import * as schema from './schema/index.ts';
 
 type Params = DuckDBValue[];
 
@@ -32,7 +32,7 @@ export type Orm = DuckDBDatabase<typeof schema>;
 
 export class Database {
   readonly #connection: DuckDBConnection;
-  /** Drizzle over the same connection, for queries built from `schema.ts`. */
+  /** Drizzle over the same connection, for queries built from `schema/`. */
   readonly orm: Orm;
 
   constructor(connection: DuckDBConnection) {
