@@ -12,8 +12,7 @@ on:
         type: boolean
         default: false
 
-# Never let two runs write to the database at once, including licenses.yml
-# and parcels.yml.
+# Never let two runs write to the database at once.
 concurrency:
   group: db-write
   cancel-in-progress: false
