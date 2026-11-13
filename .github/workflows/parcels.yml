@@ -13,8 +13,7 @@ on:
         type: boolean
         default: false
 
-# Never let two runs write to the database at once, including daily.yml and
-# licenses.yml.
+# Never let two runs write to the database at once.
 concurrency:
   group: db-write
   cancel-in-progress: false
