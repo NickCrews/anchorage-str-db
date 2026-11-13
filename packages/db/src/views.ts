@@ -13,9 +13,10 @@
  * `licenses` has one row per visible license with its latest page read,
  * `registrations` one row per STR Certificate number on a Short-Term Rentals
  * license, and `listings_active_with_registration` joins Airbnb listings to
- * it on the registration id. Cleaning (the `'None'` business name, the no-match
- * placeholder coordinate) happens in the views, so the raw tables can always be
- * re-derived.
+ * it on the registration id. `licenses` and `registrations` take parcel
+ * attributes from `property_parcels` on `parcel_id`. Cleaning (the `'None'`
+ * business name, the no-match placeholder coordinate) happens in the views,
+ * so the raw tables can always be re-derived.
  *
  * Views are not in the Drizzle schema: they use DuckDB syntax drizzle-kit
  * cannot express, and recreating them on connect applies a change without a
@@ -504,6 +505,9 @@ WHERE error_summary IS NULL;
 -- address: the Address location (a property record's address), else the
 -- first location that is not a parcel id, which is usually the text the
 -- licensee typed. parcel_id: the parcel id when the page names exactly one.
+-- parcel_type (property_parcels.property_type: 'RESIDENTIAL', 'CONDO', ...)
+-- and total_living_units are that parcel's, NULL when the license names no
+-- single parcel or the parcel import has not seen it.
 -- geocoded_* and community_council are the Muni geocoder's match for the
 -- address (muni_address_geocodes), NULL when it has none or has not been
 -- asked yet.
@@ -560,6 +564,8 @@ SELECT
     coalesce(i.issuance_status IN (${ACTIVE_ISSUANCE_STATUSES.map((s) => `'${s}'`).join(', ')}), false) AS is_active,
     p.address,
     p.parcel_id,
+    pp.property_type AS parcel_type,
+    pp.total_living_units,
     g.matched_address AS geocoded_address,
     g.lat AS geocoded_lat,
     g.lng AS geocoded_lng,
@@ -570,6 +576,7 @@ JOIN places p ON p.cityview_license_id = l.cityview_license_id
 LEFT JOIN hidden_dates h ON h.cityview_license_id = l.cityview_license_id
 LEFT JOIN latest_issuance i ON i.cityview_license_id = l.cityview_license_id
 LEFT JOIN muni_address_geocodes g ON g.address = p.address
+LEFT JOIN property_parcels pp ON pp.parcel_id = p.parcel_id
 WHERE h.last_hidden_date IS NULL OR h.last_hidden_date < d.last_read_date;
 
 -- One row per registration: each STR Certificate number on a Short-Term
@@ -584,8 +591,12 @@ WHERE h.last_hidden_date IS NULL OR h.last_hidden_date < d.last_read_date;
 --
 -- geocoded_* and community_council are the license's own geocode when the
 -- geocoder matched its address, else the registration's latest row in the
--- archived layer. parcel_type ('Residential', 'Commercial') and
--- submitted_date come from the archived layer alone. Each is NULL when its
+-- archived layer. parcel_type is the license's parcel's property_type in
+-- property_parcels when the parcel is there, else the archived layer's
+-- ParcelType. The two vocabularies differ: property_parcels has the
+-- appraisal grouping in upper case ('RESIDENTIAL', 'CONDO', 'APARTMENT',
+-- 'COMMERCIAL', ...), the layer only 'Residential' and 'Commercial'.
+-- submitted_date comes from the archived layer alone. Each is NULL when its
 -- source has nothing.
 --
 -- A registration in the archive whose number no license in \`licenses\`
@@ -663,7 +674,8 @@ combined AS (
         -- a coordinate and its council always come from one geocoding.
         CASE WHEN c.geocoded_address IS NOT NULL THEN c.community_council
              ELSE a.community_council END AS community_council,
-        a.parcel_type,
+        CASE WHEN pp.parcel_id IS NOT NULL THEN pp.property_type
+             ELSE a.parcel_type END AS parcel_type,
         coalesce(c.geocoded_address, a.geocoded_address) AS geocoded_address,
         CASE WHEN c.geocoded_address IS NOT NULL THEN c.geocoded_lat
              ELSE a.geocoded_lat END AS geocoded_lat,
@@ -684,6 +696,7 @@ combined AS (
     FROM certificates c
     JOIN sightings s USING (registration_id)
     LEFT JOIN archived a USING (registration_id)
+    LEFT JOIN property_parcels pp ON pp.parcel_id = c.parcel_id
     UNION ALL
     SELECT
         a.registration_id,
@@ -781,8 +794,8 @@ FROM listings_active l
 LEFT JOIN registrations r ON r.registration_id = l.registration_id;
 
 COMMENT ON VIEW latest_registry_date IS 'The latest license scan that completed its writes (muni_license_runs with no error_summary).';
-COMMENT ON VIEW licenses IS 'One row per CityView license with a visible page, of any type (Short-Term Rentals, Business, Alcohol): its latest page read, first_read_date and last_read_date. Licenses whose latest read found the id hidden are left out. is_active means the most recent issuance''s status is Active or Issued. geocoded_* and community_council are the Muni geocoder''s match for address.';
-COMMENT ON VIEW registrations IS 'One row per STR registration: each STR Certificate number on a Short-Term Rentals license page, plus registrations only the archived registration layer holds. is_active means the STR Certificate''s status is Active; archive-only registrations are not active. geocoded_* and community_council are the license''s geocode, else the archived layer''s; parcel_type and submitted_date come from the archived layer.';
+COMMENT ON VIEW licenses IS 'One row per CityView license with a visible page, of any type (Short-Term Rentals, Business, Alcohol): its latest page read, first_read_date and last_read_date. Licenses whose latest read found the id hidden are left out. is_active means the most recent issuance''s status is Active or Issued. parcel_type and total_living_units are from property_parcels for parcel_id (parcel_type is its property_type: RESIDENTIAL, CONDO, ...). geocoded_* and community_council are the Muni geocoder''s match for address.';
+COMMENT ON VIEW registrations IS 'One row per STR registration: each STR Certificate number on a Short-Term Rentals license page, plus registrations only the archived registration layer holds. is_active means the STR Certificate''s status is Active; archive-only registrations are not active. geocoded_* and community_council are the license''s geocode, else the archived layer''s. parcel_type is property_parcels.property_type for the license''s parcel (RESIDENTIAL, CONDO, ...) when the parcel is there, else the archived layer''s ParcelType (Residential, Commercial); the two vocabularies differ. submitted_date comes from the archived layer.';
 COMMENT ON VIEW listings_active_with_registration IS 'listings_active plus the Municipal registration matching registration_id. Registration columns are NULL when there is no match.';
 `;
 

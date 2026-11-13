@@ -11,7 +11,8 @@ on:
         type: boolean
         default: false
 
-# Never let two runs write to the database at once, including daily.yml.
+# Never let two runs write to the database at once, including daily.yml and
+# parcels.yml.
 concurrency:
   group: db-write
   cancel-in-progress: false

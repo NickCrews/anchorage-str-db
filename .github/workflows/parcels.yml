@@ -1,0 +1,82 @@
+name: Parcel import
+
+on:
+  schedule:
+    # 16:00 UTC = 08:00 AKDT / 07:00 AKST, after the daily scrape at 12:00.
+    # anchorage-property's ingest has started between about 14:00 and 23:00
+    # UTC; an import before it copies the previous day's parcels.
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+    inputs:
+      start_fresh:
+        description: Start a new, empty archive if latest-data has no database.
+        type: boolean
+        default: false
+
+# Never let two runs write to the database at once, including daily.yml and
+# licenses.yml.
+concurrency:
+  group: db-write
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    # An import reads about 10 MB of anchorage-property's file and writes
+    # ~98,500 rows: under a minute.
+    timeout-minutes: 15
+    permissions:
+      contents: write # to upload the updated database as a release asset
+      issues: write # to open an issue when an import fails
+    env:
+      DB_PATH: data/anchorage_str.duckdb
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Node runs the TypeScript sources directly and ignores types, so check
+      # them here. `...` includes the workspace packages the import uses.
+      - run: pnpm --filter "@anchorage-str-db/parcels..." typecheck
+
+      # The runner starts clean, so restore the database from the release. A
+      # missing database fails the import unless `start_fresh` is set.
+      - name: Restore previous database
+        uses: ./.github/actions/restore-db
+        with:
+          db-path: ${{ env.DB_PATH }}
+          start-fresh: ${{ inputs.start_fresh }}
+
+      - name: Import parcels + quality gate
+        run: node packages/parcels/src/cli.ts --db "$DB_PATH" --verbose import
+
+      # Reached only if the source passed its checks and the import wrote.
+      - name: Publish updated database
+        uses: ./.github/actions/publish-db
+        with:
+          db-path: ${{ env.DB_PATH }}
+
+      - name: Close the outage issue
+        continue-on-error: true
+        uses: ./.github/actions/outage-issue
+        with:
+          action: close
+          label: parcels-down
+          description: Parcel import is failing
+          docs: '"CI" in CONTRIBUTING.md'
+
+      - name: Open an issue on failure
+        if: failure() || cancelled()
+        uses: ./.github/actions/outage-issue
+        with:
+          action: open
+          label: parcels-down
+          description: Parcel import is failing
+          docs: '"CI" in CONTRIBUTING.md'

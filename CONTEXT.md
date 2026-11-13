@@ -218,15 +218,32 @@ hidden id is a result of reading it, not a failed read.
 _Avoid_: invalid license, missing license, deleted license
 
 **Parcel**:
-A Muni property record, identified by `parcel_id`. The join key to
-[anchorage-property](https://github.com/NickCrews/anchorage-property).
+A Muni property record, identified by `parcel_id`: the Muni's 11-digit
+Parcel_ID (`07606227000`), which a license page's Property location holds.
+`property_parcels` holds each parcel's current state, copied daily from
+anchorage-property; a license names its parcel by `parcel_id` when its page
+lists exactly one.
 _Avoid_: lot, property, tax record
 
 **Parcel type**:
-A registration's `parcel_type`: the archived registration layer's
-`ParcelType` (`Residential`, `Commercial`), which the Muni derived from the
-registered address. A registration the layer never held has none.
-_Avoid_: property type, land use, zoning, class
+A license's or registration's `parcel_type`: its parcel's appraisal
+grouping, anchorage-property's `property_type` (`RESIDENTIAL`, `CONDO`,
+`APARTMENT`, `VACANT LAND`, `COMMERCIAL`, ...). A registration whose
+license's parcel is not in `property_parcels` takes the archived
+registration layer's `ParcelType` instead (`Residential`, `Commercial`),
+which the Muni derived from the registered address. The two vocabularies
+differ, so compare values within one. A registration with neither has none.
+_Avoid_: property type (except quoting anchorage-property's column), land
+use, zoning, class
+
+**anchorage-property**:
+A separate project,
+[anchorage-property](https://github.com/NickCrews/anchorage-property), that
+reads the Muni's parcel layer daily, keeps every parcel's history, and
+publishes it as a DuckDB file. The source of `property_parcels` and the
+`property_` tables. This repo copies its current parcels and reads nothing
+about parcels from the Muni itself.
+_Avoid_: the assessor, CAMA, the property database
 
 **Community council**:
 The Muni's neighborhood district containing a license's geocoded
@@ -382,7 +399,9 @@ One execution of a pipeline, stamped with `scrape_date` and logged in a
 scan** (`pnpm licenses`, `muni_license_runs`) reads the Muni's license pages.
 A **registry run**, logged in `muni_str_registry_runs`, read the Clerk's
 registration layer; the layer answers only with a token, so those rows are an
-archive. A run records a whole day or nothing.
+archive. The **parcel import** (`pnpm parcels`, `property_parcel_imports`,
+stamped with `import_date`) copies anchorage-property's current parcels. A
+run records a whole day or nothing.
 _Avoid_: job, scrape, crawl, batch, pass (a pass is one stage within a run)
 
 **Seen**:

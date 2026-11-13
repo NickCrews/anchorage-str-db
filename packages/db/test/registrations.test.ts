@@ -1,7 +1,7 @@
 /**
  * The `licenses`, `registrations` and `latest_registry_date` views over
- * license page reads, hidden reads, scan runs, geocodes and the archived
- * registration layer, seeded directly.
+ * license page reads, hidden reads, scan runs, geocodes, parcels and the
+ * archived registration layer, seeded directly.
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -18,6 +18,7 @@ import {
   muniLicensePageReads,
   muniLicenseRuns,
   muniStrRegistrationObservations,
+  propertyParcels,
   type LicenseIssuance,
 } from '../src/schema.ts';
 
@@ -138,6 +139,24 @@ const ECHO_RIDGE_GEOCODE: typeof muniAddressGeocodes.$inferInsert = {
 
 async function geocode(db: Database, rows: (typeof muniAddressGeocodes.$inferInsert)[]): Promise<void> {
   await db.appendRows(muniAddressGeocodes, rows);
+}
+
+/** 257 ECHO RIDGE DR's parcel as anchorage-property published it, 2026-11-13. */
+const ECHO_RIDGE_PARCEL: typeof propertyParcels.$inferInsert = {
+  parcelId: '07606227000',
+  parcelAddress: '257 ECHO RIDGE DR',
+  propertyType: 'RESIDENTIAL',
+  totalLivingUnits: 1,
+  landUse: 'Residential 1 Family',
+  zoningDistrict: 'GR2',
+  centroidLat: 60.9515,
+  centroidLon: -149.1206,
+  validFrom: '2026-10-07 19:37:33',
+  importedDate: '2026-11-13',
+};
+
+async function parcels(db: Database, rows: (typeof propertyParcels.$inferInsert)[]): Promise<void> {
+  await db.appendRows(propertyParcels, rows);
 }
 
 async function archive(db: Database, scrapeDate: string, rows: ArchivedRegistration[]): Promise<void> {
@@ -273,6 +292,30 @@ describe('licenses view geocodes', () => {
   });
 });
 
+describe('licenses view parcels', () => {
+  it("takes the parcel's property type and living units from property_parcels", async () => {
+    const db = await freshDb();
+    await readPages(db, '2026-11-08', [
+      strPage(13923, 'STR20260309'),
+      strPage(13924, 'STR20260310', {
+        locations: [{ label: 'Property', value: '00606148000', link: null }],
+      }),
+      businessPage(16427, 'Issued'),
+    ]);
+    await parcels(db, [ECHO_RIDGE_PARCEL]);
+
+    const rows = await db.rows(
+      'SELECT cityview_license_id, parcel_id, parcel_type, total_living_units FROM licenses ORDER BY 1',
+    );
+
+    expect(rows).toEqual([
+      { cityview_license_id: 13923, parcel_id: '07606227000', parcel_type: 'RESIDENTIAL', total_living_units: 1 },
+      { cityview_license_id: 13924, parcel_id: '00606148000', parcel_type: null, total_living_units: null },
+      { cityview_license_id: 16427, parcel_id: null, parcel_type: null, total_living_units: null },
+    ]);
+  });
+});
+
 describe('registrations view', () => {
   it('has one row per STR Certificate number, on Short-Term Rentals licenses only', async () => {
     const db = await freshDb();
@@ -356,7 +399,7 @@ describe('registrations view', () => {
     ]);
   });
 
-  it("prefers the license's geocode to the archive's, and takes parcel_type from the archive", async () => {
+  it("prefers the license's geocode to the archive's", async () => {
     const db = await freshDb();
     await archive(db, '2026-09-11', [
       archived('STR20260309', 13923, { communityCouncil: 'Turnagain Arm', geocodedLat: 60.96 }),
@@ -414,6 +457,38 @@ describe('registrations view', () => {
         community_council: 'Northeast',
         parcel_type: 'Commercial',
       },
+    ]);
+  });
+
+  it("takes parcel_type from property_parcels when the license's parcel is there, else from the archive", async () => {
+    const db = await freshDb();
+    await archive(db, '2026-09-11', [
+      archived('STR20260309', 13923, { parcelType: 'Residential' }),
+      archived('STR20260310', 13924, { parcelType: 'Commercial' }),
+      archived('STR20260311', 13925, { parcelType: 'Commercial' }),
+    ]);
+    await readPages(db, '2026-11-08', [
+      strPage(13923, 'STR20260309'),
+      // A parcel the import has not seen.
+      strPage(13924, 'STR20260310', {
+        locations: [{ label: 'Property', value: '00606148000', link: null }],
+      }),
+      // A parcel the import has, with no property type.
+      strPage(13925, 'STR20260311', {
+        locations: [{ label: 'Property', value: '01234567000', link: null }],
+      }),
+    ]);
+    await parcels(db, [
+      { ...ECHO_RIDGE_PARCEL, propertyType: 'CONDO' },
+      { ...ECHO_RIDGE_PARCEL, parcelId: '01234567000', propertyType: null },
+    ]);
+
+    const rows = await db.rows('SELECT registration_id, parcel_id, parcel_type FROM registrations ORDER BY 1');
+
+    expect(rows).toEqual([
+      { registration_id: 'STR20260309', parcel_id: '07606227000', parcel_type: 'CONDO' },
+      { registration_id: 'STR20260310', parcel_id: '00606148000', parcel_type: 'Commercial' },
+      { registration_id: 'STR20260311', parcel_id: '01234567000', parcel_type: null },
     ]);
   });
 

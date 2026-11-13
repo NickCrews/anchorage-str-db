@@ -16,6 +16,7 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 | --- | --- | --- |
 | `packages/scraper` | the daily run over `scraper-airbnb`: decides what is stored, writes, checks and the CLI | `db`, `scraper-airbnb`, `utils` |
 | `packages/licenses` | the license scan over `muni-licenses` and `muni-gis`: chooses which license ids to read, geocodes, writes, checks and the CLI | `db`, `muni-gis`, `muni-licenses`, `utils` |
+| `packages/parcels` | the parcel import from anchorage-property's published database: reads it, checks it, replaces `property_parcels`, and the CLI | `db`, `utils` |
 | `packages/db` | the DuckDB schema (Drizzle), its migrations, the views, and the connection | `utils`, `@duckdb/node-api`, `drizzle-orm`, `@duckdbfan/drizzle-duckdb` |
 | `packages/scraper-airbnb` | searches Airbnb and fetches listing pages, calendars, price quotes and reviews | `utils`, `impit` |
 | `packages/muni-gis` | queries the Muni's ArcGIS services: feature layers, the address geocoder, community councils | `utils` |
@@ -25,9 +26,9 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 
 Provider packages (`scraper-airbnb`, `muni-gis`, `muni-licenses`)
 work in memory: they return typed records and never touch DuckDB, so each
-can be tested and debugged without a database. Only the two apps,
-`packages/scraper` and `packages/licenses`, decide what is stored, and
-neither imports the other.
+can be tested and debugged without a database. Only the three apps,
+`packages/scraper`, `packages/licenses` and `packages/parcels`, decide what
+is stored, and none imports another.
 
 Nothing is compiled. Each package exports its sources
 (`"exports": {"./*": "./src/*.ts"}`, imported as
@@ -43,6 +44,8 @@ pnpm daily                 # Airbnb; writes data/anchorage_str.duckdb
 pnpm daily --verbose --db /tmp/scratch.duckdb
 pnpm licenses              # the Muni's license pages, same database
 pnpm licenses --max-reads 60 --db /tmp/scratch.duckdb
+pnpm parcels               # anchorage-property's current parcels, same database
+pnpm parcels --verbose --db /tmp/scratch.duckdb
 ```
 
 The default `--db` is resolved from each CLI's source, so it is the repo's
@@ -65,8 +68,8 @@ that the schema does not declare, and recreates the views. A run against an
 empty database creates everything.
 
 A table's name starts with its source (`airbnb_`, `muni_str_`,
-`muni_license_`, and `muni_address_` for the Muni's geocoder), so a new
-source gets a new prefix. Views have none.
+`muni_license_`, `muni_address_` for the Muni's geocoder, and `property_`
+for anchorage-property), so a new source gets a new prefix. Views have none.
 
 To change a table:
 
@@ -245,9 +248,10 @@ again after 90 days. See
 The Municipal Clerk's ArcGIS registration layer answers only with a token.
 What it published is kept in `muni_str_registration_observations` and
 `muni_str_registry_runs`, which nothing writes. `registrations` takes the
-submitted date and parcel type from it, and the layer's geocoded coordinate
-and community council where the license's own address has no match; it
-keeps the registrations only the layer holds, as not active. What the Muni
+submitted date from it, its parcel type where the license's parcel is not in
+`property_parcels`, and its geocoded coordinate and community council where
+the license's own address has no match; it keeps the registrations only the
+layer holds, as not active. What the Muni
 published there, and how it is cleaned:
 
 - `BusinessName` is the string `'None'` when none was given. Stored as
@@ -256,6 +260,26 @@ published there, and how it is cleaned:
   `'Incomplete address provided. No Match.'` and the placeholder coordinate
   (-150.20935, 61.153442). Stored as published; `registrations.geocoded_lat`/`lng`
   are NULL.
+
+## The parcel import
+
+`pnpm parcels` (`packages/parcels/src/import.ts`) copies the current parcels
+from [anchorage-property](https://github.com/NickCrews/anchorage-property),
+which reads the Muni's parcel layer daily and keeps each parcel's history,
+into `property_parcels`. Nothing in this repo scrapes parcels. DuckDB
+attaches anchorage-property's published `anchorage-current.duckdb` read-only
+over HTTPS and reads only the columns the table takes, about 98,500 rows.
+
+The import reads the source into a temporary table, checks it, then replaces
+the whole table and logs the run in `property_parcel_imports` in one
+transaction. A source with fewer than 90,000 parcels, a duplicate or missing
+`parcel_id`, or a missing column fails a check and leaves the table as it
+was. The table holds the current snapshot only; history stays in
+anchorage-property. `licenses` joins it on `parcel_id` for `parcel_type`
+(the parcel's `property_type`: `RESIDENTIAL`, `CONDO`, ...) and
+`total_living_units`, and `registrations` takes `parcel_type` from it,
+falling back to the archived layer's `Residential`/`Commercial`. See
+[`packages/parcels/README.md`](packages/parcels/README.md).
 
 ## Inspecting the database
 
@@ -267,7 +291,7 @@ or run queries from [`docs/policy_questions.sql`](docs/policy_questions.sql).
 
 ## CI
 
-Two workflows write the one database:
+Three workflows write the one database:
 
 - [`.github/workflows/licenses.yml`](.github/workflows/licenses.yml) runs
   the license scan at 08:00 UTC, after `pnpm typecheck` on
@@ -275,13 +299,16 @@ Two workflows write the one database:
 - [`.github/workflows/daily.yml`](.github/workflows/daily.yml) runs `daily`
   at 12:00 UTC, after `pnpm typecheck` on `packages/scraper` and the
   packages it imports.
+- [`.github/workflows/parcels.yml`](.github/workflows/parcels.yml) runs the
+  parcel import at 16:00 UTC, after `pnpm typecheck` on `packages/parcels`
+  and the packages it imports.
 
 Runners are ephemeral, so each run downloads the database from the
-`latest-data` release, writes, and re-uploads it if its checks pass. Both
-workflows share the concurrency group `db-write`, so one waits for the
-other rather than uploading over its writes.
+`latest-data` release, writes, and re-uploads it if its checks pass. The
+workflows share the concurrency group `db-write`, so one waits for another
+rather than uploading over its writes.
 
-The steps both workflows run are composite actions in `.github/actions/`:
+The steps every workflow runs are composite actions in `.github/actions/`:
 `restore-db` (download from `latest-data`), `publish-db` (upload to it) and
 `outage-issue` (open or close the workflow's outage issue).
 
@@ -295,10 +322,10 @@ GB a year. GitHub puts no cap on total release storage, only 2 GiB per asset,
 and an old backup is often the only copy of history from before a breaking
 schema change. Revisit if the asset grows past a few hundred MB.
 
-A failed daily run opens a `pipeline-down` issue and a failed license scan a
-`licenses-down` issue; the next successful run of the same workflow closes
-it. If `latest-data` has no database, either fails unless dispatched with
-`start_fresh=true`.
+A failed daily run opens a `pipeline-down` issue, a failed license scan a
+`licenses-down` issue, and a failed parcel import a `parcels-down` issue; the
+next successful run of the same workflow closes it. If `latest-data` has no
+database, each fails unless dispatched with `start_fresh=true`.
 
 The workflows need no secrets; `gh` uses the automatic `GITHUB_TOKEN`.
 
@@ -455,6 +482,8 @@ pnpm typecheck
   `licenses/test/scan.test.ts` runs a license scan, geocoding pass included,
   against one with injected page reads and GIS services. `licenses/test/select.test.ts` covers which ids a
   scan reads.
+- `parcels/test/import.test.ts` imports from a local DuckDB file shaped like
+  anchorage-property's, offline: `runImport` takes the source as `sourceUrl`.
 - `db/test/connect.test.ts` checks that migrations apply once and that an
   incompatible file is rejected; `database.test.ts` checks how `appendRows`
   converts values.

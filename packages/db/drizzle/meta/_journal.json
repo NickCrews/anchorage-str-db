@@ -43,6 +43,13 @@
       "when": 1794297829058,
       "tag": "0005_muni_gis",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794602840063,
+      "tag": "0006_property_parcels",
+      "breakpoints": true
     }
   ]
 }

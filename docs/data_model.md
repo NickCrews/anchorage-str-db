@@ -1,6 +1,6 @@
 # Data model: listings, registrations and hosts
 
-The database joins two sources:
+The database joins two sources, plus parcels from a third:
 
 - **Airbnb** (`packages/scraper-airbnb`): listings and the hosts who run them.
 - **The Municipality of Anchorage** (`packages/muni-licenses` and
@@ -8,6 +8,11 @@ The database joins two sources:
   CityView license page, the Muni geocoder's reading of each license's
   address with its community council, and the archived STR registration
   layer the Municipal Clerk published.
+- **anchorage-property** (`packages/parcels`): the current state of every
+  Muni parcel, copied daily from
+  [anchorage-property](https://github.com/NickCrews/anchorage-property)'s
+  published database into `property_parcels`. Licenses join to it on
+  `parcel_id`.
 
 The only link between them is the STR registration id a listing page shows
 (`registration_id`, e.g. `STR20261754`). There is no shared address or owner
@@ -27,6 +32,7 @@ reasons do not.
 | Host | `hosts` | Airbnb `host_id` | The Airbnb account that runs the listing (`airbnb.com/users/show/<host_id>`). Often a property manager. |
 | Registration | `registrations` | `registration_id` | One STR Certificate number on a Short-Term Rentals license page, with a registrant, address and dates. |
 | License | `licenses` | `cityview_license_id` | One CityView license page of any type (Short-Term Rentals, Business, Alcohol), as last read, with its address geocoded. |
+| Parcel | `property_parcels` | `parcel_id` | One Muni property record, as anchorage-property last published it: property type, living units, land use, zoning, centroid. |
 
 `listings_active_with_registration` is every active listing with the
 registration its id matches, if any.
@@ -56,7 +62,13 @@ number:
   archived registration layer (`muni_str_registration_observations`), and
   are NULL for a registration the layer never held. The two sources are
   never mixed on one row.
-- `parcel_type` and `submitted_date` come from the archived layer alone.
+- `parcel_type` is the `property_type` of the license's parcel
+  (`licenses.parcel_id`) in `property_parcels`: `RESIDENTIAL`, `CONDO`,
+  `APARTMENT`, `VACANT LAND`, `COMMERCIAL`, .... When the license names no
+  single parcel, or the parcel is not in `property_parcels`, it is the
+  archived layer's `ParcelType`, only `Residential` or `Commercial`. The two
+  vocabularies differ, so group by `parcel_type` within one.
+- `submitted_date` comes from the archived layer alone.
 - A registration only the archive holds, whose number no license in
   `licenses` shows, keeps its layer row with `is_active` false and NULL
   `license_*` columns.
@@ -121,6 +133,15 @@ be operating, or be cited by a listing that shows no id.
 new license ids, and ids on licenses whose page is hidden, so it is not
 proof of an invalid id.
 
+### License → parcel: many-to-one, optional
+
+`licenses.parcel_id` is set when the license page lists exactly one parcel
+id from the Muni's property records. Several licenses can name one parcel (a
+building with a registration per dwelling). A license with no parcel id, or
+several, gets no `parcel_type` or `total_living_units` from
+`property_parcels`. `property_parcels` holds only the current state;
+anchorage-property holds each parcel's history.
+
 ### Host → listing: one-to-many
 
 Every listing has one primary host. On 2026-09-14, 1,286 hosts ran the 2,619
@@ -158,7 +179,8 @@ Neither source identifies the owner of a property.
   separate one per registration (SWITZER SUITES has four). Grouping by it
   counts licenses, not operators.
 - **Parcel id**, which would link to the assessor's owner of record, is set on
-  457 of 2,549 active registrations (2026-09-14).
+  457 of 2,549 active registrations (2026-09-14). `property_parcels` does
+  not copy owner names; anchorage-property has them.
 
 An owners table would need assessor records joined by parcel or address, or
 name matching across business names. The UI groups by host instead.
