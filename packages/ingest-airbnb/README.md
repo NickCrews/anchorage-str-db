@@ -1,4 +1,4 @@
-# `@anchorage-str-db/scraper`
+# `@anchorage-str-db/ingest-airbnb`
 
 Runs the Airbnb scraper and writes what it returns to the database defined in
 `packages/db`.
@@ -9,7 +9,7 @@ Runs the Airbnb scraper and writes what it returns to the database defined in
 - `checks.ts`: the quality checks each run ends with, and the thresholds they
   hold a run to
 
-The Muni's licenses are read by `packages/licenses`, a separate app writing
+The Muni's licenses are read by `packages/ingest-muni-licenses`, a separate app writing
 the same database.
 
 The provider packages return records in memory; this package decides what

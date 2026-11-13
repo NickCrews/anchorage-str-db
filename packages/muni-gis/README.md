@@ -3,7 +3,7 @@
 Clients for the Muni's ArcGIS services, in memory: feature layers, the
 address geocoder, community councils and parcel property types. A provider
 like `muni-licenses`: it returns typed records and never touches DuckDB;
-`packages/licenses` decides what is stored.
+`packages/ingest-muni-licenses` decides what is stored.
 
 `arcgis.ts`:
 
@@ -61,7 +61,7 @@ The Municipal Clerk's STR registration layer
 (`ShortTermRental_Registrations_Hosted/FeatureServer`) answers only with a
 token. What it published is archived in `muni_str_registration_observations`
 (see `packages/db`); registrations are read from the CityView license pages
-(`packages/muni-licenses`, `packages/licenses`).
+(`packages/muni-licenses`, `packages/ingest-muni-licenses`).
 
 ## Tests
 

@@ -12,8 +12,8 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
-    "daily": "node packages/scraper/src/cli.ts daily",
-    "licenses": "node packages/licenses/src/cli.ts scan"
+    "daily": "node packages/ingest-airbnb/src/cli.ts daily",
+    "licenses": "node packages/ingest-muni-licenses/src/cli.ts scan"
   },
   "devDependencies": {
     "typescript": "5.9.2"

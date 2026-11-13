@@ -43,7 +43,7 @@ jobs:
       # Node runs the TypeScript sources directly and ignores types, so check
       # them here; a type error then fails before the scrape instead of
       # mid-run. `...` includes the workspace packages the scraper imports.
-      - run: pnpm --filter "@anchorage-str-db/scraper..." typecheck
+      - run: pnpm --filter "@anchorage-str-db/ingest-airbnb..." typecheck
 
       # The runner starts clean, so restore yesterday's database from the
       # release. A missing database fails the run unless `start_fresh` is set.
@@ -54,7 +54,7 @@ jobs:
           start-fresh: ${{ inputs.start_fresh }}
 
       - name: Scrape + merge + quality gate
-        run: node packages/scraper/src/cli.ts --db "$DB_PATH" --verbose daily
+        run: node packages/ingest-airbnb/src/cli.ts --db "$DB_PATH" --verbose daily
 
       # Reached only if the quality checks passed.
       - name: Publish updated database

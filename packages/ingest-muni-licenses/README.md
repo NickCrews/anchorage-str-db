@@ -1,10 +1,10 @@
-# `@anchorage-str-db/licenses`
+# `@anchorage-str-db/ingest-muni-licenses`
 
 The license scan: records every license the Muni's CityView portal
 publishes, by reading license pages by id, and writes them to the database
 defined in `packages/db`, then geocodes their addresses. An app like
-`packages/scraper`, over `muni-licenses` and `muni-gis`; it never imports
-`scraper`.
+`packages/ingest-airbnb`, over `muni-licenses` and `muni-gis`; it never imports
+`ingest-airbnb`.
 
 - `cli.ts`: the `scan` command (run from the repo root as `pnpm licenses`)
 - `scan.ts`: the scan: newest id, choose ids, read pages, write, geocode,
@@ -16,7 +16,7 @@ defined in `packages/db`, then geocodes their addresses. An app like
 
 ```sh
 pnpm licenses
-node packages/licenses/src/cli.ts --db /tmp/scratch.duckdb --max-reads 60 --verbose scan
+node packages/ingest-muni-licenses/src/cli.ts --db /tmp/scratch.duckdb --max-reads 60 --verbose scan
 ```
 
 `--max-reads` caps the scan below `MAX_READS_PER_SCAN` (3000), for a quick

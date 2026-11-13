@@ -1,5 +1,5 @@
 {
-  "name": "@anchorage-str-db/licenses",
+  "name": "@anchorage-str-db/ingest-muni-licenses",
   "version": "0.1.0",
   "private": true,
   "type": "module",

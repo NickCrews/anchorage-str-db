@@ -4,7 +4,7 @@ The database joins two sources:
 
 - **Airbnb** (`packages/scraper-airbnb`): listings and the hosts who run them.
 - **The Municipality of Anchorage** (`packages/muni-licenses` and
-  `packages/muni-gis`, read by `packages/licenses`): every license's
+  `packages/muni-gis`, read by `packages/ingest-muni-licenses`): every license's
   CityView license page, the Muni geocoder's reading of each license's
   address with its community council, each parcel's property type, and the
   archived STR registration layer the Municipal Clerk published.

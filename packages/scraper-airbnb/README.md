@@ -2,7 +2,7 @@
 
 Searches Airbnb for listings in the Municipality of Anchorage and fetches
 each listing's page, calendar, price quote and earliest review, in memory.
-`packages/scraper` runs the passes and stores the results.
+`packages/ingest-airbnb` runs the passes and stores the results.
 
 | module | what it does |
 | --- | --- |

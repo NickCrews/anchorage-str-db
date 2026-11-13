@@ -1,7 +1,7 @@
 # `@anchorage-str-db/muni-licenses`
 
 Fetches and parses the Municipality of Anchorage's CityView license status
-pages, in memory. `packages/licenses` chooses which to read and stores them.
+pages, in memory. `packages/ingest-muni-licenses` chooses which to read and stores them.
 
 ```
 https://www.muni.org/CityViewPortal/License/Status?licenseId=13923&category=B

@@ -1,9 +1,9 @@
 {
-  "name": "@anchorage-str-db/scraper",
+  "name": "@anchorage-str-db/ingest-airbnb",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Runs the Airbnb and Municipal scrapers for Anchorage, AK short-term rentals and writes them to the database",
+  "description": "Runs the Airbnb scraper for Anchorage, AK short-term rentals and writes what it returns to the database",
   "license": "MIT",
   "scripts": {
     "test": "vitest run",

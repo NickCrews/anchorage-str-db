@@ -41,7 +41,7 @@ jobs:
 
       # Node runs the TypeScript sources directly and ignores types, so check
       # them here. `...` includes the workspace packages the scan imports.
-      - run: pnpm --filter "@anchorage-str-db/licenses..." typecheck
+      - run: pnpm --filter "@anchorage-str-db/ingest-muni-licenses..." typecheck
 
       # The runner starts clean, so restore the database from the release. A
       # missing database fails the scan unless `start_fresh` is set.
@@ -52,7 +52,7 @@ jobs:
           start-fresh: ${{ inputs.start_fresh }}
 
       - name: Scan license pages + quality gate
-        run: node packages/licenses/src/cli.ts --db "$DB_PATH" --verbose scan
+        run: node packages/ingest-muni-licenses/src/cli.ts --db "$DB_PATH" --verbose scan
 
       # Reached only if the quality checks passed.
       - name: Publish updated database

@@ -14,8 +14,8 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 
 | package | does | runtime dependencies |
 | --- | --- | --- |
-| `packages/scraper` | the daily run over `scraper-airbnb`: decides what is stored, writes, checks and the CLI | `db`, `scraper-airbnb`, `utils` |
-| `packages/licenses` | the license scan over `muni-licenses` and `muni-gis`: chooses which license ids to read, geocodes, writes, checks and the CLI | `db`, `muni-gis`, `muni-licenses`, `utils` |
+| `packages/ingest-airbnb` | the daily run over `scraper-airbnb`: decides what is stored, writes, checks and the CLI | `db`, `scraper-airbnb`, `utils` |
+| `packages/ingest-muni-licenses` | the license scan over `muni-licenses` and `muni-gis`: chooses which license ids to read, geocodes, writes, checks and the CLI | `db`, `muni-gis`, `muni-licenses`, `utils` |
 | `packages/db` | the DuckDB schema (Drizzle), its migrations, the views, and the connection | `utils`, `@duckdb/node-api`, `drizzle-orm`, `@duckdbfan/drizzle-duckdb` |
 | `packages/scraper-airbnb` | searches Airbnb and fetches listing pages, calendars, price quotes and reviews | `utils`, `impit` |
 | `packages/muni-gis` | queries the Muni's ArcGIS services: feature layers, the address geocoder, community councils, parcel property types | `utils` |
@@ -26,7 +26,7 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 Provider packages (`scraper-airbnb`, `muni-gis`, `muni-licenses`)
 work in memory: they return typed records and never touch DuckDB, so each
 can be tested and debugged without a database. Only the two apps,
-`packages/scraper` and `packages/licenses`, decide what is stored, and
+`packages/ingest-airbnb` and `packages/ingest-muni-licenses`, decide what is stored, and
 neither imports the other.
 
 Nothing is compiled. Each package exports its sources
@@ -218,7 +218,7 @@ request rate, and any other error is retried.
 
 ## The license scan
 
-`pnpm licenses` (`packages/licenses/src/scan.ts`) records every license the
+`pnpm licenses` (`packages/ingest-muni-licenses/src/scan.ts`) records every license the
 Muni's CityView portal publishes: Short-Term Rentals, Business and Alcohol
 licenses, read from their license pages by id. It is a separate app and
 workflow from `daily`, with its own transaction, run log
@@ -230,7 +230,7 @@ License ids are one counter across every license type, and most ids are
 hidden license ids. The read history is the scan's state: each scan finds
 the newest id from the License Locator, then reads new ids, never-read ids,
 and ids whose latest read is due, in the order `chooseLicenseIds` documents
-([`packages/licenses/README.md`](packages/licenses/README.md)). A failed
+([`packages/ingest-muni-licenses/README.md`](packages/ingest-muni-licenses/README.md)). A failed
 read writes nothing and is retried next scan.
 
 The license page is the only source for the licensee's own description of
@@ -245,7 +245,7 @@ and reads the property type of each new parcel id into `muni_parcel_types`.
 It makes its requests first and writes in its own transaction, so a failure
 in it leaves the page reads written. An address with no match is asked about
 again after 90 days, a parcel re-read after 90 days. See
-[`packages/licenses/README.md`](packages/licenses/README.md).
+[`packages/ingest-muni-licenses/README.md`](packages/ingest-muni-licenses/README.md).
 
 The Municipal Clerk's ArcGIS registration layer answers only with a token.
 What it published is kept in `muni_str_registration_observations` and
@@ -277,9 +277,9 @@ Two workflows write the one database:
 
 - [`.github/workflows/licenses.yml`](.github/workflows/licenses.yml) runs
   the license scan at 08:00 UTC, after `pnpm typecheck` on
-  `packages/licenses` and the packages it imports.
+  `packages/ingest-muni-licenses` and the packages it imports.
 - [`.github/workflows/daily.yml`](.github/workflows/daily.yml) runs `daily`
-  at 12:00 UTC, after `pnpm typecheck` on `packages/scraper` and the
+  at 12:00 UTC, after `pnpm typecheck` on `packages/ingest-airbnb` and the
   packages it imports.
 
 Runners are ephemeral, so each run downloads the database from the
@@ -432,7 +432,7 @@ Not implemented. Vrbo's anti-scraping measures are stronger than Airbnb's,
 so start by investigating what is reachable. Then:
 
 - Add `packages/scraper-vrbo/`, in memory like `scraper-airbnb`, with one
-  file per endpoint, and call it from `packages/scraper`.
+  file per endpoint, and call it from `packages/ingest-airbnb`.
 - Add a `source` column (default `'airbnb'`) to `airbnb_listing_observations` and
   `airbnb_calendar_status`, and change the views' `PARTITION BY listing_id` to
   `PARTITION BY source, listing_id`, since listing ids are unique only per

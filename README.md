@@ -188,9 +188,9 @@ and the Muni's license portal, stored as published:
 
 A pnpm workspace sharing `tsconfig.base.json`:
 
-- `packages/scraper`: the daily Airbnb run: its writes, quality checks and
+- `packages/ingest-airbnb`: the daily Airbnb run: its writes, quality checks and
   CLI.
-- `packages/licenses`: the license scan: which license pages to read, the
+- `packages/ingest-muni-licenses`: the license scan: which license pages to read, the
   writes, quality checks and CLI.
 - `packages/db`: the DuckDB schema, defined with Drizzle, its migrations and
   the views.
