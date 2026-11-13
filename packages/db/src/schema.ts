@@ -4,7 +4,8 @@
  *
  * Each table name starts with its source: `airbnb_`, `muni_str_` for the
  * Municipal Clerk's STR registration layer, `muni_license_` for the Muni's
- * CityView license pages, and `muni_address_` for the Muni's geocoder. Views
+ * CityView license pages, `muni_address_` for the Muni's geocoder, and
+ * `property_` for anchorage-property's parcel database. Views
  * are named for what they derive (`listings`, `registrations`) and carry no
  * prefix.
  *
@@ -64,6 +65,14 @@
  * - `muni_address_geocodes`: one row per license address the Muni's geocoder
  *   was asked about, with its community council. The license scan writes it
  *   after its page reads, and `licenses` joins it on the address.
+ *
+ * anchorage-property, which archives the Muni's parcels with their history:
+ *
+ * - `property_parcels`: one row per parcel, the current state of
+ *   anchorage-property's `parcels_current`, replaced whole by each parcel
+ *   import. History stays in anchorage-property; `licenses` and
+ *   `registrations` join it on `parcel_id`.
+ * - `property_parcel_imports`: one row per parcel import.
  *
  * Column order is the physical order: `appendRows` writes values in the
  * order the columns are declared here, and `connect` rejects a database
@@ -435,4 +444,49 @@ export const muniAddressGeocodes = pgTable('muni_address_geocodes', {
   // the street alone). NULL when it had no candidate.
   score: doublePrecision('score'),
   matchType: varchar('match_type'),
+});
+
+// --------------------------------------------------------------------------
+// anchorage-property
+
+/**
+ * One row per parcel: anchorage-property's `parcels_current` as of the last
+ * parcel import, which deletes every row and inserts the snapshot. Values
+ * are as anchorage-property publishes them.
+ */
+export const propertyParcels = pgTable('property_parcels', {
+  // The Muni's 11-digit Parcel_ID, '07606227000': the parcel id a license
+  // page's Property location holds.
+  parcelId: varchar('parcel_id').primaryKey(),
+  // The parcel record's site address: '257 ECHO RIDGE DR'.
+  parcelAddress: varchar('parcel_address'),
+  // The appraisal grouping, upper case: 'RESIDENTIAL', 'CONDO', 'VACANT
+  // LAND', 'COMMERCIAL', 'APARTMENT', ... Not the archived registration
+  // layer's 'Residential'/'Commercial'.
+  propertyType: varchar('property_type'),
+  totalLivingUnits: integer('total_living_units'),
+  // Finer than property_type: 'Residential 1 Family', 'Condo (Fee simple)'.
+  landUse: varchar('land_use'),
+  // The zoning district code: 'R1', 'R2M', 'GR2'.
+  zoningDistrict: varchar('zoning_district'),
+  // The centroid of the parcel's polygon, EPSG:4326.
+  centroidLat: doublePrecision('centroid_lat'),
+  centroidLon: doublePrecision('centroid_lon'),
+  // When anchorage-property last saw the parcel change, naive UTC.
+  validFrom: naiveTimestamp('valid_from'),
+  // The import_date of the parcel import that wrote the row.
+  importedDate: day('imported_date').notNull(),
+});
+
+/** Counts are NULL on a failed import, which left property_parcels as it was. */
+export const propertyParcelImports = pgTable('property_parcel_imports', {
+  importDate: day('import_date').notNull(),
+  runStartedAt: naiveTimestamp('run_started_at').notNull(),
+  runFinishedAt: naiveTimestamp('run_finished_at'),
+  // Rows written to property_parcels.
+  parcelsImported: integer('parcels_imported'),
+  // The run_id of anchorage-property's newest successful ingest run in the
+  // source, '2026-11-13-d1a8fba8': which day's parcels were imported.
+  sourceIngestRun: varchar('source_ingest_run'),
+  errorSummary: varchar('error_summary'),
 });

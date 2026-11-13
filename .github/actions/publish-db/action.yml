@@ -18,5 +18,5 @@ runs:
         else
           gh release create "$tag" "$DB_PATH" --repo "$GITHUB_REPOSITORY" \
             --title "Latest data" \
-            --notes "The database after the most recent successful run of either workflow, replaced on every run. See airbnb_scrape_runs and muni_license_runs in the database for run history."
+            --notes "The database after the most recent successful run of any workflow that writes it, replaced on every run. See airbnb_scrape_runs, muni_license_runs and property_parcel_imports in the database for run history."
         fi

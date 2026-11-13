@@ -13,7 +13,8 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "daily": "node packages/scraper/src/cli.ts daily",
-    "licenses": "node packages/licenses/src/cli.ts scan"
+    "licenses": "node packages/licenses/src/cli.ts scan",
+    "parcels": "node packages/parcels/src/cli.ts import"
   },
   "devDependencies": {
     "typescript": "5.9.2"

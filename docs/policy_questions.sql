@@ -245,7 +245,9 @@ ORDER BY
 -- ============================================================
 -- Q: How many active registrations have no Airbnb listing showing them?
 -- They may be listed elsewhere (Vrbo, direct), listed without the number,
--- or not operating.
+-- or not operating. parcel_type is anchorage-property's (RESIDENTIAL,
+-- CONDO, ...) where the license's parcel is in property_parcels, else the
+-- archived layer's (Residential, Commercial).
 -- ============================================================
 SELECT
     parcel_type,
