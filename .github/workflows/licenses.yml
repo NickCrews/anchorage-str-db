@@ -1,4 +1,4 @@
-name: Muni license scan
+name: Muni license scrape
 
 on:
   schedule:
@@ -17,14 +17,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  scan:
+  scrape:
     runs-on: ubuntu-latest
-    # A scan reads at most 3000 pages at about 2 a second: about 25 minutes,
+    # A scrape reads at most 3000 pages at about 2 a second: about 25 minutes,
     # longer when the portal slows and the pacer backs off.
     timeout-minutes: 90
     permissions:
       contents: write # to upload the updated database as a release asset
-      issues: write # to open an issue when a scan fails
+      issues: write # to open an issue when a scrape fails
     env:
       DB_PATH: data/anchorage_str.duckdb
     steps:
@@ -44,14 +44,14 @@ jobs:
       - run: pnpm --filter "@anchorage-str-db/cli..." typecheck
 
       # The runner starts clean, so restore the database from the release. A
-      # missing database fails the scan unless `start_fresh` is set.
+      # missing database fails the scrape unless `start_fresh` is set.
       - name: Restore previous database
         uses: ./.github/actions/restore-db
         with:
           db-path: ${{ env.DB_PATH }}
           start-fresh: ${{ inputs.start_fresh }}
 
-      - name: Scan license pages + quality gate
+      - name: Scrape license pages + quality gate
         run: node packages/cli/src/cli.ts scrape licenses --db "$DB_PATH" --verbose
 
       # Reached only if the quality checks passed.
@@ -65,7 +65,7 @@ jobs:
         uses: ./.github/actions/outage-issue
         with:
           action: close
-          title: License scan is failing
+          title: License scrape is failing
           docs: '"CI" in CONTRIBUTING.md'
 
       - name: Open an issue on failure
@@ -73,5 +73,5 @@ jobs:
         uses: ./.github/actions/outage-issue
         with:
           action: open
-          title: License scan is failing
+          title: License scrape is failing
           docs: '"CI" in CONTRIBUTING.md'

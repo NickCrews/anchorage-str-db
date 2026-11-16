@@ -31,7 +31,7 @@ Queries run in the browser with
 Registration status compares the number a listing page shows with the
 registry, the STR certificates on the Muni's license pages: `Registered`,
 `Registration lapsed` (its certificate is no longer Active), `Id not in
-registry` (includes numbers issued since the last license scan), or `No id
+registry` (includes numbers issued since the last license scrape), or `No id
 shown`.
 
 ## Published site
@@ -39,7 +39,7 @@ shown`.
 [`.github/workflows/pages.yml`](../../.github/workflows/pages.yml) builds the
 viewer with the `latest-data` database and deploys it to GitHub Pages at
 <https://nickcrews.github.io/anchorage-str-db/> on every push to `main` and
-after each source workflow (Airbnb scrape, license scan, parcel import)
+after each source workflow (Airbnb scrape, license scrape, parcel scrape)
 publishes. The repo's Pages source must be set to "GitHub
 Actions" (Settings → Pages).
 

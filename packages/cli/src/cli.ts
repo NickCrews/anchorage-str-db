@@ -6,10 +6,10 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import { runDaily } from '@anchorage-str-db/airbnb-scraper/pipeline';
-import { runScan } from '@anchorage-str-db/licenses-scraper/scan';
-import { MAX_READS_PER_SCAN } from '@anchorage-str-db/licenses-scraper/select';
-import { ANCHORAGE_PROPERTY_URL, runImport } from '@anchorage-str-db/parcels-scraper/import';
+import { scrapeAirbnb } from '@anchorage-str-db/airbnb-scraper/scrape';
+import { scrapeLicenses } from '@anchorage-str-db/licenses-scraper/scrape';
+import { MAX_READS_PER_SCRAPE } from '@anchorage-str-db/licenses-scraper/select';
+import { ANCHORAGE_PROPERTY_URL, scrapeParcels } from '@anchorage-str-db/parcels-scraper/scrape';
 import { parseIsoDate, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log, setLevel } from '@anchorage-str-db/utils/log';
 
@@ -24,7 +24,7 @@ export type Source = (typeof SOURCES)[number];
 export interface ScrapeOptions {
   dbPath: string;
   /** The date the run is recorded under; today, UTC, when absent. */
-  date?: IsoDate;
+  scrapeDate?: IsoDate;
   /** licenses only: license pages to read at most. */
   maxReads?: number;
   /** parcels only: anchorage-property's database, a URL or a local path. */
@@ -34,21 +34,7 @@ export interface ScrapeOptions {
 /** Each source's run. Resolves to true iff its error-severity checks passed. */
 export type Scrapers = Record<Source, (options: ScrapeOptions) => Promise<boolean>>;
 
-const SCRAPERS: Scrapers = {
-  airbnb: ({ dbPath, date }) => runDaily({ dbPath, ...(date === undefined ? {} : { scrapeDate: date }) }),
-  licenses: ({ dbPath, date, maxReads }) =>
-    runScan({
-      dbPath,
-      ...(date === undefined ? {} : { scrapeDate: date }),
-      ...(maxReads === undefined ? {} : { maxReads }),
-    }),
-  parcels: ({ dbPath, date, sourceUrl }) =>
-    runImport({
-      dbPath,
-      ...(date === undefined ? {} : { importDate: date }),
-      ...(sourceUrl === undefined ? {} : { sourceUrl }),
-    }),
-};
+const SCRAPERS: Scrapers = { airbnb: scrapeAirbnb, licenses: scrapeLicenses, parcels: scrapeParcels };
 
 const USAGE = `usage: anchorage-str-db scrape <source> [options]
 
@@ -67,7 +53,7 @@ options:
   -h, --help      show this message
 
 licenses options:
-  --max-reads N   license pages to read at most (default: ${MAX_READS_PER_SCAN})
+  --max-reads N   license pages to read at most (default: ${MAX_READS_PER_SCRAPE})
 
 parcels options:
   --source URL    anchorage-property's database, a URL or a local path
@@ -142,7 +128,7 @@ export async function main(argv: string[], scrapers: Scrapers = SCRAPERS): Promi
   try {
     const ok = await scrapers[chosen]({
       dbPath,
-      ...(date === undefined ? {} : { date }),
+      ...(date === undefined ? {} : { scrapeDate: date }),
       ...(maxReads === undefined ? {} : { maxReads }),
       ...(values.source === undefined ? {} : { sourceUrl: values.source }),
     });

@@ -1,14 +1,17 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
+
+import { migrate } from '@duckdbfan/drizzle-duckdb';
 
 import { connect, LegacySchemaError } from '../src/connect.ts';
 import { Database } from '../src/database.ts';
 
 /** Migrations in `../drizzle`; every `connect` should end with exactly these applied. */
-const MIGRATION_COUNT = 7;
+const MIGRATION_COUNT = 8;
 
 const temporary: string[] = [];
 const open: Database[] = [];
@@ -162,9 +165,49 @@ describe('connect', () => {
       await db.rows('SELECT submittals FROM muni_license_page_reads'),
     ).toEqual([{ submittals: null }]);
     expect(await db.count('SELECT count(*) FROM muni_license_hidden_reads')).toBe(0);
-    expect(await db.count('SELECT count(*) FROM muni_license_runs')).toBe(0);
+    expect(await db.count('SELECT count(*) FROM muni_license_scrape_runs')).toBe(0);
     // 0005: the geocode table starts empty.
     expect(await db.count('SELECT count(*) FROM muni_address_geocodes')).toBe(0);
+  });
+
+  it('renames the run logs to <source>_scrape_runs and keeps the rows', async () => {
+    // A database migrated through 0006, as the published one was before 0007.
+    const folder = join(await mkdtemp(join(tmpdir(), 'anchorage-str-migrations-')), 'drizzle');
+    temporary.push(dirname(folder));
+    await cp(fileURLToPath(new URL('../drizzle', import.meta.url)), folder, { recursive: true });
+    const journalPath = join(folder, 'meta', '_journal.json');
+    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as { entries: { tag: string }[] };
+    journal.entries = journal.entries.filter((entry) => entry.tag !== '0007_scrape_runs');
+    await writeFile(journalPath, JSON.stringify(journal));
+
+    const path = await tempPath();
+    const seed = await Database.open(path);
+    await migrate(seed.orm, { migrationsFolder: folder });
+    await seed.run(
+      'INSERT INTO muni_license_runs (scrape_date, run_started_at, pages_attempted) ' +
+        "VALUES ('2026-11-10', '2026-11-10 08:00:00', 60)",
+    );
+    await seed.run(
+      'INSERT INTO property_parcel_imports (import_date, run_started_at, parcels_imported) ' +
+        "VALUES ('2026-11-14', '2026-11-14 16:00:00', 98500)",
+    );
+    await seed.run(
+      "INSERT INTO property_parcels (parcel_id, imported_date) VALUES ('07606227000', '2026-11-14')",
+    );
+    seed.close();
+
+    const db = await connected(path);
+
+    expect(await db.rows('SELECT scrape_date, pages_attempted FROM muni_license_scrape_runs')).toEqual([
+      { scrape_date: '2026-11-10', pages_attempted: 60 },
+    ]);
+    expect(await db.rows('SELECT scrape_date, parcels_written FROM property_parcel_scrape_runs')).toEqual([
+      { scrape_date: '2026-11-14', parcels_written: 98500 },
+    ]);
+    expect(await db.rows('SELECT parcel_id, scrape_date FROM property_parcels')).toEqual([
+      { parcel_id: '07606227000', scrape_date: '2026-11-14' },
+    ]);
+    expect(await db.count('SELECT count(*) FROM drizzle.__drizzle_migrations')).toBe(MIGRATION_COUNT);
   });
 
   it('rejects a database with listings as a table', async () => {

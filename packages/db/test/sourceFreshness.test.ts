@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { connect } from '../src/connect.ts';
 import type { Database } from '../src/database.ts';
-import { airbnbScrapeRuns, muniLicenseRuns, propertyParcelImports } from '../src/schema.ts';
+import { airbnbScrapeRuns, muniLicenseScrapeRuns, propertyParcelScrapeRuns } from '../src/schema.ts';
 
 const temporary: string[] = [];
 const open: Database[] = [];
@@ -53,12 +53,12 @@ describe('source_freshness', () => {
       { scrapeDate: '2026-11-07', ...run('2026-11-07', '12', null) },
       { scrapeDate: '2026-11-08', ...run('2026-11-08', '12', 'RateLimitedError') },
     ]);
-    await db.orm.insert(muniLicenseRuns).values([
+    await db.orm.insert(muniLicenseScrapeRuns).values([
       { scrapeDate: '2026-11-07', ...run('2026-11-07', '08', null) },
       { scrapeDate: '2026-11-08', ...run('2026-11-08', '08', null) },
     ]);
-    await db.orm.insert(propertyParcelImports).values([
-      { importDate: '2026-11-08', ...run('2026-11-08', '16', null) },
+    await db.orm.insert(propertyParcelScrapeRuns).values([
+      { scrapeDate: '2026-11-08', ...run('2026-11-08', '16', null) },
     ]);
 
     expect(await db.rows(QUERY)).toEqual([

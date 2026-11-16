@@ -1,7 +1,7 @@
 /**
- * The license scan: find the newest license id, choose which ids to read
+ * The license scrape: find the newest license id, choose which ids to read
  * (`chooseLicenseIds`), read their CityView pages, write the reads to
- * DuckDB, run the geocoding pass (`runGeocodePass`), and run the scan's
+ * DuckDB, run the geocoding pass (`runGeocodePass`), and run the scrape's
  * checks.
  *
  * Like the Airbnb scrape, it makes every request before writing, then writes in
@@ -22,15 +22,15 @@ import { report } from '@anchorage-str-db/utils/checks';
 import { toSqlTimestamp, todayUtc, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log } from '@anchorage-str-db/utils/log';
 
-import { runScanChecks } from './checks.ts';
+import { runChecks } from './checks.ts';
 import { runGeocodePass, type GeocodePassStats, type GisClients } from './geocode.ts';
-import { chooseLicenseIds, MAX_READS_PER_SCAN } from './select.ts';
-import { latestReads, logLicenseRun, recordLicenseReads, type LicenseRunRow } from './store.ts';
+import { chooseLicenseIds, MAX_READS_PER_SCRAPE } from './select.ts';
+import { latestReads, logRun, recordLicenseReads, type RunRow } from './store.ts';
 
-export interface RunScanOptions {
+export interface ScrapeLicensesOptions {
   dbPath: string;
   scrapeDate?: IsoDate;
-  /** Reads per scan; `MAX_READS_PER_SCAN` by default. */
+  /** Reads per scrape; `MAX_READS_PER_SCRAPE` by default. */
   maxReads?: number;
   /** The newest license id; the License Locator by default. */
   fetchNewest?: () => Promise<number>;
@@ -38,15 +38,15 @@ export interface RunScanOptions {
   fetchOne?: FetchOneLicensePage;
   /** The Muni GIS services; the live ones by default. */
   gis?: GisClients;
-  /** Addresses to geocode; `MAX_GEOCODES_PER_SCAN` by default. */
+  /** Addresses to geocode; `MAX_GEOCODES_PER_SCRAPE` by default. */
   maxGeocodes?: number;
 }
 
 /** Resolves to true iff every error-severity check passed. */
-export async function runScan(options: RunScanOptions): Promise<boolean> {
+export async function scrapeLicenses(options: ScrapeLicensesOptions): Promise<boolean> {
   const scrapeDate = options.scrapeDate ?? todayUtc();
   const startedAt = toSqlTimestamp(new Date());
-  log.info(`=== anchorage-str-db license scan: ${scrapeDate} ===`);
+  log.info(`=== anchorage-str-db license scrape: ${scrapeDate} ===`);
 
   const db = await connect(options.dbPath);
   try {
@@ -56,7 +56,7 @@ export async function runScan(options: RunScanOptions): Promise<boolean> {
       newestCityviewLicenseId: newest,
       latestReads: await latestReads(db),
       scrapeDate,
-      max: options.maxReads ?? MAX_READS_PER_SCAN,
+      max: options.maxReads ?? MAX_READS_PER_SCRAPE,
     });
     log.info(`newest license id ${newest}; reading ${ids.length} license pages`);
 
@@ -73,7 +73,7 @@ export async function runScan(options: RunScanOptions): Promise<boolean> {
     // ---- write phase -----------------------------------------------------
     await db.transaction(async () => {
       const stats = await recordLicenseReads(db, scrapeDate, pages, hidden);
-      await logLicenseRun(db, {
+      await logRun(db, {
         scrapeDate,
         runStartedAt: startedAt,
         runFinishedAt: toSqlTimestamp(new Date()),
@@ -100,20 +100,20 @@ export async function runScan(options: RunScanOptions): Promise<boolean> {
       geocoding = { error: describeError(err) };
     }
 
-    const ok = report(await runScanChecks(db, scrapeDate, { pages, geocoding }));
-    log.info(`=== license scan ${scrapeDate}: ${ok ? 'PASSED' : 'FAILED'} ===`);
+    const ok = report(await runChecks(db, scrapeDate, { pages, geocoding }));
+    log.info(`=== license scrape ${scrapeDate}: ${ok ? 'PASSED' : 'FAILED'} ===`);
     return ok;
   } catch (err) {
-    log.error(`license scan failed: ${describeError(err)}`);
+    log.error(`license scrape failed: ${describeError(err)}`);
     // After the rollback, so this row is kept.
-    await logLicenseRun(db, failedRunRow(scrapeDate, startedAt, describeError(err)));
+    await logRun(db, failedRunRow(scrapeDate, startedAt, describeError(err)));
     throw err;
   } finally {
     db.close();
   }
 }
 
-function failedRunRow(scrapeDate: IsoDate, startedAt: string, errorSummary: string): LicenseRunRow {
+function failedRunRow(scrapeDate: IsoDate, startedAt: string, errorSummary: string): RunRow {
   return {
     scrapeDate,
     runStartedAt: startedAt,

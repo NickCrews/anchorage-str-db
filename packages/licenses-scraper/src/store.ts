@@ -1,5 +1,5 @@
 /**
- * Reads and writes for the license scan. The tables are defined in
+ * Reads and writes for the license scrape. The tables are defined in
  * `@anchorage-str-db/db/schema`.
  */
 
@@ -8,7 +8,7 @@ import {
   muniAddressGeocodes,
   muniLicenseHiddenReads,
   muniLicensePageReads,
-  muniLicenseRuns,
+  muniLicenseScrapeRuns,
 } from '@anchorage-str-db/db/schema';
 import type { HiddenLicensePage, LicensePage } from '@anchorage-str-db/licenses-client/licensePage';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
@@ -45,7 +45,7 @@ export interface ReadStats {
 }
 
 /**
- * Store one scan's reads. Idempotent per (id, scrape date): a read replaces
+ * Store one scrape's reads. Idempotent per (id, scrape date): a read replaces
  * any read of the same id earlier that day, visible or hidden, and other
  * ids read earlier that day are kept.
  */
@@ -130,10 +130,10 @@ export async function recordLicenseReads(
 }
 
 /** Every column, so a caller cannot leave a count out by omission. */
-export type LicenseRunRow = Required<typeof muniLicenseRuns.$inferInsert>;
+export type RunRow = Required<typeof muniLicenseScrapeRuns.$inferInsert>;
 
-export async function logLicenseRun(db: Database, run: LicenseRunRow): Promise<void> {
-  await db.orm.insert(muniLicenseRuns).values(run);
+export async function logRun(db: Database, run: RunRow): Promise<void> {
+  await db.orm.insert(muniLicenseScrapeRuns).values(run);
 }
 
 /**

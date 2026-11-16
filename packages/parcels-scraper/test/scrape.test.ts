@@ -1,5 +1,5 @@
 /**
- * The parcel import against a local DuckDB file shaped like
+ * The parcel scrape against a local DuckDB file shaped like
  * anchorage-property's `anchorage-current.duckdb`. No network.
  */
 
@@ -13,7 +13,7 @@ import { connect } from '@anchorage-str-db/db/connect';
 import { Database } from '@anchorage-str-db/db/database';
 
 import { MIN_PARCELS } from '../src/checks.ts';
-import { runImport } from '../src/import.ts';
+import { scrapeParcels } from '../src/scrape.ts';
 
 const temporary: string[] = [];
 const open: Database[] = [];
@@ -46,7 +46,7 @@ interface SourceShape {
   ingestRuns?: boolean;
 }
 
-/** Columns of parcels_current, a subset in the source's order and types, plus one this repo does not import. */
+/** Columns of parcels_current, a subset in the source's order and types, plus one this repo does not copy. */
 const SOURCE_COLUMNS: [string, string][] = [
   ['parcel_id', "lpad(i::VARCHAR, 11, '0')"],
   ['property_type', "CASE WHEN i % 5 = 0 THEN 'CONDO' ELSE 'RESIDENTIAL' END"],
@@ -90,21 +90,21 @@ async function dbPath(): Promise<string> {
   return join(await tempDir(), 't.duckdb');
 }
 
-async function imports(path: string): Promise<unknown[]> {
+async function runs(path: string): Promise<unknown[]> {
   const db = await opened(path);
   const rows = await db.rows(
-    'SELECT import_date, parcels_imported, source_ingest_run, error_summary FROM property_parcel_imports ORDER BY run_started_at, import_date',
+    'SELECT scrape_date, parcels_written, source_ingest_run, error_summary FROM property_parcel_scrape_runs ORDER BY run_started_at, scrape_date',
   );
   db.close();
   open.pop();
   return rows;
 }
 
-describe('runImport', () => {
-  it('copies every parcel and logs the import', async () => {
+describe('scrapeParcels', () => {
+  it('copies every parcel and logs the scrape', async () => {
     const path = await dbPath();
 
-    expect(await runImport({ dbPath: path, importDate: '2026-11-14', sourceUrl: await sourceFile() })).toBe(true);
+    expect(await scrapeParcels({ dbPath: path, scrapeDate: '2026-11-14', sourceUrl: await sourceFile() })).toBe(true);
 
     const db = await opened(path);
     expect(await db.count('SELECT count(*) FROM property_parcels')).toBe(MIN_PARCELS);
@@ -119,24 +119,24 @@ describe('runImport', () => {
         centroid_lat: 61.2,
         centroid_lon: -149.9,
         valid_from: '2026-10-07 19:37:33.788',
-        imported_date: '2026-11-14',
+        scrape_date: '2026-11-14',
       },
     ]);
     expect(
-      await db.rows('SELECT import_date, parcels_imported, source_ingest_run, error_summary FROM property_parcel_imports'),
+      await db.rows('SELECT scrape_date, parcels_written, source_ingest_run, error_summary FROM property_parcel_scrape_runs'),
     ).toEqual([
-      { import_date: '2026-11-14', parcels_imported: MIN_PARCELS, source_ingest_run: '2026-11-13-d1a8fba8', error_summary: null },
+      { scrape_date: '2026-11-14', parcels_written: MIN_PARCELS, source_ingest_run: '2026-11-13-d1a8fba8', error_summary: null },
     ]);
   });
 
-  it('replaces the whole table each import', async () => {
+  it('replaces the whole table each scrape', async () => {
     const path = await dbPath();
-    await runImport({ dbPath: path, importDate: '2026-11-13', sourceUrl: await sourceFile({ parcels: MIN_PARCELS + 1 }) });
-    await runImport({ dbPath: path, importDate: '2026-11-14', sourceUrl: await sourceFile() });
+    await scrapeParcels({ dbPath: path, scrapeDate: '2026-11-13', sourceUrl: await sourceFile({ parcels: MIN_PARCELS + 1 }) });
+    await scrapeParcels({ dbPath: path, scrapeDate: '2026-11-14', sourceUrl: await sourceFile() });
 
     const db = await opened(path);
     expect(
-      await db.rows('SELECT count(*)::INTEGER AS n, min(imported_date) AS first, max(parcel_id) AS last FROM property_parcels'),
+      await db.rows('SELECT count(*)::INTEGER AS n, min(scrape_date) AS first, max(parcel_id) AS last FROM property_parcels'),
     ).toEqual([{ n: MIN_PARCELS, first: '2026-11-14', last: lpad(MIN_PARCELS - 1) }]);
     // Recreated with its primary key.
     expect(
@@ -151,28 +151,28 @@ describe('runImport', () => {
     const path = await dbPath();
 
     expect(
-      await runImport({ dbPath: path, importDate: '2026-11-14', sourceUrl: await sourceFile({ ingestRuns: false }) }),
+      await scrapeParcels({ dbPath: path, scrapeDate: '2026-11-14', sourceUrl: await sourceFile({ ingestRuns: false }) }),
     ).toBe(true);
-    expect(await imports(path)).toEqual([
-      { import_date: '2026-11-14', parcels_imported: MIN_PARCELS, source_ingest_run: null, error_summary: null },
+    expect(await runs(path)).toEqual([
+      { scrape_date: '2026-11-14', parcels_written: MIN_PARCELS, source_ingest_run: null, error_summary: null },
     ]);
   });
 
   describe('refuses a source that looks wrong and keeps the table', () => {
     async function afterRefusal(source: SourceShape, check: string): Promise<void> {
       const path = await dbPath();
-      await runImport({ dbPath: path, importDate: '2026-11-13', sourceUrl: await sourceFile() });
+      await scrapeParcels({ dbPath: path, scrapeDate: '2026-11-13', sourceUrl: await sourceFile() });
 
-      expect(await runImport({ dbPath: path, importDate: '2026-11-14', sourceUrl: await sourceFile(source) })).toBe(false);
+      expect(await scrapeParcels({ dbPath: path, scrapeDate: '2026-11-14', sourceUrl: await sourceFile(source) })).toBe(false);
 
       const db = await opened(path);
       expect(
-        await db.rows('SELECT count(*)::INTEGER AS n, max(imported_date) AS imported FROM property_parcels'),
-      ).toEqual([{ n: MIN_PARCELS, imported: '2026-11-13' }]);
-      const [failed] = await db.rows<{ parcels_imported: number | null; error_summary: string }>(
-        "SELECT parcels_imported, error_summary FROM property_parcel_imports WHERE import_date = '2026-11-14'",
+        await db.rows('SELECT count(*)::INTEGER AS n, max(scrape_date) AS scraped FROM property_parcels'),
+      ).toEqual([{ n: MIN_PARCELS, scraped: '2026-11-13' }]);
+      const [failed] = await db.rows<{ parcels_written: number | null; error_summary: string }>(
+        "SELECT parcels_written, error_summary FROM property_parcel_scrape_runs WHERE scrape_date = '2026-11-14'",
       );
-      expect(failed?.parcels_imported).toBeNull();
+      expect(failed?.parcels_written).toBeNull();
       expect(failed?.error_summary).toContain(check);
     }
 
@@ -197,10 +197,10 @@ describe('runImport', () => {
     const path = await dbPath();
     const missing = join(await tempDir(), 'nowhere.duckdb');
 
-    await expect(runImport({ dbPath: path, importDate: '2026-11-14', sourceUrl: missing })).rejects.toThrow();
+    await expect(scrapeParcels({ dbPath: path, scrapeDate: '2026-11-14', sourceUrl: missing })).rejects.toThrow();
 
-    const [row] = await imports(path);
-    expect(row).toMatchObject({ import_date: '2026-11-14', parcels_imported: null, source_ingest_run: null });
+    const [row] = await runs(path);
+    expect(row).toMatchObject({ scrape_date: '2026-11-14', parcels_written: null, source_ingest_run: null });
     expect((row as { error_summary: string }).error_summary).toBeTruthy();
   });
 });

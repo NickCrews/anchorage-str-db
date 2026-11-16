@@ -3,7 +3,7 @@
 Runs the Airbnb scraper and writes what it returns to the database defined in
 `packages/db`.
 
-- `pipeline.ts`: the daily run over `airbnb-client`
+- `scrape.ts`: the Airbnb scrape over `airbnb-client`
 - `store.ts`: the writes
 - `checks.ts`: the quality checks each run ends with, and the thresholds they
   hold a run to

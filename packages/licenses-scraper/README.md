@@ -1,34 +1,34 @@
 # `@anchorage-str-db/licenses-scraper`
 
-The license scan: records every license the Muni's CityView portal
+The license scrape: records every license the Muni's CityView portal
 publishes, by reading license pages by id, and writes them to the database
 defined in `packages/db`, then geocodes their addresses. An app like
 `packages/airbnb-scraper`, over `licenses-client` and `muni-gis-client`; it never imports
 `airbnb-scraper`.
 
-- `scan.ts`: the scan: newest id, choose ids, read pages, write, geocode,
+- `scrape.ts`: the scrape: newest id, choose ids, read pages, write, geocode,
   check
-- `select.ts`: `chooseLicenseIds`, which ids a scan reads
+- `select.ts`: `chooseLicenseIds`, which ids a scrape reads
 - `geocode.ts`: `runGeocodePass`, the geocoding pass
 - `store.ts`: the read history, the writes and the run log
-- `checks.ts`: the quality checks each scan ends with
+- `checks.ts`: the quality checks each scrape ends with
 
 ```sh
 pnpm scrape licenses
 pnpm scrape licenses --db /tmp/scratch.duckdb --max-reads 60 --verbose
 ```
 
-`--max-reads` caps the scan below `MAX_READS_PER_SCAN` (3000), for a quick
+`--max-reads` caps the scrape below `MAX_READS_PER_SCRAPE` (3000), for a quick
 run against a scratch database.
 
-## What a scan reads
+## What a scrape reads
 
 `cityviewLicenseId` is one counter across every license type, in creation
 order, never reused. Most ids are hidden license ids. The read history in
-the database is the scan's only state: `muni_license_page_reads` (visible
+the database is the scrape's only state: `muni_license_page_reads` (visible
 pages) and `muni_license_hidden_reads` (hidden ids).
 
-Each scan finds the newest id from the License Locator, then reads up to
+Each scrape finds the newest id from the License Locator, then reads up to
 3000 ids in this order (`chooseLicenseIds`):
 
 1. ids above the highest id ever read, visible or hidden, up to the newest,
@@ -40,18 +40,18 @@ Each scan finds the newest id from the License Locator, then reads up to
 6. older hidden ids last read 90 days ago or more.
 
 Within 3 to 6 the oldest read goes first. A failed read writes nothing, so
-the id keeps its place for the next scan. From an empty database the first
-scan reads the newest 3000 ids, which hold every Short-Term Rentals license
+the id keeps its place for the next scrape. From an empty database the first
+scrape reads the newest 3000 ids, which hold every Short-Term Rentals license
 (ids from 13607), and the rest of the ~16,500 ids follow over about five
-more scans. Once caught up, a scan reads well under 3000 ids: about 400
+more scrapes. Once caught up, a scrape reads well under 3000 ids: about 400
 Short-Term Rentals licenses, the newest hidden ids, and a share of the rest.
 
 ## Writes
 
 All reads come first, then one transaction writes them and the
-`muni_license_runs` row. A read replaces any read of the same id earlier the
-same day, visible or hidden, so re-running a day is safe. A failed scan logs
-a `muni_license_runs` row with `error_summary` after the rollback.
+`muni_license_scrape_runs` row. A read replaces any read of the same id earlier the
+same day, visible or hidden, so re-running a day is safe. A failed scrape logs
+a `muni_license_scrape_runs` row with `error_summary` after the rollback.
 
 `licenses_new` counts visible pages of licenses with no visible read before
 the scrape date; `licenses_status_changed` counts those whose page status or
@@ -64,9 +64,9 @@ After the page reads are written, `runGeocodePass` fills
 
 1. It takes the `address` of every license in `licenses`, of every type,
    that has no row in `muni_address_geocodes`, then those whose row has no
-   match and is 90 days old or more, at most 1000 a scan, Short-Term Rentals
+   match and is 90 days old or more, at most 1000 a scrape, Short-Term Rentals
    licenses first. From an empty database the ~3,000 addresses take three
-   scans; after that a scan geocodes the day's new licenses.
+   scrapes; after that a scrape geocodes the day's new licenses.
 2. If there are any, it fetches the community council polygons, geocodes
    each address, and finds the council of each match.
 3. One transaction writes the rows; a row replaces the address's earlier
@@ -77,13 +77,13 @@ An address the geocoder answered without a match is stored with NULL
 and `match_type` (`StreetName` when it placed only the street), so it is
 not asked about again for 90 days. A match is kept for good: an address
 does not move, and its council is the one containing it when it was
-geocoded. A failed request writes nothing and is retried next scan.
+geocoded. A failed request writes nothing and is retried next scrape.
 
 The pass runs after the page reads' transaction, so it can read the
 addresses those reads hold from `licenses`, and so its failure leaves them
-written: the scan logs the error and the `geocode_failure_rate` check warns.
-Its counts are logged, not stored in `muni_license_runs`; the rows'
-`geocoded_date` records which scan wrote them.
+written: the scrape logs the error and the `geocode_failure_rate` check warns.
+Its counts are logged, not stored in `muni_license_scrape_runs`; the rows'
+`geocoded_date` records which scrape wrote them.
 
 The council is stored on the geocode rather than joined in SQL from stored
 polygons, so neither the views nor the browser viewer need DuckDB's spatial
@@ -93,7 +93,7 @@ extension, and a council follows the coordinate it was found from.
 
 | check | severity | fails when |
 | --- | --- | --- |
-| `license_run_logged` | error | the scan logged no completed run |
+| `license_run_logged` | error | the scrape logged no completed run |
 | `license_page_failure_rate` | error | more than 25% of reads failed |
 | `license_page_fields_present` | error | fewer than 95% of visible pages read had a status and an issuance |
 | `registration_id_format` | warn | an STR Certificate read has a number that is not `STR` + 8 digits |
@@ -104,5 +104,5 @@ extension, and a council follows the coordinate it was found from.
 ## Tests
 
 `pnpm test` in this package runs offline: `test/select.test.ts` covers the
-order above, and `test/scan.test.ts` runs the scan, geocoding pass included,
+order above, and `test/scrape.test.ts` runs the scrape, geocoding pass included,
 against a real DuckDB file with injected page reads and GIS services.

@@ -129,7 +129,7 @@ The data cannot tell these apart.
 A registration with no Airbnb listing may be listed on another platform, not
 be operating, or be cited by a listing that shows no id.
 
-"Id not in registry" includes ids issued since the license scan last read
+"Id not in registry" includes ids issued since the license scrape last read
 new license ids, and ids on licenses whose page is hidden, so it is not
 proof of an invalid id.
 

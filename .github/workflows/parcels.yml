@@ -1,10 +1,10 @@
-name: Parcel import
+name: Parcel scrape
 
 on:
   schedule:
     # 16:00 UTC = 08:00 AKDT / 07:00 AKST, after the Airbnb scrape at 12:00.
     # anchorage-property's ingest has started between about 14:00 and 23:00
-    # UTC; an import before it copies the previous day's parcels.
+    # UTC; a scrape before it copies the previous day's parcels.
     - cron: "0 16 * * *"
   workflow_dispatch:
     inputs:
@@ -19,14 +19,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  import:
+  scrape:
     runs-on: ubuntu-latest
-    # An import reads about 10 MB of anchorage-property's file and writes
+    # A scrape reads about 10 MB of anchorage-property's file and writes
     # ~98,500 rows: under a minute.
     timeout-minutes: 15
     permissions:
       contents: write # to upload the updated database as a release asset
-      issues: write # to open an issue when an import fails
+      issues: write # to open an issue when a scrape fails
     env:
       DB_PATH: data/anchorage_str.duckdb
     steps:
@@ -46,17 +46,17 @@ jobs:
       - run: pnpm --filter "@anchorage-str-db/cli..." typecheck
 
       # The runner starts clean, so restore the database from the release. A
-      # missing database fails the import unless `start_fresh` is set.
+      # missing database fails the scrape unless `start_fresh` is set.
       - name: Restore previous database
         uses: ./.github/actions/restore-db
         with:
           db-path: ${{ env.DB_PATH }}
           start-fresh: ${{ inputs.start_fresh }}
 
-      - name: Import parcels + quality gate
+      - name: Scrape parcels + quality gate
         run: node packages/cli/src/cli.ts scrape parcels --db "$DB_PATH" --verbose
 
-      # Reached only if the source passed its checks and the import wrote.
+      # Reached only if the source passed its checks and the scrape wrote.
       - name: Publish updated database
         uses: ./.github/actions/publish-db
         with:
@@ -67,7 +67,7 @@ jobs:
         uses: ./.github/actions/outage-issue
         with:
           action: close
-          title: Parcel import is failing
+          title: Parcel scrape is failing
           docs: '"CI" in CONTRIBUTING.md'
 
       - name: Open an issue on failure
@@ -75,5 +75,5 @@ jobs:
         uses: ./.github/actions/outage-issue
         with:
           action: open
-          title: Parcel import is failing
+          title: Parcel scrape is failing
           docs: '"CI" in CONTRIBUTING.md'

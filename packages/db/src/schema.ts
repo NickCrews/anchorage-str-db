@@ -57,22 +57,22 @@
  *   read, of any license type. Pages are read on a rolling schedule, not
  *   every run.
  * - `muni_license_hidden_reads`: one row per read of a hidden license id.
- * - `muni_license_runs`: one row per license scan.
+ * - `muni_license_scrape_runs`: one row per license scrape.
  *
- * Together the two read tables are the scan's state: which ids have been
+ * Together the two read tables are the scrape's state: which ids have been
  * read, when, and what they were.
  *
  * - `muni_address_geocodes`: one row per license address the Muni's geocoder
- *   was asked about, with its community council. The license scan writes it
+ *   was asked about, with its community council. The license scrape writes it
  *   after its page reads, and `licenses` joins it on the address.
  *
  * anchorage-property, which archives the Muni's parcels with their history:
  *
  * - `property_parcels`: one row per parcel, the current state of
  *   anchorage-property's `parcels_current`, replaced whole by each parcel
- *   import. History stays in anchorage-property; `licenses` and
+ *   scrape. History stays in anchorage-property; `licenses` and
  *   `registrations` join it on `parcel_id`.
- * - `property_parcel_imports`: one row per parcel import.
+ * - `property_parcel_scrape_runs`: one row per parcel scrape.
  *
  * Column order is the physical order: `appendRows` writes values in the
  * order the columns are declared here, and `connect` rejects a database
@@ -377,14 +377,14 @@ export const muniLicenseHiddenReads = pgTable(
   (t) => [primaryKey({ columns: [t.cityviewLicenseId, t.scrapeDate] })],
 );
 
-/** Counts are NULL on a failed scan, which wrote nothing else. */
-export const muniLicenseRuns = pgTable('muni_license_runs', {
+/** Counts are NULL on a failed scrape, which wrote nothing else. */
+export const muniLicenseScrapeRuns = pgTable('muni_license_scrape_runs', {
   scrapeDate: day('scrape_date').notNull(),
   runStartedAt: naiveTimestamp('run_started_at').notNull(),
   runFinishedAt: naiveTimestamp('run_finished_at'),
   // The highest id on the License Locator's first page: the newest visible license.
   newestCityviewLicenseId: integer('newest_cityview_license_id'),
-  // Ids whose page the scan tried to read; the next three add up to it.
+  // Ids whose page the scrape tried to read; the next three add up to it.
   pagesAttempted: integer('pages_attempted'),
   // Visible pages read, stored in muni_license_page_reads.
   pagesRead: integer('pages_read'),
@@ -421,13 +421,13 @@ export const muniStrRegistryRuns = pgTable('muni_str_registry_runs', {
 /**
  * One row per address, as a license page shows it, sent to the Muni's
  * geocoder (`MOA_Multirole_Locator`). A row with no match is kept, so the
- * address is not asked about again until the license scan's retry interval
+ * address is not asked about again until the license scrape's retry interval
  * passes; the next answer replaces the row. A failed request writes no row.
  */
 export const muniAddressGeocodes = pgTable('muni_address_geocodes', {
   // Verbatim from the license page, so it joins to licenses.address.
   address: varchar('address').primaryKey(),
-  // The scrape date of the license scan that asked.
+  // The scrape date of the license scrape that asked.
   geocodedDate: day('geocoded_date').notNull(),
   // The geocoder's address for the match, in its own style:
   // '525 W 3rd Ave, #501, Anchorage, AK, 99501'. NULL when it found no
@@ -451,7 +451,7 @@ export const muniAddressGeocodes = pgTable('muni_address_geocodes', {
 
 /**
  * One row per parcel: anchorage-property's `parcels_current` as of the last
- * parcel import, which deletes every row and inserts the snapshot. Values
+ * parcel scrape, which deletes every row and inserts the snapshot. Values
  * are as anchorage-property publishes them.
  */
 export const propertyParcels = pgTable('property_parcels', {
@@ -474,19 +474,19 @@ export const propertyParcels = pgTable('property_parcels', {
   centroidLon: doublePrecision('centroid_lon'),
   // When anchorage-property last saw the parcel change, naive UTC.
   validFrom: naiveTimestamp('valid_from'),
-  // The import_date of the parcel import that wrote the row.
-  importedDate: day('imported_date').notNull(),
+  // The scrape_date of the parcel scrape that wrote the row.
+  scrapeDate: day('scrape_date').notNull(),
 });
 
-/** Counts are NULL on a failed import, which left property_parcels as it was. */
-export const propertyParcelImports = pgTable('property_parcel_imports', {
-  importDate: day('import_date').notNull(),
+/** Counts are NULL on a failed scrape, which left property_parcels as it was. */
+export const propertyParcelScrapeRuns = pgTable('property_parcel_scrape_runs', {
+  scrapeDate: day('scrape_date').notNull(),
   runStartedAt: naiveTimestamp('run_started_at').notNull(),
   runFinishedAt: naiveTimestamp('run_finished_at'),
   // Rows written to property_parcels.
-  parcelsImported: integer('parcels_imported'),
+  parcelsWritten: integer('parcels_written'),
   // The run_id of anchorage-property's newest successful ingest run in the
-  // source, '2026-11-13-d1a8fba8': which day's parcels were imported.
+  // source, '2026-11-13-d1a8fba8': which day's parcels were copied.
   sourceIngestRun: varchar('source_ingest_run'),
   errorSummary: varchar('error_summary'),
 });

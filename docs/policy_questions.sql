@@ -210,7 +210,7 @@ ORDER BY
 -- ============================================================
 -- Q: Which listings show a registration id the Muni hasn't published?
 -- Either a typo, a license whose page is hidden, or a number issued since the
--- last license scan (latest_registry_date).
+-- last license scrape (latest_registry_date).
 -- ============================================================
 SELECT
     listing_id,

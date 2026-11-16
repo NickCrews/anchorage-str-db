@@ -1,10 +1,10 @@
 /**
  * Reads from anchorage-property's published database, and writes for the
- * parcel import. The tables are defined in `@anchorage-str-db/db/schema`.
+ * parcel scrape. The tables are defined in `@anchorage-str-db/db/schema`.
  */
 
 import type { Database } from '@anchorage-str-db/db/database';
-import { propertyParcelImports } from '@anchorage-str-db/db/schema';
+import { propertyParcelScrapeRuns } from '@anchorage-str-db/db/schema';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
 /** The name the source is attached under while it is read. */
@@ -15,7 +15,7 @@ export const SOURCE_TABLE = 'parcels_current';
 
 /**
  * The columns read from `parcels_current`, with the type each is cast to:
- * those of `property_parcels`, in its order, without `imported_date`.
+ * those of `property_parcels`, in its order, without `scrape_date`.
  */
 const SOURCE_COLUMNS = [
   ['parcel_id', 'VARCHAR'],
@@ -102,10 +102,10 @@ async function newestIngestRun(db: Database): Promise<IngestRun | null> {
  *
  * The table is dropped and recreated from its own DDL rather than emptied
  * with DELETE: DuckDB's primary-key index keeps the deleted keys' blocks, so
- * a DELETE of every row grew the file by about 2.5 MB an import.
+ * a DELETE of every row grew the file by about 2.5 MB a scrape.
  */
-export async function replaceParcels(db: Database, importDate: IsoDate): Promise<number> {
-  const columns = [...SOURCE_COLUMNS.map(([name]) => name), 'imported_date'].join(', ');
+export async function replaceParcels(db: Database, scrapeDate: IsoDate): Promise<number> {
+  const columns = [...SOURCE_COLUMNS.map(([name]) => name), 'scrape_date'].join(', ');
   const ddl = await db.value(
     'SELECT sql FROM duckdb_tables() ' +
       "WHERE database_name = current_database() AND schema_name = 'main' AND table_name = 'property_parcels'",
@@ -116,14 +116,14 @@ export async function replaceParcels(db: Database, importDate: IsoDate): Promise
   await db.run(
     `INSERT INTO property_parcels (${columns}) ` +
       `SELECT *, CAST(? AS DATE) FROM ${STAGED_PARCELS}`,
-    [importDate],
+    [scrapeDate],
   );
   return db.count('SELECT count(*) FROM property_parcels');
 }
 
 /** Every column, so a caller cannot leave one out by omission. */
-export type ParcelImportRow = Required<typeof propertyParcelImports.$inferInsert>;
+export type RunRow = Required<typeof propertyParcelScrapeRuns.$inferInsert>;
 
-export async function logParcelImport(db: Database, run: ParcelImportRow): Promise<void> {
-  await db.orm.insert(propertyParcelImports).values(run);
+export async function logRun(db: Database, run: RunRow): Promise<void> {
+  await db.orm.insert(propertyParcelScrapeRuns).values(run);
 }

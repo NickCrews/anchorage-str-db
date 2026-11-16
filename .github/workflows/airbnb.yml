@@ -2,8 +2,8 @@ name: Airbnb scrape
 
 on:
   schedule:
-    # 12:00 UTC = 04:00 AKDT / 03:00 AKST, between the license scan at 08:00
-    # and the parcel import at 16:00, which share the db-write group.
+    # 12:00 UTC = 04:00 AKDT / 03:00 AKST, between the license scrape at 08:00
+    # and the parcel scrape at 16:00, which share the db-write group.
     - cron: "0 12 * * *"
   workflow_dispatch:
     inputs:

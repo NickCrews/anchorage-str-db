@@ -43,7 +43,7 @@ describe('main', () => {
     const db = await dbPath();
 
     expect(await main(['scrape', 'airbnb', '--db', db, '--date', '2026-11-14'], scrapers)).toBe(0);
-    expect(calls).toEqual([['airbnb', { dbPath: db, date: '2026-11-14' }]]);
+    expect(calls).toEqual([['airbnb', { dbPath: db, scrapeDate: '2026-11-14' }]]);
   });
 
   it("passes each source's own option", async () => {

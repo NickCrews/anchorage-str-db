@@ -33,7 +33,7 @@ import {
   type RunRow,
 } from './store.ts';
 
-export interface RunScrapeOptions {
+export interface ScrapeAirbnbOptions {
   dbPath: string;
   scrapeDate?: IsoDate;
 }
@@ -49,7 +49,7 @@ export interface RunScrapeOptions {
  * The page pass always runs. Skipping it would write rows with page fields
  * carried forward from earlier days, indistinguishable from fresh reads.
  */
-export async function runScrape(options: RunScrapeOptions): Promise<boolean> {
+export async function scrapeAirbnb(options: ScrapeAirbnbOptions): Promise<boolean> {
   const scrapeDate = options.scrapeDate ?? todayUtc();
   const startedAt = toSqlTimestamp(new Date());
   log.info(`=== anchorage-str-db Airbnb scrape: ${scrapeDate} ===`);

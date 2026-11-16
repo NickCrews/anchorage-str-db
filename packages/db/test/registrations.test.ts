@@ -1,6 +1,6 @@
 /**
  * The `licenses`, `registrations` and `latest_registry_date` views over
- * license page reads, hidden reads, scan runs, geocodes, parcels and the
+ * license page reads, hidden reads, scrape runs, geocodes, parcels and the
  * archived registration layer, seeded directly.
  */
 
@@ -16,7 +16,7 @@ import {
   muniAddressGeocodes,
   muniLicenseHiddenReads,
   muniLicensePageReads,
-  muniLicenseRuns,
+  muniLicenseScrapeRuns,
   muniStrRegistrationObservations,
   propertyParcels,
   type LicenseIssuance,
@@ -152,7 +152,7 @@ const ECHO_RIDGE_PARCEL: typeof propertyParcels.$inferInsert = {
   centroidLat: 60.9515,
   centroidLon: -149.1206,
   validFrom: '2026-10-07 19:37:33',
-  importedDate: '2026-11-13',
+  scrapeDate: '2026-11-13',
 };
 
 async function parcels(db: Database, rows: (typeof propertyParcels.$inferInsert)[]): Promise<void> {
@@ -469,11 +469,11 @@ describe('registrations view', () => {
     ]);
     await readPages(db, '2026-11-08', [
       strPage(13923, 'STR20260309'),
-      // A parcel the import has not seen.
+      // A parcel the scrape has not seen.
       strPage(13924, 'STR20260310', {
         locations: [{ label: 'Property', value: '00606148000', link: null }],
       }),
-      // A parcel the import has, with no property type.
+      // A parcel the scrape has, with no property type.
       strPage(13925, 'STR20260311', {
         locations: [{ label: 'Property', value: '01234567000', link: null }],
       }),
@@ -582,7 +582,7 @@ describe('registrations view', () => {
 });
 
 describe('latest_registry_date', () => {
-  it('is the latest license scan that completed its writes', async () => {
+  it('is the latest license scrape that completed its writes', async () => {
     const db = await freshDb();
     const run = (scrapeDate: string, errorSummary: string | null) => ({
       scrapeDate,
@@ -591,7 +591,7 @@ describe('latest_registry_date', () => {
       pagesAttempted: errorSummary ? null : 10,
       errorSummary,
     });
-    await db.orm.insert(muniLicenseRuns).values([run('2026-11-07', null), run('2026-11-08', 'portal down')]);
+    await db.orm.insert(muniLicenseScrapeRuns).values([run('2026-11-07', null), run('2026-11-08', 'portal down')]);
 
     expect(await db.value('SELECT scrape_date FROM latest_registry_date')).toBe('2026-11-07');
   });
