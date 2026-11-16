@@ -13,7 +13,7 @@
 
 import { requestJson } from './http.ts';
 
-const OPERATION_ID = 'dec1c8061483e78373602047450322fd474e79ba9afa8d3dbbc27f504030f91d';
+const OPERATION_ID = 'cfdc3ffbe997a618795fc5a8f9a9b484054ce9be68c8788cd2ffda999934c5ae';
 
 export interface ReviewPage {
   /** Airbnb's count of every review on the listing, not just this page. */

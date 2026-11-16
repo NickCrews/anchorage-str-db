@@ -1,7 +1,6 @@
 /**
- * Airbnb's `StaysPdpSections` endpoint, asked only for the booking sidebar:
- * the price of one stay at one listing, for given check-in and check-out
- * dates.
+ * Airbnb's `StaysPdpBookItQuery` endpoint: the booking sidebar's price for one
+ * stay at one listing, for given check-in and check-out dates.
  *
  * The calendar endpoint returns no price to an unauthenticated caller, and the
  * listing page renders none even with dates; this is the request the page
@@ -12,8 +11,8 @@
 import { requestJson } from './http.ts';
 import { parsePriceAmount } from './search.ts';
 
-/** Persisted-query hash for `StaysPdpSections`. Airbnb rotates it; 400s mean it changed. */
-const OPERATION_ID = '80c7889b4b0027d99ffea830f6c0d4911a6e863a957cbe1044823f0fc746bf1f';
+/** Persisted-query hash for `StaysPdpBookItQuery`. Airbnb rotates it; 400s mean it changed. */
+const OPERATION_ID = '9afe04ccb0e7082750ec50fb56513196422b992449bb0406c3dffcc954863b68';
 
 export interface PriceQuoteQuery {
   apiKey: string;
@@ -39,37 +38,40 @@ export interface PriceQuoteResponse {
   breakdown: string[];
 }
 
-function encodeId(typeName: string, listingId: string): string {
-  return Buffer.from(`${typeName}:${listingId}`).toString('base64');
-}
-
 /** One request. */
 export async function fetchPriceQuote(query: PriceQuoteQuery): Promise<unknown> {
+  const dates = { startDate: query.checkIn, endDate: query.checkOut };
+  // The query rejects a request that leaves out any of these variables, so
+  // every one the website sends is here, with the optional fragments off.
   const variables = {
-    id: encodeId('StayListing', query.listingId),
-    demandStayListingId: encodeId('DemandStayListing', query.listingId),
-    pdpSectionsRequest: {
-      adults: '1',
-      layouts: ['SIDEBAR', 'SINGLE_COLUMN'],
-      pets: 0,
-      preview: false,
-      privateBooking: false,
-      bypassTargetings: false,
-      staysBookingMigrationEnabled: false,
-      useNewSectionWrapperApi: false,
-      sectionIds: ['BOOK_IT_SIDEBAR'],
-      checkIn: query.checkIn,
-      checkOut: query.checkOut,
-    },
+    // A GraphQL id: base64 of `DemandStayListing:<listing id>`.
+    id: Buffer.from(`DemandStayListing:${query.listingId}`).toString('base64'),
+    dateRange: dates,
+    guestCounts: null,
+    includePdpMigrationBookItCalendarSheetFragment: false,
+    includePdpMigrationBookItFloatingFooterFragment: false,
+    includePdpMigrationBookItNavFragment: false,
+    includePdpMigrationBookItSidebarFragment: true,
+    includeGalleryBookItCtaFragment: false,
+    includeOverviewMerchandisingTipsFragment: false,
+    includeStaysPdpPriceHeatmapFragment: false,
+    priceHeatmapDateRange: dates,
+    p3ImpressionId: null,
+    selectedCancellationPolicyId: null,
+    causeId: null,
+    selectedGuestOptionId: null,
+    federatedSearchId: null,
+    interactionType: null,
+    logEntityPricingViewEvent: false,
   };
   const params = new URLSearchParams({
-    operationName: 'StaysPdpSections',
+    operationName: 'StaysPdpBookItQuery',
     locale: query.language,
     currency: query.currency,
     variables: JSON.stringify(variables),
     extensions: JSON.stringify({ persistedQuery: { version: 1, sha256Hash: OPERATION_ID } }),
   });
-  return requestJson(`https://www.airbnb.com/api/v3/StaysPdpSections/${OPERATION_ID}?${params}`, {
+  return requestJson(`https://www.airbnb.com/api/v3/StaysPdpBookItQuery/${OPERATION_ID}?${params}`, {
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
@@ -89,19 +91,38 @@ function asString(value: unknown): string | null {
 }
 
 /**
- * Read the booking sidebar out of a response. Throws if the response has no
- * sidebar section, which means the request or the response shape is wrong
- * rather than that the stay is unavailable.
+ * The displayed total from a `primaryLine`. A `DiscountedDisplayPriceLine` has
+ * `discountedPrice`, a `QualifiedDisplayPriceLine` has `price`, and an
+ * `OrderedDisplayPriceLine` carries the same fields on its `orderedComponents`.
+ */
+function lineTotal(line: Record<string, unknown>): number | null {
+  const parts = [line, ...(Array.isArray(line['orderedComponents']) ? line['orderedComponents'] : []).map(asRecord)];
+  for (const key of ['discountedPrice', 'price']) {
+    for (const part of parts) {
+      const amount = parsePriceAmount(part[key]);
+      if (amount !== null) return amount;
+    }
+  }
+  return null;
+}
+
+/**
+ * Read the booking sidebar out of a response. Throws if the response has
+ * GraphQL errors or no `bookIt`, which means the request or the response
+ * shape is wrong rather than that the stay is unavailable.
  */
 export function standardizePriceQuote(raw: unknown): PriceQuoteResponse {
-  const sections =
-    asRecord(asRecord(asRecord(asRecord(asRecord(raw)['data'])['presentation'])['stayProductDetailPage'])['sections'])['sections'];
-  const sidebar = (Array.isArray(sections) ? sections : [])
-    .map(asRecord)
-    .find((section) => section['sectionId'] === 'BOOK_IT_SIDEBAR');
-  if (!sidebar) throw new Error('price quote response has no BOOK_IT_SIDEBAR section');
+  const errors = asRecord(raw)['errors'];
+  if (Array.isArray(errors) && errors.length > 0) {
+    const messages = errors.map((error) => asString(asRecord(error)['message']) ?? '?').join('; ');
+    throw new Error(`price quote response has errors: ${messages}`);
+  }
+  const bookIt = asRecord(asRecord(asRecord(asRecord(raw)['data'])['node'])['pdpPresentation'])['bookIt'];
+  if (typeof bookIt !== 'object' || bookIt === null) {
+    throw new Error('price quote response has no pdpPresentation.bookIt');
+  }
 
-  const section = asRecord(sidebar['section']);
+  const section = asRecord(bookIt);
   const price = asRecord(section['structuredDisplayPrice']);
   const line = asRecord(price['primaryLine']);
 
@@ -117,8 +138,10 @@ export function standardizePriceQuote(raw: unknown): PriceQuoteResponse {
   }
 
   return {
-    label: asString(line['accessibilityLabel']) ?? asString(section['localizedUnavailabilityMessage']),
-    total: parsePriceAmount(line['discountedPrice'] ?? line['price']),
+    label:
+      asString(line['accessibilityLabel']) ??
+      asString(asRecord(section['availability'])['unavailabilityMessage']),
+    total: lineTotal(line),
     breakdown,
   };
 }

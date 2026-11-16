@@ -8,12 +8,13 @@ file per endpoint plus the shared HTTP client.
 | --- | --- | --- |
 | `apiKey.ts` | `www.airbnb.com/` | the public web API key, read from the homepage HTML |
 | `search.ts` | `POST /api/v3/StaysSearch/<hash>` | map search, and the standardizer for its response |
-| `calendar.ts` | `GET /api/v3/PdpAvailabilityCalendar/<hash>` | twelve months of nightly availability |
-| `priceQuote.ts` | `GET /api/v3/StaysPdpSections/<hash>` | the booking sidebar's price for one stay, given check-in and check-out |
+| `calendar.ts` | `GET /api/v3/PdpAvailabilityCalendarV2Query/<hash>` | twelve months of nightly availability |
+| `priceQuote.ts` | `GET /api/v3/StaysPdpBookItQuery/<hash>` | the booking sidebar's price for one stay, given check-in and check-out |
 | `reviews.ts` | `GET /api/v3/StaysPdpReviewsQuery/<hash>` | a page of reviews, newest first, and the total count; only review dates are read |
 
 Each endpoint is pinned to a persisted-query hash, which Airbnb rotates. If an
-endpoint starts returning 400, check its hash first.
+endpoint starts returning 400, check its hash first. Airbnb sometimes renames
+an operation or changes its variables at the same time.
 
 `http.ts` is the shared `impit` client impersonating Chrome 124. Airbnb sits
 behind Akamai, which fingerprints the TLS ClientHello and refuses Node's own
@@ -28,6 +29,10 @@ In the `search.ts` standardizer:
 
 ## Hash source
 
-The endpoint shapes, request parameters and hashes follow
-[pyairbnb](https://github.com/johnbalvin/pyairbnb) (MIT, © 2024 John Balvin),
-which tracks Airbnb's rotations.
+The endpoint shapes and request parameters started from
+[pyairbnb](https://github.com/johnbalvin/pyairbnb) (MIT, © 2024 John Balvin).
+To find a current hash and variables, open a listing (or a search) on
+airbnb.com with the browser's network tab open, and copy the
+`/api/v3/<operation>/<hash>` request: its URL path holds the hash and its
+`variables` parameter (or POST body) the variables. The search hash also
+appears in the page's JS bundles as `name:'StaysSearch',type:'query',operationId:'…'`.
