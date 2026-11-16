@@ -1,6 +1,6 @@
 /**
- * Airbnb's `PdpAvailabilityCalendar` endpoint: twelve months of nightly
- * availability for one listing.
+ * Airbnb's `PdpAvailabilityCalendarV2Query` endpoint: twelve months of
+ * nightly availability for one listing.
  *
  * The response starts on the 1st of the current month and marks elapsed days
  * `available: false`. This module returns them unfiltered; `toNights` in
@@ -13,7 +13,8 @@
 
 import { requestJson } from './http.ts';
 
-const OPERATION_ID = '8f08e03c7bd16fcad3c92a3592c19a8b559a0d0855a84028d1163d4733ed9ade';
+/** Persisted-query hash for `PdpAvailabilityCalendarV2Query`. Airbnb rotates it; 400s mean it changed. */
+const OPERATION_ID = '4d4724885b57d91f65be3c50c8b792b92a0dc723a871affb6ee358a0caf6d694';
 
 /** How many months forward to ask for. Airbnb's own picker asks for 12. */
 const MONTHS = 12;
@@ -41,7 +42,7 @@ export interface FetchCalendarOptions {
 
 interface CalendarResponse {
   data?: {
-    merlin?: {
+    node?: {
       pdpAvailabilityCalendar?: {
         calendarMonths?: Array<{ days?: unknown[] }>;
       };
@@ -67,15 +68,18 @@ function toDay(raw: unknown): CalendarDay | null {
 export async function fetchCalendar(options: FetchCalendarOptions): Promise<CalendarDay[]> {
   const from = options.from ?? new Date();
   const query = new URLSearchParams({
-    operationName: 'PdpAvailabilityCalendar',
+    operationName: 'PdpAvailabilityCalendarV2Query',
     locale: options.language,
     currency: options.currency,
     variables: JSON.stringify({
-      request: {
+      // A GraphQL id: base64 of `DemandStayListing:<listing id>`.
+      listingId: Buffer.from(`DemandStayListing:${options.listingId}`).toString('base64'),
+      input: {
         count: MONTHS,
-        listingId: options.listingId,
         month: from.getUTCMonth() + 1,
         year: from.getUTCFullYear(),
+        // A hotel room listing would otherwise get its whole property's calendar.
+        returnPropertyLevelCalendarIfApplicable: false,
       },
     }),
     extensions: JSON.stringify({
@@ -84,7 +88,7 @@ export async function fetchCalendar(options: FetchCalendarOptions): Promise<Cale
   });
 
   const data = await requestJson<CalendarResponse>(
-    `https://www.airbnb.com/api/v3/PdpAvailabilityCalendar/${OPERATION_ID}/?${query}`,
+    `https://www.airbnb.com/api/v3/PdpAvailabilityCalendarV2Query/${OPERATION_ID}?${query}`,
     {
       headers: {
         Accept: 'application/json',
@@ -96,7 +100,7 @@ export async function fetchCalendar(options: FetchCalendarOptions): Promise<Cale
     },
   );
 
-  const months = data.data?.merlin?.pdpAvailabilityCalendar?.calendarMonths ?? [];
+  const months = data.data?.node?.pdpAvailabilityCalendar?.calendarMonths ?? [];
   return months
     .flatMap((month) => month.days ?? [])
     .map(toDay)

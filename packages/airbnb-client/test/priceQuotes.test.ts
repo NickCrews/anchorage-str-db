@@ -11,93 +11,107 @@ beforeEach(() => {
   resetPace({ rate: 1e6 });
 });
 
-/** A response with a booking sidebar; its section is shaped like a real one (room 10403135). */
-function response(section: Record<string, unknown>): unknown {
-  return {
-    data: {
-      presentation: {
-        stayProductDetailPage: {
-          sections: {
-            sections: [
-              { sectionId: 'POLICIES_DEFAULT', section: {} },
-              { sectionId: 'BOOK_IT_SIDEBAR', section },
-            ],
-          },
-        },
-      },
-    },
-  };
+/** A response whose `bookIt` is shaped like a real one (room 1096318678417782390). */
+function response(bookIt: Record<string, unknown>): unknown {
+  return { data: { node: { __typename: 'DemandStayListing', pdpPresentation: { bookIt } } } };
 }
 
+const AVAILABLE = { isAvailable: true, unavailabilityMessage: null };
+
 describe('standardizePriceQuote', () => {
-  it('reads the discounted total, the label, and the price details', () => {
+  it('reads a discounted total from an ordered price line', () => {
     const quote = standardizePriceQuote(
       response({
+        availability: AVAILABLE,
         structuredDisplayPrice: {
           primaryLine: {
-            __typename: 'DiscountedDisplayPriceLine',
-            accessibilityLabel: '$241 for 2 nights, originally $269',
-            discountedPrice: '$241',
-            originalPrice: '$269',
-            qualifier: 'for 2 nights',
-          },
-          explanationData: {
-            priceDetails: [
-              { items: [{ description: '2 nights x $120.50', priceString: '$241.00' }] },
-              { __typename: 'DisplayPriceExplanationDisclaimer', content: 'Pay $0 today.' },
+            __typename: 'OrderedDisplayPriceLine',
+            accessibilityLabel: '$1,126 for 7 nights, originally $1,611',
+            orderedComponents: [
+              { __typename: 'LeadingContentDisplayPriceLineComponent', leadingContent: 'From' },
+              { __typename: 'OriginalPriceDisplayPriceLineComponent', originalPrice: '$1,611' },
+              { __typename: 'DiscountedPriceDisplayPriceLineComponent', discountedPrice: '$1,126' },
+              { __typename: 'QualifierDisplayPriceLineComponent', qualifier: 'for 7 nights' },
             ],
           },
-        },
-        localizedUnavailabilityMessage: null,
-      }),
-    );
-
-    expect(quote).toEqual({
-      label: '$241 for 2 nights, originally $269',
-      total: 241,
-      breakdown: ['2 nights x $120.50: $241.00'],
-    });
-  });
-
-  it('reads an undiscounted price and a thousands separator', () => {
-    const quote = standardizePriceQuote(
-      response({
-        structuredDisplayPrice: {
-          primaryLine: { accessibilityLabel: '$1,293 for 3 nights', price: '$1,293' },
           explanationData: {
             priceDetails: [
               {
                 items: [
-                  { description: '3 nights x $458.33', priceString: '$1,375.00' },
-                  { description: 'Last-minute discount', priceString: '-$82.50' },
+                  { description: '7 nights x $230.14', priceString: '$1,611.00' },
+                  { description: 'Weekly stay discount', priceString: '-$485.00' },
                 ],
               },
+              { __typename: 'DisplayPriceExplanationDisclaimer', content: 'Pay $0 today.' },
             ],
           },
         },
       }),
     );
 
-    expect(quote.total).toBe(1293);
-    expect(quote.breakdown).toEqual([
-      '3 nights x $458.33: $1,375.00',
-      'Last-minute discount: -$82.50',
-    ]);
+    expect(quote).toEqual({
+      label: '$1,126 for 7 nights, originally $1,611',
+      total: 1126,
+      breakdown: ['7 nights x $230.14: $1,611.00', 'Weekly stay discount: -$485.00'],
+    });
+  });
+
+  it('reads a discounted price line', () => {
+    const quote = standardizePriceQuote(
+      response({
+        availability: AVAILABLE,
+        structuredDisplayPrice: {
+          primaryLine: {
+            __typename: 'DiscountedDisplayPriceLine',
+            accessibilityLabel: '$1,594 for 7 nights, originally $1,757',
+            discountedPrice: '$1,594',
+            originalPrice: '$1,757',
+            qualifier: 'for 7 nights',
+          },
+        },
+      }),
+    );
+
+    expect(quote.total).toBe(1594);
+  });
+
+  it('reads an undiscounted price line', () => {
+    const quote = standardizePriceQuote(
+      response({
+        availability: AVAILABLE,
+        structuredDisplayPrice: {
+          primaryLine: {
+            __typename: 'QualifiedDisplayPriceLine',
+            accessibilityLabel: '$2,049 for 7 nights',
+            price: '$2,049',
+            qualifier: 'for 7 nights',
+          },
+        },
+      }),
+    );
+
+    expect(quote).toEqual({ label: '$2,049 for 7 nights', total: 2049, breakdown: [] });
   });
 
   it('keeps Airbnb’s reason when the stay is not bookable', () => {
     const quote = standardizePriceQuote(
       response({
+        availability: { isAvailable: false, unavailabilityMessage: 'Those dates are not available' },
         structuredDisplayPrice: null,
-        localizedUnavailabilityMessage: 'Those dates are not available',
       }),
     );
 
     expect(quote).toEqual({ label: 'Those dates are not available', total: null, breakdown: [] });
   });
 
-  it('throws on a response with no booking sidebar', () => {
-    expect(() => standardizePriceQuote({ data: { presentation: null } })).toThrow(/BOOK_IT_SIDEBAR/);
+  it('throws on a response with no bookIt', () => {
+    expect(() => standardizePriceQuote({ data: { node: null } })).toThrow(/bookIt/);
+  });
+
+  it('throws on a response with GraphQL errors', () => {
+    expect(() =>
+      standardizePriceQuote({ errors: [{ message: 'Sorry, something went wrong.' }], data: null }),
+    ).toThrow(/Sorry, something went wrong/);
   });
 });
 

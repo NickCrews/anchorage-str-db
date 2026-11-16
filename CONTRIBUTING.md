@@ -159,7 +159,7 @@ and [`docs/research/airbnb-pdp-listing-attributes.md`](docs/research/airbnb-pdp-
 
 ### Price-quote pass
 
-After the calendar pass, each run asks `StaysPdpSections` for the price of
+After the calendar pass, each run asks `StaysPdpBookItQuery` for the price of
 one stay per listing: the earliest stay the calendar says is bookable,
 checking in tomorrow or later, for the listing's minimum number of nights
 (`priceQuotes.ts`). A fully booked listing gets no quote. The response is

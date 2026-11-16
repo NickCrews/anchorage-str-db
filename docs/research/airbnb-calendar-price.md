@@ -32,31 +32,39 @@ null. The browser fetches the price afterwards.
 
 ## A stay quote
 
-That fetch is `StaysPdpSections` (persisted-query hash
-`80c7889b…46bf1f`, taken from pyairbnb's `price.py`) with `checkIn`,
-`checkOut` and `sectionIds: ["BOOK_IT_SIDEBAR"]`. The sidebar section's
-`structuredDisplayPrice` for room 10403135, 2026-10-14 to 10-16 (abridged):
+That fetch is `StaysPdpBookItQuery` (GET), with the stay as
+`dateRange: { startDate, endDate }` and the listing as a base64
+`DemandStayListing:<id>`. The query rejects a request that leaves out any of
+its variables. The response's `data.node.pdpPresentation.bookIt` holds
+`structuredDisplayPrice` and `availability`. For room 1096318678417782390,
+2027-01-12 to 01-19 (abridged):
 
 ```json
 {
   "primaryLine": {
-    "accessibilityLabel": "$241 for 2 nights, originally $269",
-    "discountedPrice": "$241",
-    "originalPrice": "$269",
-    "qualifier": "for 2 nights"
+    "__typename": "OrderedDisplayPriceLine",
+    "accessibilityLabel": "$1,126 for 7 nights, originally $1,611",
+    "orderedComponents": [
+      { "leadingContent": "From" },
+      { "originalPrice": "$1,611" },
+      { "discountedPrice": "$1,126" },
+      { "qualifier": "for 7 nights" }
+    ]
   },
   "explanationData": {
     "priceDetails": [
-      { "items": [{ "description": "2 nights x $120.50", "priceString": "$241.00" }] },
-      { "content": "Pay $0 today with no extra fees." }
+      { "items": [{ "description": "7 nights x $230.14", "priceString": "$1,611.00" }] }
     ]
   }
 }
 ```
 
-An undiscounted stay has `price` instead of `discountedPrice`. For dates that
+`primaryLine` takes three shapes: `OrderedDisplayPriceLine` as above,
+`DiscountedDisplayPriceLine` with `discountedPrice` and `originalPrice` on the
+line itself, and `QualifiedDisplayPriceLine` with `price`. For dates that
 can't be booked, `structuredDisplayPrice` is null and
-`localizedUnavailabilityMessage` is `"Those dates are not available"`.
+`availability.unavailabilityMessage` carries the reason, e.g. `"Those dates
+are not available"`.
 
 ## Which stay
 
