@@ -2,13 +2,13 @@
 
 The database joins two sources, plus parcels from a third:
 
-- **Airbnb** (`packages/scraper-airbnb`): listings and the hosts who run them.
-- **The Municipality of Anchorage** (`packages/muni-licenses` and
-  `packages/muni-gis`, read by `packages/licenses`): every license's
+- **Airbnb** (`packages/airbnb-client`): listings and the hosts who run them.
+- **The Municipality of Anchorage** (`packages/licenses-client` and
+  `packages/muni-gis-client`, read by `packages/licenses-scraper`): every license's
   CityView license page, the Muni geocoder's reading of each license's
   address with its community council, and the archived STR registration
   layer the Municipal Clerk published.
-- **anchorage-property** (`packages/parcels`): the current state of every
+- **anchorage-property** (`packages/parcels-scraper`): the current state of every
   Muni parcel, copied daily from
   [anchorage-property](https://github.com/NickCrews/anchorage-property)'s
   published database into `property_parcels`. Licenses join to it on

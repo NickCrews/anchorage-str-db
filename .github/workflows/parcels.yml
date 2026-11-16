@@ -42,8 +42,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # Node runs the TypeScript sources directly and ignores types, so check
-      # them here. `...` includes the workspace packages the import uses.
-      - run: pnpm --filter "@anchorage-str-db/parcels..." typecheck
+      # them here. `...` includes the workspace packages the CLI imports.
+      - run: pnpm --filter "@anchorage-str-db/cli..." typecheck
 
       # The runner starts clean, so restore the database from the release. A
       # missing database fails the import unless `start_fresh` is set.
@@ -54,7 +54,7 @@ jobs:
           start-fresh: ${{ inputs.start_fresh }}
 
       - name: Import parcels + quality gate
-        run: node packages/parcels/src/cli.ts --db "$DB_PATH" --verbose import
+        run: node packages/cli/src/cli.ts scrape parcels --db "$DB_PATH" --verbose
 
       # Reached only if the source passed its checks and the import wrote.
       - name: Publish updated database

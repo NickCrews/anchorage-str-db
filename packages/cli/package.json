@@ -1,0 +1,23 @@
+{
+  "name": "@anchorage-str-db/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The one command line for every scraper: `anchorage-str-db scrape <airbnb|licenses|parcels>`",
+  "license": "MIT",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@anchorage-str-db/airbnb-scraper": "workspace:*",
+    "@anchorage-str-db/licenses-scraper": "workspace:*",
+    "@anchorage-str-db/parcels-scraper": "workspace:*",
+    "@anchorage-str-db/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "5.9.2",
+    "vitest": "^4.1.11"
+  }
+}

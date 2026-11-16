@@ -12,9 +12,7 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
-    "airbnb": "node packages/scraper/src/cli.ts scrape",
-    "licenses": "node packages/licenses/src/cli.ts scan",
-    "parcels": "node packages/parcels/src/cli.ts import"
+    "scrape": "node packages/cli/src/cli.ts scrape"
   },
   "devDependencies": {
     "typescript": "5.9.2"

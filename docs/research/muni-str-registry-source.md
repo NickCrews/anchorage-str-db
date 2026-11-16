@@ -1,7 +1,7 @@
 # A source for the Muni's STR registrations after the registry layer went private
 
 Measured 2026-10-27 from the sandbox, anonymous requests. Concerns
-`packages/scraper-muni-str`, since renamed `packages/muni-gis`.
+`packages/scraper-muni-str`, since renamed `packages/muni-gis-client`.
 
 **Summary:** The ArcGIS service `ShortTermRental_Registrations_Hosted` now
 answers `499 Token Required`: it was made private, not deleted, and no public
@@ -9,7 +9,7 @@ copy exists in the Muni's ArcGIS org or on its own ArcGIS server. CityView
 license page ids come from one counter for every new license of any type, and
 the first STR license is 13607, so reading every `License/Status` page from
 13607 to the newest id and keeping the STR ones lists every STR license.
-About 2,830 pages, ~25 minutes at the `muni-licenses` rate. The fields the layer
+About 2,830 pages, ~25 minutes at the `licenses-client` rate. The fields the layer
 derived (coordinate, community council) can be rebuilt from public Muni
 services, including the same geocoder.
 
@@ -97,7 +97,7 @@ A sample of every 10th id from 13607 to 16439 (284 pages):
 Every STR page in the sample had an STR certificate number. That projects to
 about 2,750 STR licenses in the range. The layer had 2549 on 2026-09-07.
 
-`packages/muni-licenses` already fetches and parses these pages, at 2/s. Its
+`packages/licenses-client` already fetches and parses these pages, at 2/s. Its
 `parseLicensePage` gives license number, business name, license type, status,
 description, locations (parcel id and address) and issuances (STR number,
 issued, expires, status). Reading the range is ~2,830 requests, ~25 minutes,
@@ -183,7 +183,7 @@ change on the switch.
 
 ## Options, ranked
 
-1. **Enumerate license ids** with `muni-licenses`, then geocode and assign a
+1. **Enumerate license ids** with `licenses-client`, then geocode and assign a
    council. Complete, uses a parser that exists and is tested, and adds what the
    layer lacked (description, all parcels). Costs ~2,830 requests per full pass.
 2. **Locator searches.** Fewer requests per new license, but the 40-result cap
