@@ -1,5 +1,5 @@
 /**
- * The daily pipeline: search Anchorage, keep the listings inside the
+ * The Airbnb scrape: search Anchorage, keep the listings inside the
  * Municipality, fetch every listing's page and calendar and unresolved
  * listings' earliest reviews, write the day to DuckDB, and run the quality
  * checks.
@@ -33,13 +33,13 @@ import {
   type RunRow,
 } from './store.ts';
 
-export interface RunDailyOptions {
+export interface RunScrapeOptions {
   dbPath: string;
   scrapeDate?: IsoDate;
 }
 
 /**
- * Run one daily scrape, write, and quality check. Resolves to true iff every
+ * Run one Airbnb scrape, write, and quality check. Resolves to true iff every
  * error-severity check passed.
  *
  * All fetches happen first, then all writes in one transaction (see
@@ -49,10 +49,10 @@ export interface RunDailyOptions {
  * The page pass always runs. Skipping it would write rows with page fields
  * carried forward from earlier days, indistinguishable from fresh reads.
  */
-export async function runDaily(options: RunDailyOptions): Promise<boolean> {
+export async function runScrape(options: RunScrapeOptions): Promise<boolean> {
   const scrapeDate = options.scrapeDate ?? todayUtc();
   const startedAt = toSqlTimestamp(new Date());
-  log.info(`=== anchorage-str-db daily run: ${scrapeDate} ===`);
+  log.info(`=== anchorage-str-db Airbnb scrape: ${scrapeDate} ===`);
 
   resetPace();
 
@@ -174,7 +174,7 @@ export async function runDaily(options: RunDailyOptions): Promise<boolean> {
     log.info(`=== run ${scrapeDate}: ${ok ? 'PASSED' : 'FAILED'} ===`);
     return ok;
   } catch (err) {
-    log.error(`daily run failed: ${describeError(err)}`);
+    log.error(`Airbnb scrape failed: ${describeError(err)}`);
     // After the rollback, so this row is kept. NULL counts: nothing was
     // written.
     await logRun(db, failedRunRow(scrapeDate, startedAt, describeError(err)));

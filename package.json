@@ -12,7 +12,7 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
-    "daily": "node packages/scraper/src/cli.ts daily",
+    "airbnb": "node packages/scraper/src/cli.ts scrape",
     "licenses": "node packages/licenses/src/cli.ts scan",
     "parcels": "node packages/parcels/src/cli.ts import"
   },

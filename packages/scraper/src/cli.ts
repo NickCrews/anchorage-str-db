@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** `anchorage-str-db [--db PATH] [--date YYYY-MM-DD] [-v] daily` */
+/** `anchorage-str-db [--db PATH] [--date YYYY-MM-DD] [-v] scrape` */
 
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -9,16 +9,16 @@ import { parseArgs } from 'node:util';
 import { parseIsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log, setLevel } from '@anchorage-str-db/utils/log';
 
-import { runDaily } from './pipeline.ts';
+import { runScrape } from './pipeline.ts';
 
 /** The repo's `data/anchorage_str.duckdb`, from any working directory. */
 const DEFAULT_DB_PATH = fileURLToPath(
   new URL('../../../data/anchorage_str.duckdb', import.meta.url),
 );
 
-const USAGE = `usage: anchorage-str-db [options] daily
+const USAGE = `usage: anchorage-str-db [options] scrape
 
-  daily     search Anchorage, fetch each listing's calendar and page, merge,
+  scrape    search Anchorage, fetch each listing's calendar and page, merge,
             run quality checks
 
 options:
@@ -55,7 +55,7 @@ export async function main(argv: string[]): Promise<number> {
   setLevel(values.verbose ? 'debug' : 'info');
 
   const command = positionals[0];
-  if (command !== 'daily') {
+  if (command !== 'scrape') {
     process.stderr.write(
       `${command === undefined ? 'no command given' : `unknown command: ${command}`}\n\n${USAGE}`,
     );
@@ -75,7 +75,7 @@ export async function main(argv: string[]): Promise<number> {
   await mkdir(dirname(dbPath), { recursive: true });
 
   try {
-    const ok = await runDaily({ dbPath, ...(scrapeDate === undefined ? {} : { scrapeDate }) });
+    const ok = await runScrape({ dbPath, ...(scrapeDate === undefined ? {} : { scrapeDate }) });
     return ok ? 0 : 1;
   } catch (err) {
     log.error(describeError(err));

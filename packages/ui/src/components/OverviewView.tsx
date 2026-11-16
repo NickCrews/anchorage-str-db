@@ -60,10 +60,11 @@ export const OverviewView: FC = () => {
     withCalendarTonight: number | null;
     notAvailableTonight: number | null;
     distinctListingsLastYear: number;
-    latestScrapeDate: number | null;
     registrationsActive: number;
     listingsRegistered: number;
-    latestRegistryDate: number | null;
+    airbnbDate: number | null;
+    licensesDate: number | null;
+    parcelsDate: number | null;
   }>({
     enabled,
     query: `
@@ -80,11 +81,13 @@ export const OverviewView: FC = () => {
         FROM airbnb_listing_observations
         WHERE scrape_date >= CURRENT_DATE - INTERVAL 365 DAY
       ),
-      latest_run AS (SELECT max(scrape_date) AS d FROM airbnb_scrape_runs),
-      registry AS (
+      registry AS (SELECT count(*)::INT AS n FROM registrations_active),
+      freshness AS (
         SELECT
-          (SELECT count(*) FROM registrations_active)::INT AS n,
-          (SELECT scrape_date FROM latest_registry_date) AS d
+          max(last_success_date) FILTER (WHERE source = 'airbnb') AS airbnb,
+          max(last_success_date) FILTER (WHERE source = 'muni_licenses') AS licenses,
+          max(last_success_date) FILTER (WHERE source = 'property_parcels') AS parcels
+        FROM source_freshness
       ),
       registered AS (
         SELECT count(*)::INT AS n
@@ -96,11 +99,12 @@ export const OverviewView: FC = () => {
         tonight.with_calendar_tonight AS "withCalendarTonight",
         tonight.not_available_tonight AS "notAvailableTonight",
         last_year.n AS "distinctListingsLastYear",
-        latest_run.d AS "latestScrapeDate",
         registry.n AS "registrationsActive",
         registered.n AS "listingsRegistered",
-        registry.d AS "latestRegistryDate"
-      FROM active, tonight, last_year, latest_run, registry, registered
+        freshness.airbnb AS "airbnbDate",
+        freshness.licenses AS "licensesDate",
+        freshness.parcels AS "parcelsDate"
+      FROM active, tonight, last_year, registry, registered, freshness
     `,
   });
 
@@ -215,20 +219,30 @@ export const OverviewView: FC = () => {
           value={kpiLoading ? '…' : (kpi?.distinctListingsLastYear ?? '—')}
           detail="Under-counts until the archive has run a full year"
         />
+        {/* Each source runs on its own schedule, so each has its own date. */}
         <StatCard
-          label="Last scrape"
+          label="Last fetched"
           value={
-            kpiLoading
-              ? '…'
-              : kpi?.latestScrapeDate
-                ? shortDate(kpi.latestScrapeDate)
-                : '—'
+            kpiLoading ? (
+              '…'
+            ) : (
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-sm font-normal">
+                {(
+                  [
+                    ['Airbnb', kpi?.airbnbDate],
+                    ['Muni licenses', kpi?.licensesDate],
+                    ['Parcels', kpi?.parcelsDate],
+                  ] as const
+                ).map(([source, date]) => (
+                  <div key={source} className="contents">
+                    <dt className="text-muted-foreground">{source}</dt>
+                    <dd>{date ? shortDate(date) : 'Not yet'}</dd>
+                  </div>
+                ))}
+              </dl>
+            )
           }
-          detail={
-            kpi?.latestRegistryDate
-              ? `UTC date. Registry last read ${shortDate(kpi.latestRegistryDate)}`
-              : 'UTC date. No license scan yet'
-          }
+          detail="UTC dates of each source's latest successful run"
         />
         <StatCard
           label="Active Muni STR registrations"

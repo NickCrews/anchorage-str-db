@@ -39,7 +39,8 @@ shown`.
 [`.github/workflows/pages.yml`](../../.github/workflows/pages.yml) builds the
 viewer with the `latest-data` database and deploys it to GitHub Pages at
 <https://nickcrews.github.io/anchorage-str-db/> on every push to `main` and
-after every daily scrape. The repo's Pages source must be set to "GitHub
+after each source workflow (Airbnb scrape, license scan, parcel import)
+publishes. The repo's Pages source must be set to "GitHub
 Actions" (Settings → Pages).
 
 ## Running locally

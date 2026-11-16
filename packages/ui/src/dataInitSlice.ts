@@ -24,6 +24,7 @@ export const LAKE_TABLES = [
   'muni_license_page_reads',
   'muni_str_registry_runs',
   'latest_registry_date',
+  'source_freshness',
   'registrations',
   'registrations_active',
   'listings_active_with_registration',

@@ -27,7 +27,7 @@
  * - `airbnb_host_observations`: append-only, one row per (host, scrape date)
  *   for every host of a listing observed that day: the host card from
  *   the listing page.
- * - `airbnb_scrape_runs`: one row per daily run.
+ * - `airbnb_scrape_runs`: one row per Airbnb scrape.
  *
  * `airbnb_calendar_status` is stored change-only because a daily snapshot
  * would be ~950k rows/day, and `airbnb_listing_photos` because a gallery of

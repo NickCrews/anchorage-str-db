@@ -4,7 +4,7 @@
  * DuckDB, run the geocoding pass (`runGeocodePass`), and run the scan's
  * checks.
  *
- * Like the daily run, it makes every request before writing, then writes in
+ * Like the Airbnb scrape, it makes every request before writing, then writes in
  * one transaction. The geocoding pass does the same on its own, after the
  * page reads are written: it geocodes the addresses those reads hold, and a
  * failure in it leaves them written.
