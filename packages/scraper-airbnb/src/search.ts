@@ -229,7 +229,7 @@ export interface SearchOptions {
  * by default the bounding box of the Municipality's boundary, which is
  * already padded by 1 km. Listings outside
  * the box are never searched. The box also takes in Hope, Palmer and
- * Wasilla, so the daily run keeps only the listings inside the boundary
+ * Wasilla, so the Airbnb scrape keeps only the listings inside the boundary
  * itself.
  */
 export async function searchAnchorage(options: SearchOptions): Promise<SearchResult> {

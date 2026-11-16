@@ -2,7 +2,7 @@ name: Muni license scan
 
 on:
   schedule:
-    # 08:00 UTC = 00:00 AKDT / 23:00 AKST, well before the daily scrape at 12:00.
+    # 08:00 UTC = 00:00 AKDT / 23:00 AKST, well before the Airbnb scrape at 12:00.
     - cron: "0 8 * * *"
   workflow_dispatch:
     inputs:
@@ -65,8 +65,7 @@ jobs:
         uses: ./.github/actions/outage-issue
         with:
           action: close
-          label: licenses-down
-          description: License scan is failing
+          title: License scan is failing
           docs: '"CI" in CONTRIBUTING.md'
 
       - name: Open an issue on failure
@@ -74,6 +73,5 @@ jobs:
         uses: ./.github/actions/outage-issue
         with:
           action: open
-          label: licenses-down
-          description: License scan is failing
+          title: License scan is failing
           docs: '"CI" in CONTRIBUTING.md'

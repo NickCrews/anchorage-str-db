@@ -1,0 +1,79 @@
+name: Airbnb scrape
+
+on:
+  schedule:
+    # 12:00 UTC = 04:00 AKDT / 03:00 AKST, between the license scan at 08:00
+    # and the parcel import at 16:00, which share the db-write group.
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+    inputs:
+      start_fresh:
+        description: Start a new, empty archive if latest-data has no database.
+        type: boolean
+        default: false
+
+# Never let two runs write to the database at once. Each source's workflow
+# fails and recovers on its own; this group only orders their writes.
+concurrency:
+  group: db-write
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    # A run takes about an hour (see "Request budget" in CONTRIBUTING.md).
+    timeout-minutes: 120
+    permissions:
+      contents: write # to upload the updated database as a release asset
+      issues: write # to open an issue when a run fails
+    env:
+      DB_PATH: data/anchorage_str.duckdb
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Node runs the TypeScript sources directly and ignores types, so check
+      # them here; a type error then fails before the scrape instead of
+      # mid-run. `...` includes the workspace packages the scraper imports.
+      - run: pnpm --filter "@anchorage-str-db/scraper..." typecheck
+
+      # The runner starts clean, so restore the database from the release. A
+      # missing database fails the run unless `start_fresh` is set.
+      - name: Restore previous database
+        uses: ./.github/actions/restore-db
+        with:
+          db-path: ${{ env.DB_PATH }}
+          start-fresh: ${{ inputs.start_fresh }}
+
+      - name: Scrape + merge + quality gate
+        run: node packages/scraper/src/cli.ts --db "$DB_PATH" --verbose scrape
+
+      # Reached only if the quality checks passed.
+      - name: Publish updated database
+        uses: ./.github/actions/publish-db
+        with:
+          db-path: ${{ env.DB_PATH }}
+
+      - name: Close the outage issue
+        continue-on-error: true
+        uses: ./.github/actions/outage-issue
+        with:
+          action: close
+          title: Airbnb scrape is failing
+          docs: '"CI" in CONTRIBUTING.md'
+
+      - name: Open an issue on failure
+        if: failure() || cancelled()
+        uses: ./.github/actions/outage-issue
+        with:
+          action: open
+          title: Airbnb scrape is failing
+          docs: '"CI" in CONTRIBUTING.md'

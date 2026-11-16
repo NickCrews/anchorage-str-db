@@ -2,7 +2,7 @@ name: Parcel import
 
 on:
   schedule:
-    # 16:00 UTC = 08:00 AKDT / 07:00 AKST, after the daily scrape at 12:00.
+    # 16:00 UTC = 08:00 AKDT / 07:00 AKST, after the Airbnb scrape at 12:00.
     # anchorage-property's ingest has started between about 14:00 and 23:00
     # UTC; an import before it copies the previous day's parcels.
     - cron: "0 16 * * *"
@@ -67,8 +67,7 @@ jobs:
         uses: ./.github/actions/outage-issue
         with:
           action: close
-          label: parcels-down
-          description: Parcel import is failing
+          title: Parcel import is failing
           docs: '"CI" in CONTRIBUTING.md'
 
       - name: Open an issue on failure
@@ -76,6 +75,5 @@ jobs:
         uses: ./.github/actions/outage-issue
         with:
           action: open
-          label: parcels-down
-          description: Parcel import is failing
+          title: Parcel import is failing
           docs: '"CI" in CONTRIBUTING.md'

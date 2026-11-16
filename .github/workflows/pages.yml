@@ -3,10 +3,11 @@ name: Publish viewer to GitHub Pages
 on:
   push:
     branches: [main]
-  # Rebuild after every daily scrape so the site carries the new database.
-  # A failed scrape republishes the previous one, which is harmless.
+  # Rebuild after each source workflow publishes, so the site carries every
+  # source's newest data whichever ones are failing. The names are the
+  # workflows' `name:` fields.
   workflow_run:
-    workflows: ["Daily Anchorage STR scrape"]
+    workflows: ["Airbnb scrape", "Muni license scan", "Parcel import"]
     types: [completed]
   workflow_dispatch:
 
@@ -17,6 +18,8 @@ concurrency:
 
 jobs:
   build:
+    # A failed source run published nothing new.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read

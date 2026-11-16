@@ -28,13 +28,15 @@ duckdb anchorage_str.duckdb
 SELECT count(*) FROM listings WHERE is_active;
 ```
 
-## Daily run
+## Running
 
-From the repo root:
+Each upstream source has its own command, and in CI its own workflow and
+schedule, so one source failing leaves the others updating. From the repo
+root:
 
 ```sh
 pnpm install
-pnpm daily
+pnpm airbnb
 ```
 
 This searches the Anchorage bounding box, keeps the listings inside the
@@ -80,7 +82,7 @@ CityView license pages), `muni_address_` (the Muni's geocoder), or
 - `airbnb_listing_photos`: each listing's photo URLs, one row per distinct set, cover
   photo first. `listing_photos_current` *(view)* has each listing's latest
   set. Photos never open a listing version.
-- `airbnb_scrape_runs`: one row per daily run, with counts and errors
+- `airbnb_scrape_runs`: one row per Airbnb scrape, with counts and errors
 - `listings` *(view)*: one row per listing version, derived from the
   observations. `listings_active` filters to `is_active`. `host_id` is the
   primary host's Airbnb user id (`airbnb.com/users/show/<host_id>`), stable
@@ -180,6 +182,10 @@ and the Muni's license portal, stored as published:
   business name and description. `registration_found` is false when the
   listing shows no id, or one not in the registry, which includes ids
   issued since the last license scan.
+- `source_freshness` *(view)*: one row per upstream source (`airbnb`,
+  `muni_licenses`, `property_parcels`) with the date and finish time of its
+  latest successful run. Each source runs on its own schedule, so the dates
+  differ.
 
 ## Known gaps
 
@@ -201,7 +207,7 @@ and the Muni's license portal, stored as published:
 
 A pnpm workspace sharing `tsconfig.base.json`:
 
-- `packages/scraper`: the daily Airbnb run: its writes, quality checks and
+- `packages/scraper`: the Airbnb scrape: its writes, quality checks and
   CLI.
 - `packages/licenses`: the license scan: which license pages to read, the
   writes, quality checks and CLI.

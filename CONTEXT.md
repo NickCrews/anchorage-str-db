@@ -156,7 +156,7 @@ _Avoid_: empire, holdings, inventory, tycoon
 **The Muni**:
 The Municipality of Anchorage. "The Municipal Clerk" specifically for the
 office that published the registration layer. Its boundary is the scope of
-this database: the daily run searches a padded bounding box that also takes
+this database: the Airbnb scrape searches a padded bounding box that also takes
 in Hope, Palmer and Wasilla, and drops every listing whose coordinate falls
 outside the boundary itself, so every count here is a count inside the Muni.
 _Avoid_: the city, Anchorage, MOA, the municipality
@@ -396,7 +396,8 @@ _Avoid_: snapshot, record, reading, sample, event
 
 **Run**:
 One execution of a pipeline, stamped with `scrape_date` and logged in a
-`*_runs` table. The **daily run** (`pnpm daily`) reads Airbnb; the **license
+`*_runs` table. The **Airbnb scrape** (`pnpm airbnb`, `airbnb_scrape_runs`)
+reads Airbnb; the **license
 scan** (`pnpm licenses`, `muni_license_runs`) reads the Muni's license pages.
 A **registry run**, logged in `muni_str_registry_runs`, read the Clerk's
 registration layer; the layer answers only with a token, so those rows are an

@@ -14,7 +14,7 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 
 | package | does | runtime dependencies |
 | --- | --- | --- |
-| `packages/scraper` | the daily run over `scraper-airbnb`: decides what is stored, writes, checks and the CLI | `db`, `scraper-airbnb`, `utils` |
+| `packages/scraper` | the Airbnb scrape over `scraper-airbnb`: decides what is stored, writes, checks and the CLI | `db`, `scraper-airbnb`, `utils` |
 | `packages/licenses` | the license scan over `muni-licenses` and `muni-gis`: chooses which license ids to read, geocodes, writes, checks and the CLI | `db`, `muni-gis`, `muni-licenses`, `utils` |
 | `packages/parcels` | the parcel import from anchorage-property's published database: reads it, checks it, replaces `property_parcels`, and the CLI | `db`, `utils` |
 | `packages/db` | the DuckDB schema (Drizzle), its migrations, the views, and the connection | `utils`, `@duckdb/node-api`, `drizzle-orm`, `@duckdbfan/drizzle-duckdb` |
@@ -40,8 +40,8 @@ extension, and Node strips the types when it runs them. For the same reason
 ## Running
 
 ```sh
-pnpm daily                 # Airbnb; writes data/anchorage_str.duckdb
-pnpm daily --verbose --db /tmp/scratch.duckdb
+pnpm airbnb                # Airbnb; writes data/anchorage_str.duckdb
+pnpm airbnb --verbose --db /tmp/scratch.duckdb
 pnpm licenses              # the Muni's license pages, same database
 pnpm licenses --max-reads 60 --db /tmp/scratch.duckdb
 pnpm parcels               # anchorage-property's current parcels, same database
@@ -119,7 +119,7 @@ own README.
 
 ### Fetch everything, then write everything
 
-`runDaily` makes every network request (search, then a page and a calendar
+`runScrape` makes every network request (search, then a page and a calendar
 per listing) before touching the database, then does all writes in a single
 `db.transaction`.
 
@@ -220,7 +220,7 @@ request rate, and any other error is retried.
 `pnpm licenses` (`packages/licenses/src/scan.ts`) records every license the
 Muni's CityView portal publishes: Short-Term Rentals, Business and Alcohol
 licenses, read from their license pages by id. It is a separate app and
-workflow from `daily`, with its own transaction, run log
+workflow from the Airbnb scrape, with its own transaction, run log
 (`muni_license_runs`) and checks, so an outage at either source leaves the
 other's day intact. A scan reads at most `MAX_READS_PER_SCAN` (3000) pages,
 about 25 minutes at the portal's 2 requests a second.
@@ -292,41 +292,54 @@ or run queries from [`docs/policy_questions.sql`](docs/policy_questions.sql).
 
 ## CI
 
-Three workflows write the one database:
+Each upstream source has its own workflow, schedule and outage issue, so a
+broken source stops only its own updates:
 
-- [`.github/workflows/licenses.yml`](.github/workflows/licenses.yml) runs
-  the license scan at 08:00 UTC, after `pnpm typecheck` on
-  `packages/licenses` and the packages it imports.
-- [`.github/workflows/daily.yml`](.github/workflows/daily.yml) runs `daily`
-  at 12:00 UTC, after `pnpm typecheck` on `packages/scraper` and the
-  packages it imports.
-- [`.github/workflows/parcels.yml`](.github/workflows/parcels.yml) runs the
-  parcel import at 16:00 UTC, after `pnpm typecheck` on `packages/parcels`
-  and the packages it imports.
+| workflow | source | runs (UTC) | outage issue |
+| --- | --- | --- | --- |
+| [`licenses.yml`](.github/workflows/licenses.yml) | the Muni's CityView license pages (`pnpm licenses`) | 08:00 | License scan is failing |
+| [`airbnb.yml`](.github/workflows/airbnb.yml) | Airbnb (`pnpm airbnb`) | 12:00 | Airbnb scrape is failing |
+| [`parcels.yml`](.github/workflows/parcels.yml) | anchorage-property's current parcels (`pnpm parcels`) | 16:00 | Parcel import is failing |
 
-Runners are ephemeral, so each run downloads the database from the
-`latest-data` release, writes, and re-uploads it if its checks pass. The
-workflows share the concurrency group `db-write`, so one waits for another
-rather than uploading over its writes.
+Each first runs `pnpm typecheck` on its app's package and the packages it
+imports, so a type error fails before any request.
 
-The steps every workflow runs are composite actions in `.github/actions/`:
-`restore-db` (download from `latest-data`), `publish-db` (upload to it) and
-`outage-issue` (open or close the workflow's outage issue).
+All three write the one database. Runners are ephemeral, so each run
+downloads it from the `latest-data` release, writes its own tables, and
+re-uploads it if its checks pass. They share the concurrency group
+`db-write`, so one waits for another rather than uploading over its writes.
+GitHub keeps only one pending run per group and cancels the older one, so
+the schedules are spread to keep a run from waiting behind another; a manual
+dispatch while one source is running and another is queued cancels the
+queued one.
 
-A successful `daily` run also creates a `backup-YYYY-MM-DD` release when the newest
-one is 7 or more days old, and a manual run always creates one. The rule keys
-on the newest backup, not the weekday, so a failed run on backup day doesn't
-skip the week. After an outage, the next success catches up.
+Publishing is separate from fetching:
 
-Backups are kept indefinitely. At ~17 MB each (September 2026) that is ~0.9
+- [`pages.yml`](.github/workflows/pages.yml) rebuilds the viewer with the
+  `latest-data` database after any source workflow succeeds, and on every
+  push to `main`. The Overview's "Last fetched" card reads the
+  `source_freshness` view, which has each source's latest successful run.
+- [`backup.yml`](.github/workflows/backup.yml) runs daily at 06:00 UTC and
+  copies `latest-data` to a `backup-YYYY-MM-DD` release when the newest
+  backup is 7 or more days old; a manual run always makes one. The rule keys
+  on the newest backup, not the weekday, so a failed backup is retried the
+  next day. It only reads `latest-data`, so it is not in `db-write`.
+
+Backups are kept indefinitely. At ~45 MB each (November 2026) that is ~2.3
 GB a year. GitHub puts no cap on total release storage, only 2 GiB per asset,
 and an old backup is often the only copy of history from before a breaking
 schema change. Revisit if the asset grows past a few hundred MB.
 
-A failed daily run opens a `pipeline-down` issue, a failed license scan a
-`licenses-down` issue, and a failed parcel import a `parcels-down` issue; the
-next successful run of the same workflow closes it. If `latest-data` has no
-database, each fails unless dispatched with `start_fresh=true`.
+A failed run opens its workflow's outage issue ("Weekly database backup is
+failing" for backups), labelled `cron-down`, or comments on it if it is
+already open; the next successful run of the same workflow closes it. Every
+scheduled workflow uses the one label, and the title tells their issues
+apart. If `latest-data` has no database, each source workflow fails unless
+dispatched with `start_fresh=true`.
+
+The steps the workflows share are composite actions in `.github/actions/`:
+`restore-db` (download from `latest-data`), `publish-db` (upload to it) and
+`outage-issue` (open or close the workflow's outage issue).
 
 The workflows need no secrets; `gh` uses the automatic `GITHUB_TOKEN`.
 
@@ -337,7 +350,7 @@ Every run fails with `LegacySchemaError` until someone:
 1. Copies the `latest-data` asset to its own release, named for the schema
    it holds (e.g. `archive-<date>`).
 2. Deletes it: `gh release delete-asset latest-data anchorage_str.duckdb`
-3. Starts over: `gh workflow run daily.yml -f start_fresh=true`
+3. Starts over: `gh workflow run airbnb.yml -f start_fresh=true`
 
 ## Design decisions
 

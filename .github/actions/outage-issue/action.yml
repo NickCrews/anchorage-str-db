@@ -1,20 +1,18 @@
 name: Outage issue
 description: >-
-  Open (or comment on) an issue labelled `label` when a workflow fails, or
-  close the open ones when it succeeds. A failed workflow run alone notifies
-  no one.
+  Open (or comment on) a scheduled workflow's outage issue when it fails, or
+  close it when it succeeds. A failed workflow run alone notifies no one.
+  Every workflow's issue carries the `cron-down` label; the title tells them
+  apart, so one workflow's success closes only its own issue.
 inputs:
   action:
     description: "`open` after a failure, `close` after a success."
     required: true
-  label:
-    description: The label that marks this workflow's outage issue, e.g. pipeline-down.
-    required: true
-  description:
-    description: The label's description, e.g. "The daily scrape is failing".
+  title:
+    description: The workflow's outage issue title, e.g. "Airbnb scrape is failing".
     required: true
   docs:
-    description: Where the issue body points for help, e.g. "How CI runs this" in CONTRIBUTING.md.
+    description: Where the issue body points for help, e.g. "CI" in CONTRIBUTING.md.
     required: true
 runs:
   using: composite
@@ -23,32 +21,35 @@ runs:
       env:
         GH_TOKEN: ${{ github.token }}
         ACTION: ${{ inputs.action }}
-        LABEL: ${{ inputs.label }}
-        DESCRIPTION: ${{ inputs.description }}
+        LABEL: cron-down
+        TITLE: ${{ inputs.title }}
         DOCS: ${{ inputs.docs }}
         OWNER: ${{ github.repository_owner }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         today=$(date -u +%Y-%m-%d)
+        # This workflow's open outage issues: the label, and exactly its title.
+        own_open() {
+          gh issue list --repo "$GITHUB_REPOSITORY" --label "$LABEL" --state open \
+            --json number,title --jq '.[] | select(.title == env.TITLE) | .number'
+        }
         case "$ACTION" in
           close)
-            for n in $(gh issue list --repo "$GITHUB_REPOSITORY" --label "$LABEL" \
-                         --state open --json number --jq '.[].number'); do
+            for n in $(own_open); do
               gh issue close "$n" --repo "$GITHUB_REPOSITORY" --comment "Recovered: $RUN_URL"
             done
             ;;
           open)
             gh label create "$LABEL" --repo "$GITHUB_REPOSITORY" --color B60205 \
-              --description "$DESCRIPTION" 2>/dev/null || true
-            open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label "$LABEL" \
-                     --state open --json number --jq '.[0].number // empty')
+              --description "A scheduled workflow is failing" 2>/dev/null || true
+            open=$(own_open | head -n 1)
             if [ -n "$open" ]; then
               gh issue comment "$open" --repo "$GITHUB_REPOSITORY" \
                 --body "Failed again on $today: $RUN_URL"
               exit 0
             fi
             gh issue create --repo "$GITHUB_REPOSITORY" --label "$LABEL" \
-              --title "$DESCRIPTION" --body-file - <<BODY
+              --title "$TITLE" --body-file - <<BODY
         @$OWNER $GITHUB_WORKFLOW failed on $today: $RUN_URL
 
         The next successful run closes this issue. See $DOCS.

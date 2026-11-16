@@ -801,6 +801,30 @@ COMMENT ON VIEW listings_active_with_registration IS 'listings_active plus the M
 `;
 
 /**
+ * When each upstream source was last read. One view over every source's run
+ * log, so the viewer can show each source's date: a source whose workflow is
+ * failing keeps its last good date while the others move on.
+ */
+const FRESHNESS_VIEWS_SQL = `
+-- One row per upstream source, always present, over its runs that completed
+-- their writes (no error_summary): last_success_date is the latest scrape_date
+-- (import_date for parcels) and last_success_finished_at the latest
+-- run_finished_at, both NULL when the source has no such run.
+CREATE OR REPLACE VIEW source_freshness AS
+SELECT 'airbnb' AS source, max(scrape_date) AS last_success_date,
+    max(run_finished_at) AS last_success_finished_at
+FROM airbnb_scrape_runs WHERE error_summary IS NULL
+UNION ALL
+SELECT 'muni_licenses', max(scrape_date), max(run_finished_at)
+FROM muni_license_runs WHERE error_summary IS NULL
+UNION ALL
+SELECT 'property_parcels', max(import_date), max(run_finished_at)
+FROM property_parcel_imports WHERE error_summary IS NULL;
+
+COMMENT ON VIEW source_freshness IS 'One row per upstream source (airbnb, muni_licenses, property_parcels): the latest date and finish time among its runs with no error_summary, NULL when it has none.';
+`;
+
+/**
  * Views under names this file no longer creates. `CREATE OR REPLACE VIEW`
  * cannot remove one, so a published database would carry a renamed view's old
  * name forever, still answering queries from a definition nothing maintains.
@@ -823,5 +847,5 @@ export function viewsSql(): string {
     .replaceAll('{hosting_start}', IMPLIED_HOSTING_START_SQL)
     .replace('{page_attrs}', PAGE_ATTRS_SQL)
     .replace('{version_key}', VERSION_KEY_SQL);
-  return DROPPED_VIEWS_SQL + listingViews + REGISTRY_VIEWS_SQL;
+  return DROPPED_VIEWS_SQL + listingViews + REGISTRY_VIEWS_SQL + FRESHNESS_VIEWS_SQL;
 }
