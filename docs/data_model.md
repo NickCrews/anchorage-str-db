@@ -138,8 +138,8 @@ proof of an invalid id.
 `licenses.parcel_id` is set when the license page lists exactly one parcel
 id from the Muni's property records. Several licenses can name one parcel (a
 building with a registration per dwelling). A license with no parcel id, or
-several, gets no `parcel_type` or `total_living_units` from
-`property_parcels`. `property_parcels` holds only the current state;
+several, gets no `parcel__property_type` or `parcel__total_living_units`
+from `property_parcels`. `property_parcels` holds only the current state;
 anchorage-property holds each parcel's history.
 
 ### Host → listing: one-to-many

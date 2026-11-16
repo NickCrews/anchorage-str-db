@@ -275,9 +275,10 @@ the whole table and logs the run in `property_parcel_imports` in one
 transaction. A source with fewer than 90,000 parcels, a duplicate or missing
 `parcel_id`, or a missing column fails a check and leaves the table as it
 was. The table holds the current snapshot only; history stays in
-anchorage-property. `licenses` joins it on `parcel_id` for `parcel_type`
-(the parcel's `property_type`: `RESIDENTIAL`, `CONDO`, ...) and
-`total_living_units`, and `registrations` takes `parcel_type` from it,
+anchorage-property. `licenses` joins it on `parcel_id` for
+`parcel__property_type` (the parcel's `property_type`: `RESIDENTIAL`,
+`CONDO`, ...) and `parcel__total_living_units`, and `registrations` takes
+`parcel_type` from it,
 falling back to the archived layer's `Residential`/`Commercial`. See
 [`packages/parcels/README.md`](packages/parcels/README.md).
 

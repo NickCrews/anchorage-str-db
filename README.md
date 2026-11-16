@@ -163,8 +163,8 @@ and the Muni's license portal, stored as published:
 - `licenses` *(view)*: one row per license with a visible page, of every
   type: its latest page read, `first_read_date`, `last_read_date`, and
   `is_active` (its most recent issuance is Active or Issued), its `address`
-  and `parcel_id`, its parcel's `parcel_type` and `total_living_units` from
-  `property_parcels`, and the geocoded coordinate and `community_council` of
+  and `parcel_id`, its parcel's `parcel__property_type` and
+  `parcel__total_living_units` from `property_parcels`, and the geocoded coordinate and `community_council` of
   the address. An id whose latest read is hidden is left out.
 - `registrations` *(view)*: one row per STR certificate number on a
   Short-Term Rentals license, plus the registrations only the archived layer

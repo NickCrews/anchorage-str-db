@@ -305,13 +305,13 @@ describe('licenses view parcels', () => {
     await parcels(db, [ECHO_RIDGE_PARCEL]);
 
     const rows = await db.rows(
-      'SELECT cityview_license_id, parcel_id, parcel_type, total_living_units FROM licenses ORDER BY 1',
+      'SELECT cityview_license_id, parcel_id, parcel__property_type, parcel__total_living_units FROM licenses ORDER BY 1',
     );
 
     expect(rows).toEqual([
-      { cityview_license_id: 13923, parcel_id: '07606227000', parcel_type: 'RESIDENTIAL', total_living_units: 1 },
-      { cityview_license_id: 13924, parcel_id: '00606148000', parcel_type: null, total_living_units: null },
-      { cityview_license_id: 16427, parcel_id: null, parcel_type: null, total_living_units: null },
+      { cityview_license_id: 13923, parcel_id: '07606227000', parcel__property_type: 'RESIDENTIAL', parcel__total_living_units: 1 },
+      { cityview_license_id: 13924, parcel_id: '00606148000', parcel__property_type: null, parcel__total_living_units: null },
+      { cityview_license_id: 16427, parcel_id: null, parcel__property_type: null, parcel__total_living_units: null },
     ]);
   });
 });
