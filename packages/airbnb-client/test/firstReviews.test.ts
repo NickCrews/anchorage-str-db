@@ -134,17 +134,17 @@ describe('fetchFirstReviews', () => {
     ]);
   });
 
-  it('attempts no more than maxListings, in the order given', async () => {
+  it('starts no request once the budget is spent', async () => {
     const listings = Object.fromEntries(
       [...Array(7).keys()].map((i) => [String(i), { reviews: reviewTimestamps(1) }]),
     );
     const { fetchPage, calls } = fakeEndpoint(listings);
     const candidates = Object.keys(listings).map((listingId) => ({ listingId, reviewCountHint: 1 }));
 
-    const results = await fetchFirstReviews(candidates, { fetchPage, maxListings: 3 });
+    const results = await fetchFirstReviews(candidates, { fetchPage, budgetMs: 0 });
 
-    expect(results.map((result) => result.listingId)).toEqual(['0', '1', '2']);
-    expect(new Set(calls.map((call) => call.listingId))).toEqual(new Set(['0', '1', '2']));
+    expect(results).toEqual([]);
+    expect(calls).toEqual([]);
   });
 
   it('aborts the pass on a rate limit', async () => {

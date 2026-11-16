@@ -23,9 +23,14 @@
  * A listing with no reviews resolves to `firstReviewDate: null` and is not
  * fetched again. Its eventual first review would fall after its
  * `first_seen_date`, so it could not change `first_available_date_est`.
+ *
+ * A run resolves listings until `FIRST_REVIEW_BUDGET_MS` is spent, in the
+ * order search returned them. Each listing is resolved once, so the existing
+ * listings are resolved over several runs and later runs resolve only the
+ * listings new since the last.
  */
 
-import { mapWithConcurrency } from '@anchorage-str-db/utils/concurrency';
+import { mapWithinBudget } from '@anchorage-str-db/utils/concurrency';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
@@ -34,15 +39,10 @@ import { fetchReviewPage, type ReviewPage } from './api/reviews.ts';
 import { RETRY_BACKOFF_MS, withRetries } from './retry.ts';
 
 /**
- * Listings whose earliest review date is resolved per run.
- *
- * Each listing is resolved once, so in steady state a run resolves only the
- * few listings new that day. The first runs backfill the ~2600 existing
- * listings; at 1000 per run that takes ~3 days and adds ~1030 requests
- * (~10 minutes at the shared Airbnb rate) to each, well inside the CI
- * timeout.
+ * Milliseconds in a run during which listings' earliest reviews are resolved.
+ * Keeps the pass within the Airbnb workflow's timeout.
  */
-const FIRST_REVIEW_MAX_PER_RUN = 1000;
+export const FIRST_REVIEW_BUDGET_MS = 15 * 60_000;
 const FIRST_REVIEW_CONCURRENCY = 6;
 const FIRST_REVIEW_MAX_RETRIES = 3;
 
@@ -125,23 +125,24 @@ export async function findFirstReviewDate(
 
 export interface FetchFirstReviewsOptions {
   fetchPage: FetchReviewPage;
-  /** At most this many listings are attempted; the rest wait for a later run. */
-  maxListings?: number;
+  /** Candidates not reached within this many milliseconds wait for a later run. */
+  budgetMs?: number;
   concurrency?: number;
 }
 
 /**
- * Resolve up to `maxListings` candidates, in the order given. A per-listing
- * failure is recorded in its result; a `RateLimitedError` aborts the pass.
+ * Resolve candidates in the order given, until the budget is spent. A
+ * per-listing failure is recorded in its result; a `RateLimitedError` aborts
+ * the pass.
  */
 export async function fetchFirstReviews(
   candidates: readonly FirstReviewCandidate[],
   options: FetchFirstReviewsOptions,
 ): Promise<FirstReviewResult[]> {
-  const batch = candidates.slice(0, options.maxListings ?? FIRST_REVIEW_MAX_PER_RUN);
-  const results = await mapWithConcurrency(
-    batch,
+  const results = await mapWithinBudget(
+    candidates,
     options.concurrency ?? FIRST_REVIEW_CONCURRENCY,
+    options.budgetMs ?? FIRST_REVIEW_BUDGET_MS,
     async (candidate): Promise<FirstReviewResult> => {
       try {
         const firstReviewDate = await findFirstReviewDate(candidate, options.fetchPage);

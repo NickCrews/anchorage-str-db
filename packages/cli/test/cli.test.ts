@@ -50,10 +50,10 @@ describe('main', () => {
     const { scrapers, calls } = recorders();
     const db = await dbPath();
 
-    expect(await main(['scrape', 'licenses', '--db', db, '--max-reads', '60'], scrapers)).toBe(0);
+    expect(await main(['scrape', 'licenses', '--db', db, '--budget-seconds', '60'], scrapers)).toBe(0);
     expect(await main(['scrape', 'parcels', '--db', db, '--source', './p.duckdb'], scrapers)).toBe(0);
     expect(calls).toEqual([
-      ['licenses', { dbPath: db, maxReads: 60 }],
+      ['licenses', { dbPath: db, budgetMs: 60_000 }],
       ['parcels', { dbPath: db, sourceUrl: './p.duckdb' }],
     ]);
   });
@@ -69,9 +69,9 @@ describe('main', () => {
     [['scrape']],
     [['scrape', 'vrbo']],
     [['scrape', 'airbnb', 'licenses']],
-    [['scrape', 'airbnb', '--max-reads', '60']],
+    [['scrape', 'airbnb', '--budget-seconds', '60']],
     [['scrape', 'licenses', '--source', './p.duckdb']],
-    [['scrape', 'licenses', '--max-reads', '-1']],
+    [['scrape', 'licenses', '--budget-seconds', '-1']],
     [['scrape', 'parcels', '--date', '14/11/2026']],
   ])('rejects %j as a usage error', async (argv) => {
     vi.spyOn(process.stderr, 'write').mockReturnValue(true);

@@ -22,12 +22,12 @@ import { log } from '@anchorage-str-db/utils/log';
 import { addressesToGeocode, recordGeocodes, type AddressGeocodeRow } from './store.ts';
 
 /**
- * Addresses geocoded per scrape. About 3,000 licenses have an address (2,237
- * distinct among the 2,480 read by 2026-09-28), so the first scrapes spread
- * them over three days; at the geocoder's 4 requests a second, 1000 take
- * about four minutes.
+ * Milliseconds in a scrape during which addresses are geocoded. About 3,000
+ * licenses have an address (2,237 distinct among the 2,480 read by
+ * 2026-09-28). At the geocoder's 4 requests a second, this budget covers up to
+ * about 2,400 addresses.
  */
-export const MAX_GEOCODES_PER_SCRAPE = 1000;
+export const GEOCODE_BUDGET_MS = 10 * 60_000;
 
 /** Days before an address the geocoder could not match is asked about again. */
 export const GEOCODE_MISS_RETRY_DAYS = 90;
@@ -39,7 +39,8 @@ export interface GisClients {
 }
 
 export interface GeocodePassOptions extends GisClients {
-  maxGeocodes?: number;
+  /** Milliseconds before no further address is sent; `GEOCODE_BUDGET_MS` by default. */
+  budgetMs?: number;
 }
 
 export interface GeocodePassStats {
@@ -60,18 +61,19 @@ export async function runGeocodePass(
   options: GeocodePassOptions = {},
 ): Promise<GeocodePassStats> {
   // ---- network phase -----------------------------------------------------
-  const addresses = await addressesToGeocode(
-    db,
-    addDays(scrapeDate, -GEOCODE_MISS_RETRY_DAYS),
-    options.maxGeocodes ?? MAX_GEOCODES_PER_SCRAPE,
-  );
+  const addresses = await addressesToGeocode(db, addDays(scrapeDate, -GEOCODE_MISS_RETRY_DAYS));
   const geocodes: AddressGeocodeRow[] = [];
+  let attempted = 0;
   let failed = 0;
   let withoutCouncil = 0;
   if (addresses.length) {
-    log.info(`geocoding ${addresses.length} license addresses`);
+    log.info(`${addresses.length} license addresses to geocode, within the budget`);
     const councils = await (options.fetchCouncils ?? fetchCommunityCouncils)();
-    const results = await geocodeAddresses(addresses, options.geocodeOne ? { geocodeOne: options.geocodeOne } : {});
+    const results = await geocodeAddresses(addresses, {
+      ...(options.geocodeOne ? { geocodeOne: options.geocodeOne } : {}),
+      budgetMs: options.budgetMs ?? GEOCODE_BUDGET_MS,
+    });
+    attempted = results.length;
     for (const { address, candidate, error } of results) {
       if (error !== null) {
         failed += 1;
@@ -102,7 +104,7 @@ export async function runGeocodePass(
   await db.transaction(() => recordGeocodes(db, geocodes));
 
   return {
-    addressesAttempted: addresses.length,
+    addressesAttempted: attempted,
     addressesMatched: matched,
     addressesUnmatched: geocodes.length - matched,
     addressesFailed: failed,

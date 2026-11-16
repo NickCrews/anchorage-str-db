@@ -26,7 +26,7 @@
 
 import { HTMLElement, NodeType, parse, type Node } from 'node-html-parser';
 
-import { mapWithConcurrency } from '@anchorage-str-db/utils/concurrency';
+import { mapWithinBudget } from '@anchorage-str-db/utils/concurrency';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 import { fetchCookies, fetchText } from '@anchorage-str-db/utils/http';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
@@ -370,17 +370,24 @@ export function liveLicensePageFetcher(
 export interface FetchLicensePagesOptions {
   fetchOne?: FetchOneLicensePage;
   concurrency?: number;
+  /** No page is read once this many milliseconds have passed. Unlimited by default. */
+  budgetMs?: number;
 }
 
-/** Read each license page. A failure is recorded in its result rather than thrown; a hidden page is not a failure. */
+/**
+ * Read each license page, in the order given, until `budgetMs` is spent. A
+ * failure is recorded in its result rather than thrown; a hidden page is not a
+ * failure. Ids not reached in the budget have no result.
+ */
 export async function fetchLicensePages(
   cityviewLicenseIds: readonly number[],
   options: FetchLicensePagesOptions = {},
 ): Promise<LicensePageResult[]> {
   const fetchOne = options.fetchOne ?? liveLicensePageFetcher();
-  const results = await mapWithConcurrency(
+  const results = await mapWithinBudget(
     cityviewLicenseIds,
     options.concurrency ?? CONCURRENCY,
+    options.budgetMs ?? Infinity,
     async (cityviewLicenseId): Promise<LicensePageResult> => {
       try {
         return { cityviewLicenseId, page: await fetchOne(cityviewLicenseId), error: null };

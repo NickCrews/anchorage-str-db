@@ -5,9 +5,6 @@
 
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 
-/** License pages read per scrape. At ~0.5 s a page, 3000 reads take about 25 minutes. */
-export const MAX_READS_PER_SCRAPE = 3000;
-
 /** A hidden license id among this many newest ids is re-read daily: a new license is often hidden at first. */
 export const RECENT_ID_WINDOW = 500;
 
@@ -36,11 +33,11 @@ export interface LicenseIdSelection {
   /** One per id ever read. */
   latestReads: readonly LatestRead[];
   scrapeDate: IsoDate;
-  max: number;
 }
 
 /**
- * The ids to read this scrape, at most `max`, in this order:
+ * The ids to read this scrape, in this order. A scrape reads them in order
+ * until its time budget is spent, so the order decides which ids wait:
  *
  * 1. Ids above the highest id ever read (visible or hidden), up to the
  *    newest, newest first.
@@ -55,15 +52,14 @@ export interface LicenseIdSelection {
  * read writes nothing, so its id keeps its place for the next scrape.
  */
 export function chooseLicenseIds(selection: LicenseIdSelection): number[] {
-  const { newestCityviewLicenseId: newest, latestReads, scrapeDate, max } = selection;
+  const { newestCityviewLicenseId: newest, latestReads, scrapeDate } = selection;
   const chosen: number[] = [];
-  const full = () => chosen.length >= max;
 
   const highest = latestReads.reduce((top, read) => Math.max(top, read.cityviewLicenseId), 0);
-  for (let id = newest; id > highest && !full(); id--) chosen.push(id);
+  for (let id = newest; id > highest; id--) chosen.push(id);
 
   const read = new Set(latestReads.map((r) => r.cityviewLicenseId));
-  for (let id = highest; id >= 1 && !full(); id--) {
+  for (let id = highest; id >= 1; id--) {
     if (!read.has(id)) chosen.push(id);
   }
 
@@ -81,11 +77,6 @@ export function chooseLicenseIds(selection: LicenseIdSelection): number[] {
     due(REFRESH_DAYS.otherLicense, (r) => !r.hidden && r.licenseType !== SHORT_TERM_RENTALS),
     due(REFRESH_DAYS.olderHidden, (r) => r.hidden && r.cityviewLicenseId <= recentFloor),
   ];
-  for (const ids of refreshes) {
-    for (const id of ids) {
-      if (full()) return chosen;
-      chosen.push(id);
-    }
-  }
-  return chosen.slice(0, max);
+  for (const ids of refreshes) chosen.push(...ids);
+  return chosen;
 }

@@ -19,23 +19,22 @@ const hidden = (cityviewLicenseId: number, scrapeDate: string): LatestRead => ({
 
 describe('chooseLicenseIds', () => {
   it('reads every id from the newest down on an empty history', () => {
-    expect(chooseLicenseIds({ newestCityviewLicenseId: 5, latestReads: [], scrapeDate: SCRAPE_DATE, max: 100 })).toEqual(
-      [5, 4, 3, 2, 1],
-    );
+    expect(chooseLicenseIds({ newestCityviewLicenseId: 5, latestReads: [], scrapeDate: SCRAPE_DATE })).toEqual([
+      5, 4, 3, 2, 1,
+    ]);
   });
 
-  it('stops at max, newest first, so the next scrape continues below', () => {
-    const first = chooseLicenseIds({ newestCityviewLicenseId: 16459, latestReads: [], scrapeDate: SCRAPE_DATE, max: 3 });
-    expect(first).toEqual([16459, 16458, 16457]);
+  it('puts the ids above the last scrape first, so the next scrape continues below', () => {
+    const first = chooseLicenseIds({ newestCityviewLicenseId: 16459, latestReads: [], scrapeDate: SCRAPE_DATE });
+    expect(first.slice(0, 3)).toEqual([16459, 16458, 16457]);
 
     const next = chooseLicenseIds({
       newestCityviewLicenseId: 16460,
-      latestReads: first.map((id) => hidden(id, '2026-11-09')),
+      latestReads: [16459, 16458, 16457].map((id) => hidden(id, '2026-11-09')),
       scrapeDate: SCRAPE_DATE,
-      max: 3,
     });
     // The new id above the highest read, then the never-read ones below it.
-    expect(next).toEqual([16460, 16456, 16455]);
+    expect(next.slice(0, 3)).toEqual([16460, 16456, 16455]);
   });
 
   it('takes the six kinds of id in order', () => {
@@ -60,7 +59,7 @@ describe('chooseLicenseIds', () => {
     const read = new Set(latestReads.map((r) => r.cityviewLicenseId));
     const neverRead = Array.from({ length: 1999 }, (_, i) => 1999 - i).filter((id) => !read.has(id));
 
-    const chosen = chooseLicenseIds({ newestCityviewLicenseId: newest, latestReads, scrapeDate: SCRAPE_DATE, max: 5000 });
+    const chosen = chooseLicenseIds({ newestCityviewLicenseId: newest, latestReads, scrapeDate: SCRAPE_DATE });
 
     expect(chosen).toEqual([2000, ...neverRead, 1980, 1990, 1300, 1400, 1200, 1100]);
   });
@@ -70,19 +69,17 @@ describe('chooseLicenseIds', () => {
       newestCityviewLicenseId: 3,
       latestReads: [visible(1, '2026-10-01'), visible(2, '2026-10-01'), visible(3, '2026-10-01')],
       scrapeDate: SCRAPE_DATE,
-      max: 10,
     });
     expect(chosen).toEqual([3, 2, 1]);
   });
 
-  it('caps the refreshes too', () => {
+  it('orders the refreshes oldest read first', () => {
     const chosen = chooseLicenseIds({
       newestCityviewLicenseId: 3,
       latestReads: [visible(1, '2026-10-01'), visible(2, '2026-10-02'), visible(3, '2026-10-03')],
       scrapeDate: SCRAPE_DATE,
-      max: 2,
     });
-    expect(chosen).toEqual([1, 2]);
+    expect(chosen).toEqual([1, 2, 3]);
   });
 
   it('reads nothing above the newest id, nor anything read today', () => {
@@ -90,7 +87,6 @@ describe('chooseLicenseIds', () => {
       newestCityviewLicenseId: 2,
       latestReads: [visible(1, SCRAPE_DATE), hidden(2, SCRAPE_DATE), hidden(3, SCRAPE_DATE)],
       scrapeDate: SCRAPE_DATE,
-      max: 10,
     });
     expect(chosen).toEqual([]);
   });
