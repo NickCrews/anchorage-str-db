@@ -505,9 +505,10 @@ WHERE error_summary IS NULL;
 -- address: the Address location (a property record's address), else the
 -- first location that is not a parcel id, which is usually the text the
 -- licensee typed. parcel_id: the parcel id when the page names exactly one.
--- parcel_type (property_parcels.property_type: 'RESIDENTIAL', 'CONDO', ...)
--- and total_living_units are that parcel's, NULL when the license names no
--- single parcel or the parcel import has not seen it.
+-- parcel__property_type ('RESIDENTIAL', 'CONDO', ...) and
+-- parcel__total_living_units are property_parcels' columns for parcel_id,
+-- NULL when the license names no single parcel or the parcel import has not
+-- seen it. The parcel__ prefix marks them as coming from property_parcels.
 -- geocoded_* and community_council are the Muni geocoder's match for the
 -- address (muni_address_geocodes), NULL when it has none or has not been
 -- asked yet.
@@ -564,8 +565,8 @@ SELECT
     coalesce(i.issuance_status IN (${ACTIVE_ISSUANCE_STATUSES.map((s) => `'${s}'`).join(', ')}), false) AS is_active,
     p.address,
     p.parcel_id,
-    pp.property_type AS parcel_type,
-    pp.total_living_units,
+    pp.property_type AS parcel__property_type,
+    pp.total_living_units AS parcel__total_living_units,
     g.matched_address AS geocoded_address,
     g.lat AS geocoded_lat,
     g.lng AS geocoded_lng,
@@ -794,7 +795,7 @@ FROM listings_active l
 LEFT JOIN registrations r ON r.registration_id = l.registration_id;
 
 COMMENT ON VIEW latest_registry_date IS 'The latest license scan that completed its writes (muni_license_runs with no error_summary).';
-COMMENT ON VIEW licenses IS 'One row per CityView license with a visible page, of any type (Short-Term Rentals, Business, Alcohol): its latest page read, first_read_date and last_read_date. Licenses whose latest read found the id hidden are left out. is_active means the most recent issuance''s status is Active or Issued. parcel_type and total_living_units are from property_parcels for parcel_id (parcel_type is its property_type: RESIDENTIAL, CONDO, ...). geocoded_* and community_council are the Muni geocoder''s match for address.';
+COMMENT ON VIEW licenses IS 'One row per CityView license with a visible page, of any type (Short-Term Rentals, Business, Alcohol): its latest page read, first_read_date and last_read_date. Licenses whose latest read found the id hidden are left out. is_active means the most recent issuance''s status is Active or Issued. parcel__property_type (RESIDENTIAL, CONDO, ...) and parcel__total_living_units are from property_parcels for parcel_id. geocoded_* and community_council are the Muni geocoder''s match for address.';
 COMMENT ON VIEW registrations IS 'One row per STR registration: each STR Certificate number on a Short-Term Rentals license page, plus registrations only the archived registration layer holds. is_active means the STR Certificate''s status is Active; archive-only registrations are not active. geocoded_* and community_council are the license''s geocode, else the archived layer''s. parcel_type is property_parcels.property_type for the license''s parcel (RESIDENTIAL, CONDO, ...) when the parcel is there, else the archived layer''s ParcelType (Residential, Commercial); the two vocabularies differ. submitted_date comes from the archived layer.';
 COMMENT ON VIEW listings_active_with_registration IS 'listings_active plus the Municipal registration matching registration_id. Registration columns are NULL when there is no match.';
 `;

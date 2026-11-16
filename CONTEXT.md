@@ -226,9 +226,10 @@ lists exactly one.
 _Avoid_: lot, property, tax record
 
 **Parcel type**:
-A license's or registration's `parcel_type`: its parcel's appraisal
-grouping, anchorage-property's `property_type` (`RESIDENTIAL`, `CONDO`,
-`APARTMENT`, `VACANT LAND`, `COMMERCIAL`, ...). A registration whose
+A registration's `parcel_type`, and a license's `parcel__property_type`: its
+parcel's appraisal grouping, anchorage-property's `property_type`
+(`RESIDENTIAL`, `CONDO`, `APARTMENT`, `VACANT LAND`, `COMMERCIAL`, ...). A
+registration whose
 license's parcel is not in `property_parcels` takes the archived
 registration layer's `ParcelType` instead (`Residential`, `Commercial`),
 which the Muni derived from the registered address. The two vocabularies
