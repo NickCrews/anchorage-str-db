@@ -25,7 +25,7 @@
  * after the address.
  */
 
-import { mapWithConcurrency } from '@anchorage-str-db/utils/concurrency';
+import { mapWithinBudget } from '@anchorage-str-db/utils/concurrency';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { Pacer } from '@anchorage-str-db/utils/pace';
 
@@ -152,17 +152,24 @@ export type GeocodeResult =
 export interface GeocodeAddressesOptions {
   geocodeOne?: GeocodeOne;
   concurrency?: number;
+  /** No address is sent once this many milliseconds have passed. Unlimited by default. */
+  budgetMs?: number;
 }
 
-/** Geocode each address. A failed request is recorded in its result rather than thrown. */
+/**
+ * Geocode the addresses in the order given, until `budgetMs` is spent. A
+ * failed request is recorded in its result rather than thrown. Addresses not
+ * reached in the budget have no result.
+ */
 export async function geocodeAddresses(
   addresses: readonly string[],
   options: GeocodeAddressesOptions = {},
 ): Promise<GeocodeResult[]> {
   const geocodeOne = options.geocodeOne ?? liveGeocoder();
-  const results = await mapWithConcurrency(
+  const results = await mapWithinBudget(
     addresses,
     options.concurrency ?? CONCURRENCY,
+    options.budgetMs ?? Infinity,
     async (address): Promise<GeocodeResult> => {
       try {
         return { address, candidate: await geocodeOne(address), error: null };

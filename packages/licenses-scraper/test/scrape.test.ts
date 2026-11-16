@@ -187,16 +187,14 @@ describe('scrapeLicenses', () => {
     const ok = await scrapeLicenses({
       dbPath: path,
       scrapeDate: '2026-11-10',
-      maxReads: 4,
       fetchNewest: async () => 6,
       fetchOne,
       gis: fakeGis(),
     });
-    // The second scrape picks up below the first, then retries the failed id.
+    // The second scrape reads the never-read id (the failed one) and the hidden ids due for a re-read.
     await scrapeLicenses({
       dbPath: path,
       scrapeDate: '2026-11-11',
-      maxReads: 4,
       fetchNewest: async () => 6,
       fetchOne,
       gis: fakeGis(),
@@ -210,26 +208,26 @@ describe('scrapeLicenses', () => {
       {
         scrape_date: '2026-11-10',
         newest_cityview_license_id: 6,
-        pages_attempted: 4, // 6, 5, 4, 3
-        pages_read: 2,
-        hidden_read: 1,
+        pages_attempted: 6, // 6, 5, 4, 3, 2, 1
+        pages_read: 3,
+        hidden_read: 2,
         pages_failed: 1,
-        licenses_new: 2,
+        licenses_new: 3,
         error_summary: null,
       },
       {
         scrape_date: '2026-11-11',
         newest_cityview_license_id: 6,
-        // Never read: 5 (failed yesterday), 2, 1; then 3, hidden and read a day ago.
-        pages_attempted: 4,
-        pages_read: 1,
+        // Never read: 5 (failed yesterday); then 3 and 1, hidden and read a day ago.
+        pages_attempted: 3,
+        pages_read: 0,
         hidden_read: 2,
         pages_failed: 1,
-        licenses_new: 1,
+        licenses_new: 0,
         error_summary: null,
       },
     ]);
-    // 1 of 4 reads failed: at the maximum rate, not over it.
+    // 1 of 6 reads failed.
     expect(ok).toBe(true);
   });
 
@@ -347,7 +345,7 @@ describe('the geocoding pass', () => {
     expect(await db.value("SELECT geocoded_date FROM muni_address_geocodes WHERE address = '1 nowhere st'")).toBe('2027-02-08');
   });
 
-  it('caps the addresses per scrape, Short-Term Rentals licenses first', async () => {
+  it('reads and geocodes nothing once the budget is spent, and still logs the run', async () => {
     const path = await freshPath();
     const asked: string[] = [];
     await scrapeLicenses({
@@ -356,11 +354,13 @@ describe('the geocoding pass', () => {
       fetchNewest: async () => 6,
       fetchOne: async (id) => pages[id]!,
       gis: fakeGis(asked),
-      maxGeocodes: 4,
+      budgetMs: 0,
     });
 
-    expect(asked).not.toContain('5 W 4th Ave');
-    expect(asked).toHaveLength(4);
+    const db = await opened(path);
+    expect(asked).toEqual([]);
+    expect(await db.count('SELECT count(*) FROM licenses')).toBe(0);
+    expect(await db.value('SELECT pages_attempted FROM muni_license_scrape_runs')).toBe(0);
   });
 
   it('keeps the page reads when it fails, and warns', async () => {

@@ -47,7 +47,7 @@ extension, and Node strips the types when it runs them. For the same reason
 pnpm scrape airbnb         # Airbnb; writes data/anchorage_str.duckdb
 pnpm scrape airbnb --verbose --db /tmp/scratch.duckdb
 pnpm scrape licenses       # the Muni's license pages, same database
-pnpm scrape licenses --max-reads 60 --db /tmp/scratch.duckdb
+pnpm scrape licenses --budget-seconds 60 --db /tmp/scratch.duckdb
 pnpm scrape parcels        # anchorage-property's current parcels, same database
 pnpm scrape parcels --verbose --db /tmp/scratch.duckdb
 pnpm scrape --help         # every source's options
@@ -169,8 +169,9 @@ nightly rates are left to analysis. See
 
 ### First-review pass
 
-Each run resolves the earliest review date of up to
-`FIRST_REVIEW_MAX_PER_RUN` (1000) listings that don't have one yet, and stores
+Each run resolves the earliest review date of the listings that don't have one
+yet, in search's order, until `FIRST_REVIEW_BUDGET_MS` (15 minutes) is spent,
+and stores
 it in `airbnb_listing_first_reviews`. The `listings` view derives
 `first_available_date_est` from it. A listing is resolved once: a first
 review never changes, and a listing with no reviews stores NULL and is not
@@ -185,8 +186,8 @@ count was stale. Search omits the count for listings with very few reviews.
 Only each review's `createdAt` is read; no review text or reviewer data is
 kept.
 
-The pass is capped so the ~2600-listing backfill spreads over about three runs
-instead of adding ~25 minutes to one. In a sample of 200 listings it made 206
+The pass is time-budgeted, so the ~2600-listing backfill spans several runs and
+adds at most 15 minutes to one. In a sample of 200 listings it made 206
 requests. Its `first_review_failure_rate` check is a warning: a failure is
 retried next run, and failing the run would withhold that day's calendar and
 listings, which can't be scraped after the fact.
@@ -207,7 +208,7 @@ request per price band (see
 [`docs/research/airbnb-search-pagination.md`](docs/research/airbnb-search-pagination.md)
 for why the search never paginates). At ~2600 listings that is ~8000 requests
 and about 75 minutes. The first-review pass adds about one request per
-unresolved listing, at most ~1030 (~10 minutes) while backfilling and a handful
+unresolved listing, up to its 15-minute budget while backfilling and a handful
 once caught up. The per-listing passes dominate.
 
 The Airbnb API key is fetched once per run in `scrape.ts` and passed to
@@ -227,8 +228,9 @@ every license the Muni's CityView portal publishes: Short-Term Rentals, Business
 licenses, read from their license pages by id. It is a separate app and
 workflow from the Airbnb scrape, with its own transaction, run log
 (`muni_license_scrape_runs`) and checks, so an outage at either source leaves the
-other's day intact. A scrape reads at most `MAX_READS_PER_SCRAPE` (3000) pages,
-about 25 minutes at the portal's 2 requests a second.
+other's day intact. A scrape reads license pages for up to 45 minutes, then
+geocodes addresses for up to 10 minutes; see the
+[license scraper README](packages/licenses-scraper/README.md#budget).
 
 License ids are one counter across every license type, and most ids are
 hidden license ids. The read history is the scrape's state: each scrape finds

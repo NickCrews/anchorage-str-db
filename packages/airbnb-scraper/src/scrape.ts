@@ -125,7 +125,7 @@ export async function scrapeAirbnb(options: ScrapeAirbnbOptions): Promise<boolea
         `${quoteStats.failed} failed, ${quoteStats.priced} priced`,
     );
 
-    // Capped per run by FIRST_REVIEW_MAX_PER_RUN; the rest wait for later runs.
+    // Time-budgeted per run by FIRST_REVIEW_BUDGET_MS; the rest wait for later runs.
     const pendingReviews = await pendingFirstReviews(db, parsed);
     const firstReviews = await fetchFirstReviews(pendingReviews, {
       fetchPage: liveReviewPageFetcher(apiKey),

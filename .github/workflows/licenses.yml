@@ -19,8 +19,10 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    # A scrape reads at most 3000 pages at about 2 a second: about 25 minutes,
-    # longer when the portal slows and the pacer backs off.
+    # Page reads and geocoding each start no request after their time budget
+    # (45 and 10 minutes), so a slow portal shortens a run rather than failing
+    # it. The timeout leaves room for the requests in flight, the writes and
+    # the checks.
     timeout-minutes: 90
     permissions:
       contents: write # to upload the updated database as a release asset

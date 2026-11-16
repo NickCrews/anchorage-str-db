@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { scrapeAirbnb } from '@anchorage-str-db/airbnb-scraper/scrape';
-import { scrapeLicenses } from '@anchorage-str-db/licenses-scraper/scrape';
-import { MAX_READS_PER_SCRAPE } from '@anchorage-str-db/licenses-scraper/select';
+import { GEOCODE_BUDGET_MS } from '@anchorage-str-db/licenses-scraper/geocode';
+import { LICENSE_READ_BUDGET_MS, scrapeLicenses } from '@anchorage-str-db/licenses-scraper/scrape';
 import { ANCHORAGE_PROPERTY_URL, scrapeParcels } from '@anchorage-str-db/parcels-scraper/scrape';
 import { parseIsoDate, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log, setLevel } from '@anchorage-str-db/utils/log';
@@ -25,8 +25,8 @@ export interface ScrapeOptions {
   dbPath: string;
   /** The date the run is recorded under; today, UTC, when absent. */
   scrapeDate?: IsoDate;
-  /** licenses only: license pages to read at most. */
-  maxReads?: number;
+  /** licenses only: milliseconds each budgeted pass may start requests for. */
+  budgetMs?: number;
   /** parcels only: anchorage-property's database, a URL or a local path. */
   sourceUrl?: string;
 }
@@ -53,7 +53,10 @@ options:
   -h, --help      show this message
 
 licenses options:
-  --max-reads N   license pages to read at most (default: ${MAX_READS_PER_SCRAPE})
+  --budget-seconds N
+                  seconds each budgeted pass may start requests for: page
+                  reads, then geocoding (default: ${LICENSE_READ_BUDGET_MS / 1000}
+                  and ${GEOCODE_BUDGET_MS / 1000})
 
 parcels options:
   --source URL    anchorage-property's database, a URL or a local path
@@ -61,7 +64,7 @@ parcels options:
 `;
 
 /** Options that only one source takes. */
-const SOURCE_OPTIONS = { 'max-reads': 'licenses', source: 'parcels' } as const satisfies Record<string, Source>;
+const SOURCE_OPTIONS = { 'budget-seconds': 'licenses', source: 'parcels' } as const satisfies Record<string, Source>;
 
 function usageError(message: string): number {
   process.stderr.write(`${message}\n\n${USAGE}`);
@@ -76,7 +79,7 @@ export async function main(argv: string[], scrapers: Scrapers = SCRAPERS): Promi
       options: {
         db: { type: 'string', default: DEFAULT_DB_PATH },
         date: { type: 'string' },
-        'max-reads': { type: 'string' },
+        'budget-seconds': { type: 'string' },
         source: { type: 'string' },
         verbose: { type: 'boolean', short: 'v', default: false },
         help: { type: 'boolean', short: 'h', default: false },
@@ -117,9 +120,10 @@ export async function main(argv: string[], scrapers: Scrapers = SCRAPERS): Promi
   } catch (err) {
     return usageError(`--date: ${describeError(err)}`);
   }
-  const maxReads = values['max-reads'] === undefined ? undefined : Number(values['max-reads']);
-  if (maxReads !== undefined && !(Number.isInteger(maxReads) && maxReads >= 0)) {
-    return usageError(`--max-reads: not a whole number: ${values['max-reads']}`);
+  const budgetSeconds =
+    values['budget-seconds'] === undefined ? undefined : Number(values['budget-seconds']);
+  if (budgetSeconds !== undefined && !(Number.isInteger(budgetSeconds) && budgetSeconds >= 0)) {
+    return usageError(`--budget-seconds: not a whole number: ${values['budget-seconds']}`);
   }
 
   const dbPath = values.db;
@@ -129,7 +133,7 @@ export async function main(argv: string[], scrapers: Scrapers = SCRAPERS): Promi
     const ok = await scrapers[chosen]({
       dbPath,
       ...(date === undefined ? {} : { scrapeDate: date }),
-      ...(maxReads === undefined ? {} : { maxReads }),
+      ...(budgetSeconds === undefined ? {} : { budgetMs: budgetSeconds * 1000 }),
       ...(values.source === undefined ? {} : { sourceUrl: values.source }),
     });
     return ok ? 0 : 1;

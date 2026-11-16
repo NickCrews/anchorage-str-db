@@ -35,3 +35,24 @@ export async function mapWithConcurrency<T, R>(
   if (firstError) throw firstError.err;
   return results;
 }
+
+const SKIPPED = Symbol('skipped');
+
+/**
+ * `mapWithConcurrency`, except that no job starts once `budgetMs` has passed
+ * since the call. The result holds the started items only, in input order;
+ * the rest are not run and not returned.
+ */
+export async function mapWithinBudget<T, R>(
+  items: readonly T[],
+  limit: number,
+  budgetMs: number,
+  job: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const deadline = Date.now() + budgetMs;
+  const results = await mapWithConcurrency<T, R | typeof SKIPPED>(items, limit, async (item, index) => {
+    if (Date.now() >= deadline) return SKIPPED;
+    return job(item, index);
+  });
+  return results.filter((result): result is R => result !== SKIPPED);
+}

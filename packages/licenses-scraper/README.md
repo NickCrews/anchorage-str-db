@@ -15,11 +15,11 @@ defined in `packages/db`, then geocodes their addresses. An app like
 
 ```sh
 pnpm scrape licenses
-pnpm scrape licenses --db /tmp/scratch.duckdb --max-reads 60 --verbose
+pnpm scrape licenses --db /tmp/scratch.duckdb --budget-seconds 60 --verbose
 ```
 
-`--max-reads` caps the scrape below `MAX_READS_PER_SCRAPE` (3000), for a quick
-run against a scratch database.
+`--budget-seconds` sets the time budget of both passes (page reads, then
+geocoding), for a quick run against a scratch database.
 
 ## What a scrape reads
 
@@ -28,8 +28,8 @@ order, never reused. Most ids are hidden license ids. The read history in
 the database is the scrape's only state: `muni_license_page_reads` (visible
 pages) and `muni_license_hidden_reads` (hidden ids).
 
-Each scrape finds the newest id from the License Locator, then reads up to
-3000 ids in this order (`chooseLicenseIds`):
+Each scrape finds the newest id from the License Locator, then reads ids in
+this order (`chooseLicenseIds`) until its budget is spent:
 
 1. ids above the highest id ever read, visible or hidden, up to the newest,
    newest first;
@@ -41,10 +41,18 @@ Each scrape finds the newest id from the License Locator, then reads up to
 
 Within 3 to 6 the oldest read goes first. A failed read writes nothing, so
 the id keeps its place for the next scrape. From an empty database the first
-scrape reads the newest 3000 ids, which hold every Short-Term Rentals license
-(ids from 13607), and the rest of the ~16,500 ids follow over about five
-more scrapes. Once caught up, a scrape reads well under 3000 ids: about 400
-Short-Term Rentals licenses, the newest hidden ids, and a share of the rest.
+scrape reads the newest ids, which hold every Short-Term Rentals license (ids
+from 13607), and later scrapes read the rest of the ~16,500 ids. Once caught
+up, a scrape reads about 400 Short-Term Rentals licenses, the newest hidden
+ids, and a share of the rest.
+
+## Budget
+
+A scrape starts page reads for 45 minutes (`LICENSE_READ_BUDGET_MS`), then
+geocodes for 10 minutes (`GEOCODE_BUDGET_MS`). A pass starts no request once
+its budget is spent and writes what it has. An id or address it did not reach
+has no row, so it keeps its place for the next scrape. Together the passes take
+at most about 55 minutes, inside the workflow's 90-minute timeout.
 
 ## Writes
 

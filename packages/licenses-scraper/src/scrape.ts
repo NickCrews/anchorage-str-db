@@ -24,22 +24,27 @@ import { describeError, log } from '@anchorage-str-db/utils/log';
 
 import { runChecks } from './checks.ts';
 import { runGeocodePass, type GeocodePassStats, type GisClients } from './geocode.ts';
-import { chooseLicenseIds, MAX_READS_PER_SCRAPE } from './select.ts';
+import { chooseLicenseIds } from './select.ts';
 import { latestReads, logRun, recordLicenseReads, type RunRow } from './store.ts';
+
+/** Milliseconds in a scrape during which license pages are read; the workflow's timeout is 90 minutes. */
+export const LICENSE_READ_BUDGET_MS = 45 * 60_000;
 
 export interface ScrapeLicensesOptions {
   dbPath: string;
   scrapeDate?: IsoDate;
-  /** Reads per scrape; `MAX_READS_PER_SCRAPE` by default. */
-  maxReads?: number;
+  /**
+   * Milliseconds each budgeted pass may start requests for: the page reads,
+   * then the geocoding. `LICENSE_READ_BUDGET_MS` and `GEOCODE_BUDGET_MS` when
+   * absent.
+   */
+  budgetMs?: number;
   /** The newest license id; the License Locator by default. */
   fetchNewest?: () => Promise<number>;
   /** One page read; the live portal by default. */
   fetchOne?: FetchOneLicensePage;
   /** The Muni GIS services; the live ones by default. */
   gis?: GisClients;
-  /** Addresses to geocode; `MAX_GEOCODES_PER_SCRAPE` by default. */
-  maxGeocodes?: number;
 }
 
 /** Resolves to true iff every error-severity check passed. */
@@ -56,11 +61,13 @@ export async function scrapeLicenses(options: ScrapeLicensesOptions): Promise<bo
       newestCityviewLicenseId: newest,
       latestReads: await latestReads(db),
       scrapeDate,
-      max: options.maxReads ?? MAX_READS_PER_SCRAPE,
     });
-    log.info(`newest license id ${newest}; reading ${ids.length} license pages`);
+    log.info(`newest license id ${newest}; ${ids.length} license ids in read order`);
 
-    const results = await fetchLicensePages(ids, options.fetchOne ? { fetchOne: options.fetchOne } : {});
+    const results = await fetchLicensePages(ids, {
+      ...(options.fetchOne ? { fetchOne: options.fetchOne } : {}),
+      budgetMs: options.budgetMs ?? LICENSE_READ_BUDGET_MS,
+    });
     const pages: LicensePage[] = [];
     const hidden: HiddenLicensePage[] = [];
     for (const { page } of results) {
@@ -93,7 +100,7 @@ export async function scrapeLicenses(options: ScrapeLicensesOptions): Promise<bo
     try {
       geocoding = await runGeocodePass(db, scrapeDate, {
         ...options.gis,
-        ...(options.maxGeocodes === undefined ? {} : { maxGeocodes: options.maxGeocodes }),
+        ...(options.budgetMs === undefined ? {} : { budgetMs: options.budgetMs }),
       });
     } catch (err) {
       log.error(`the geocoding pass failed: ${describeError(err)}`);

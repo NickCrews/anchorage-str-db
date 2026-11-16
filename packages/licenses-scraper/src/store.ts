@@ -137,20 +137,20 @@ export async function logRun(db: Database, run: RunRow): Promise<void> {
 }
 
 /**
- * Addresses of licenses in `licenses` to send to the geocoder, at most `max`:
- * those never sent, then those last sent on or before `retryMissesBy`
- * without a match. A match is never asked about again. Within each, a
- * Short-Term Rentals license's address comes first, then the newest license.
+ * Addresses of licenses in `licenses` to send to the geocoder: those never
+ * sent, then those last sent on or before `retryMissesBy` without a match. A
+ * match is never asked about again. Within each, a Short-Term Rentals
+ * license's address comes first, then the newest license.
  */
-export async function addressesToGeocode(db: Database, retryMissesBy: IsoDate, max: number): Promise<string[]> {
+export async function addressesToGeocode(db: Database, retryMissesBy: IsoDate): Promise<string[]> {
   const rows = await db.rows<{ address: string }>(
     'SELECT l.address FROM licenses l LEFT JOIN muni_address_geocodes g USING (address) ' +
       'WHERE l.address IS NOT NULL AND (g.address IS NULL OR ' +
       '(g.matched_address IS NULL AND g.geocoded_date <= CAST(? AS DATE))) ' +
       'GROUP BY l.address ' +
       'ORDER BY bool_or(g.address IS NULL) DESC, bool_or(l.license_type = ?) DESC, ' +
-      'max(l.cityview_license_id) DESC, l.address LIMIT ?',
-    [retryMissesBy, SHORT_TERM_RENTALS, max],
+      'max(l.cityview_license_id) DESC, l.address',
+    [retryMissesBy, SHORT_TERM_RENTALS],
   );
   return rows.map((row) => row.address);
 }
