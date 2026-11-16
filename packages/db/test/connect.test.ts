@@ -11,7 +11,7 @@ import { connect, LegacySchemaError } from '../src/connect.ts';
 import { Database } from '../src/database.ts';
 
 /** Migrations in `../drizzle`; every `connect` should end with exactly these applied. */
-const MIGRATION_COUNT = 8;
+const MIGRATION_COUNT = 9;
 
 const temporary: string[] = [];
 const open: Database[] = [];
@@ -177,7 +177,8 @@ describe('connect', () => {
     await cp(fileURLToPath(new URL('../drizzle', import.meta.url)), folder, { recursive: true });
     const journalPath = join(folder, 'meta', '_journal.json');
     const journal = JSON.parse(await readFile(journalPath, 'utf8')) as { entries: { tag: string }[] };
-    journal.entries = journal.entries.filter((entry) => entry.tag !== '0007_scrape_runs');
+    const through = journal.entries.findIndex((entry) => entry.tag === '0006_property_parcels');
+    journal.entries = journal.entries.slice(0, through + 1);
     await writeFile(journalPath, JSON.stringify(journal));
 
     const path = await tempPath();

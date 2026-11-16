@@ -16,6 +16,8 @@ export const SOURCE_TABLE = 'parcels_current';
 /**
  * The columns read from `parcels_current`, with the type each is cast to:
  * those of `property_parcels`, in its order, without `scrape_date`.
+ * `replaceParcels` names every column, so `scrape_date` sitting between
+ * `valid_from` and the owner columns does not matter.
  */
 const SOURCE_COLUMNS = [
   ['parcel_id', 'VARCHAR'],
@@ -27,6 +29,13 @@ const SOURCE_COLUMNS = [
   ['centroid_lat', 'DOUBLE'],
   ['centroid_lon', 'DOUBLE'],
   ['valid_from', 'TIMESTAMP'],
+  ['owner_name', 'VARCHAR'],
+  ['owner_address', 'VARCHAR'],
+  ['owner_city', 'VARCHAR'],
+  ['owner_state', 'VARCHAR'],
+  ['owner_zip', 'VARCHAR'],
+  ['exemption_types_all', 'VARCHAR'],
+  ['appraised_total_value', 'DOUBLE'],
 ] as const;
 
 /** The temporary table a read stages the source's parcels in. */

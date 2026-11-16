@@ -46,12 +46,19 @@ interface SourceShape {
   ingestRuns?: boolean;
 }
 
-/** Columns of parcels_current, a subset in the source's order and types, plus one this repo does not copy. */
+/** Columns of parcels_current, a subset in the source's order and types, plus one this repo does not copy (owner_line_1). */
 const SOURCE_COLUMNS: [string, string][] = [
   ['parcel_id', "lpad(i::VARCHAR, 11, '0')"],
   ['property_type', "CASE WHEN i % 5 = 0 THEN 'CONDO' ELSE 'RESIDENTIAL' END"],
   ['land_use', "'Residential 1 Family'"],
   ['owner_name', "'SOMEONE'"],
+  ['owner_line_1', "'SOMEONE'"],
+  ['owner_address', "'PO BOX 1'"],
+  ['owner_city', "'GIRDWOOD'"],
+  ['owner_state', "'AK'"],
+  ['owner_zip', "'99587'"],
+  ['exemption_types_all', "CASE WHEN i % 2 = 0 THEN 'OWNERS PRIMARY RESIDENCE' END"],
+  ['appraised_total_value', '(i * 1000)::DOUBLE'],
   ['parcel_address', "i::VARCHAR || ' ECHO RIDGE DR'"],
   ['total_living_units', '(i % 3)::INTEGER'],
   ['zoning_district', "'R1'"],
@@ -120,6 +127,13 @@ describe('scrapeParcels', () => {
         centroid_lon: -149.9,
         valid_from: '2026-10-07 19:37:33.788',
         scrape_date: '2026-11-14',
+        owner_name: 'SOMEONE',
+        owner_address: 'PO BOX 1',
+        owner_city: 'GIRDWOOD',
+        owner_state: 'AK',
+        owner_zip: '99587',
+        exemption_types_all: null,
+        appraised_total_value: 5000,
       },
     ]);
     expect(

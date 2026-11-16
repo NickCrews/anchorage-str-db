@@ -4,7 +4,8 @@ The parcel scrape: copies the current parcels from
 [anchorage-property](https://github.com/NickCrews/anchorage-property)'s
 published DuckDB file into `property_parcels`, so `licenses` and
 `registrations` can join a license's parcel id to its property type and
-living units. An app like `packages/licenses-scraper`, with no client
+living units, and the viewer to its owner of record, mailing address and
+exemptions. An app like `packages/licenses-scraper`, with no client
 package: DuckDB attaches the published file and copies its rows directly.
 anchorage-property reads the Muni's parcel layer and keeps each parcel's
 history, and this repo keeps only the current state.
