@@ -476,6 +476,19 @@ export const propertyParcels = pgTable('property_parcels', {
   validFrom: naiveTimestamp('valid_from'),
   // The scrape_date of the parcel scrape that wrote the row.
   scrapeDate: day('scrape_date').notNull(),
+  // The owner of record and their mailing address, as the Muni publishes
+  // them: 'SMITH JOHN & JANE', '1234 MAIN ST', 'ANCHORAGE', 'AK', '99501'.
+  // The mailing address is where tax notices go, not necessarily where the
+  // owner lives.
+  ownerName: varchar('owner_name'),
+  ownerAddress: varchar('owner_address'),
+  ownerCity: varchar('owner_city'),
+  ownerState: varchar('owner_state'),
+  ownerZip: varchar('owner_zip'),
+  // Every exemption on the parcel, comma-separated: 'OWNERS PRIMARY
+  // RESIDENCE, SENIOR CITIZEN'. Empty or NULL when there is none.
+  exemptionTypesAll: varchar('exemption_types_all'),
+  appraisedTotalValue: doublePrecision('appraised_total_value'),
 });
 
 /** Counts are NULL on a failed scrape, which left property_parcels as it was. */
