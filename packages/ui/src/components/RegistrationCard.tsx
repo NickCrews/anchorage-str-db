@@ -124,7 +124,7 @@ export const RegistrationCard: FC = () => {
           Matches the registration id on each Airbnb listing page to the STR
           certificates on the Muni's license pages
           {s?.registryDate ? ` as of ${shortDate(s.registryDate)}` : ''}. A number
-          issued since the last license scan shows as not in the registry.
+          issued since the last license scrape shows as not in the registry.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

@@ -4,9 +4,9 @@ The one command line for every scraper. It parses the options and calls a
 `*-scraper` package's run; it holds no logic of its own.
 
 ```sh
-pnpm scrape airbnb      # runDaily, packages/airbnb-scraper
-pnpm scrape licenses    # runScan, packages/licenses-scraper
-pnpm scrape parcels     # runImport, packages/parcels-scraper
+pnpm scrape airbnb      # scrapeAirbnb, packages/airbnb-scraper
+pnpm scrape licenses    # scrapeLicenses, packages/licenses-scraper
+pnpm scrape parcels     # scrapeParcels, packages/parcels-scraper
 pnpm scrape --help
 ```
 

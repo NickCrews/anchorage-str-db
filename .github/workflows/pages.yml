@@ -7,7 +7,7 @@ on:
   # source's newest data whichever ones are failing. The names are the
   # workflows' `name:` fields.
   workflow_run:
-    workflows: ["Airbnb scrape", "Muni license scan", "Parcel import"]
+    workflows: ["Airbnb scrape", "Muni license scrape", "Parcel scrape"]
     types: [completed]
   workflow_dispatch:
 

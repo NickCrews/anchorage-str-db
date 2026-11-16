@@ -11,7 +11,7 @@ import type { GeocodeCandidate } from '@anchorage-str-db/muni-gis-client/geocode
 import type { HiddenLicensePage, LicensePage } from '@anchorage-str-db/licenses-client/licensePage';
 
 import type { GisClients } from '../src/geocode.ts';
-import { runScan } from '../src/scan.ts';
+import { scrapeLicenses } from '../src/scrape.ts';
 import { latestReads, recordLicenseReads } from '../src/store.ts';
 
 const temporary: string[] = [];
@@ -175,16 +175,16 @@ describe('latestReads', () => {
   });
 });
 
-describe('runScan', () => {
+describe('scrapeLicenses', () => {
   /** Ids 1..6: even ids visible, odd hidden, and 5 fails. */
   const fetchOne = async (id: number) => {
     if (id === 5) throw new Error('timed out');
     return id % 2 === 0 ? licensePage(id) : hiddenPage(id);
   };
 
-  it('reads the chosen ids, writes them and logs the scan', async () => {
+  it('reads the chosen ids, writes them and logs the scrape', async () => {
     const path = await freshPath();
-    const ok = await runScan({
+    const ok = await scrapeLicenses({
       dbPath: path,
       scrapeDate: '2026-11-10',
       maxReads: 4,
@@ -192,8 +192,8 @@ describe('runScan', () => {
       fetchOne,
       gis: fakeGis(),
     });
-    // The second scan picks up below the first, then retries the failed id.
-    await runScan({
+    // The second scrape picks up below the first, then retries the failed id.
+    await scrapeLicenses({
       dbPath: path,
       scrapeDate: '2026-11-11',
       maxReads: 4,
@@ -205,7 +205,7 @@ describe('runScan', () => {
     const db = await opened(path);
     expect(await db.rows(
       'SELECT scrape_date, newest_cityview_license_id, pages_attempted, pages_read, hidden_read, ' +
-        'pages_failed, licenses_new, error_summary FROM muni_license_runs ORDER BY scrape_date',
+        'pages_failed, licenses_new, error_summary FROM muni_license_scrape_runs ORDER BY scrape_date',
     )).toEqual([
       {
         scrape_date: '2026-11-10',
@@ -234,7 +234,7 @@ describe('runScan', () => {
   });
 
   it('fails when too many reads fail', async () => {
-    const ok = await runScan({
+    const ok = await scrapeLicenses({
       dbPath: await freshPath(),
       scrapeDate: '2026-11-10',
       fetchNewest: async () => 6,
@@ -247,10 +247,10 @@ describe('runScan', () => {
     expect(ok).toBe(false);
   });
 
-  it('logs a failed scan after rolling back its writes', async () => {
+  it('logs a failed scrape after rolling back its writes', async () => {
     const path = await freshPath();
     await expect(
-      runScan({
+      scrapeLicenses({
         dbPath: path,
         scrapeDate: '2026-11-10',
         fetchNewest: async () => {
@@ -262,14 +262,14 @@ describe('runScan', () => {
     ).rejects.toThrow(/License Locator is down/);
 
     const db = await opened(path);
-    expect(await db.rows('SELECT pages_attempted, error_summary FROM muni_license_runs')).toEqual([
+    expect(await db.rows('SELECT pages_attempted, error_summary FROM muni_license_scrape_runs')).toEqual([
       { pages_attempted: null, error_summary: expect.stringMatching(/License Locator is down/) },
     ]);
   });
 
   it('passes its checks when every read succeeds', async () => {
     const path = await freshPath();
-    const ok = await runScan({
+    const ok = await scrapeLicenses({
       dbPath: path,
       scrapeDate: '2026-11-10',
       fetchNewest: async () => 4,
@@ -290,8 +290,8 @@ describe('the geocoding pass', () => {
     5: licensePage(5, { licenseType: 'Alcohol', locations: at('5 W 4th Ave') }),
     6: licensePage(6, { licenseType: 'Business', locations: [] }),
   };
-  const scan = (path: string, scrapeDate: string, gis: GisClients) =>
-    runScan({
+  const scrape = (path: string, scrapeDate: string, gis: GisClients) =>
+    scrapeLicenses({
       dbPath: path,
       scrapeDate,
       fetchNewest: async () => 6,
@@ -302,10 +302,10 @@ describe('the geocoding pass', () => {
   it("geocodes every license's address once, keeping misses", async () => {
     const path = await freshPath();
     const asked: string[] = [];
-    const ok = await scan(path, '2026-11-10', fakeGis(asked));
+    const ok = await scrape(path, '2026-11-10', fakeGis(asked));
     // The next day asks only about the address whose request failed, and it answers.
     const askedNextDay: string[] = [];
-    await scan(path, '2026-11-11', fakeGis(askedNextDay, 'no failures'));
+    await scrape(path, '2026-11-11', fakeGis(askedNextDay, 'no failures'));
 
     const db = await opened(path);
     expect(asked.sort()).toEqual(['1 nowhere st', '2 street only', '3 boom ave', '4 sea view', '5 W 4th Ave']);
@@ -337,20 +337,20 @@ describe('the geocoding pass', () => {
 
   it('asks about a miss again after 90 days', async () => {
     const path = await freshPath();
-    await scan(path, '2026-11-10', fakeGis());
+    await scrape(path, '2026-11-10', fakeGis());
     const asked: string[] = [];
-    await scan(path, '2027-02-08', fakeGis(asked));
+    await scrape(path, '2027-02-08', fakeGis(asked));
 
     const db = await opened(path);
-    // 3 fails every time, so it is asked about every scan.
+    // 3 fails every time, so it is asked about every scrape.
     expect(asked.sort()).toEqual(['1 nowhere st', '2 street only', '3 boom ave']);
     expect(await db.value("SELECT geocoded_date FROM muni_address_geocodes WHERE address = '1 nowhere st'")).toBe('2027-02-08');
   });
 
-  it('caps the addresses per scan, Short-Term Rentals licenses first', async () => {
+  it('caps the addresses per scrape, Short-Term Rentals licenses first', async () => {
     const path = await freshPath();
     const asked: string[] = [];
-    await runScan({
+    await scrapeLicenses({
       dbPath: path,
       scrapeDate: '2026-11-10',
       fetchNewest: async () => 6,
@@ -365,7 +365,7 @@ describe('the geocoding pass', () => {
 
   it('keeps the page reads when it fails, and warns', async () => {
     const path = await freshPath();
-    const ok = await scan(path, '2026-11-10', {
+    const ok = await scrape(path, '2026-11-10', {
       ...fakeGis(),
       fetchCouncils: async () => {
         throw new Error('ArcGIS is down');

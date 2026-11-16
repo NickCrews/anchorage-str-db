@@ -147,7 +147,7 @@ and the Muni's license portal, stored as published:
   id, or that record's address); one without is text the registrant typed.
 - `muni_license_hidden_reads`: one row per read of a hidden license id, whose
   page says "Invalid License"
-- `muni_license_runs`: one row per license scan
+- `muni_license_scrape_runs`: one row per license scrape
 - `muni_address_geocodes`: one row per license address sent to the Muni's
   geocoder: its `matched_address`, coordinate and `community_council`, all
   NULL when the geocoder could not place it, plus its best candidate's
@@ -155,12 +155,12 @@ and the Muni's license portal, stored as published:
 - `muni_str_registry_runs`: one row per registry run, an archive
 - `property_parcels`: one row per parcel, copied whole from
   [anchorage-property](https://github.com/NickCrews/anchorage-property)'s
-  current parcels by each parcel import: `parcel_address`, `property_type`
+  current parcels by each parcel scrape: `parcel_address`, `property_type`
   (`RESIDENTIAL`, `CONDO`, ...), `total_living_units`, `land_use`,
   `zoning_district`, the parcel's centroid, and `valid_from`, when
   anchorage-property last saw it change. No history; that stays in
   anchorage-property.
-- `property_parcel_imports`: one row per parcel import, with the
+- `property_parcel_scrape_runs`: one row per parcel scrape, with the
   anchorage-property ingest run it copied
 - `licenses` *(view)*: one row per license with a visible page, of every
   type: its latest page read, `first_read_date`, `last_read_date`, and
@@ -181,7 +181,7 @@ and the Muni's license portal, stored as published:
   the registration matching `registration_id`: its address, parcel,
   business name and description. `registration_found` is false when the
   listing shows no id, or one not in the registry, which includes ids
-  issued since the last license scan.
+  issued since the last license scrape.
 - `source_freshness` *(view)*: one row per upstream source (`airbnb`,
   `muni_licenses`, `property_parcels`) with the date and finish time of its
   latest successful run. Each source runs on its own schedule, so the dates
@@ -208,12 +208,12 @@ and the Muni's license portal, stored as published:
 A pnpm workspace sharing `tsconfig.base.json`:
 
 - `packages/cli`: the one command line, `pnpm scrape <airbnb|licenses|parcels>`.
-- `packages/airbnb-scraper`: the daily Airbnb run over `airbnb-client`: its
+- `packages/airbnb-scraper`: the Airbnb scrape over `airbnb-client`: its
   writes and quality checks.
-- `packages/licenses-scraper`: the license scan over `licenses-client` and
+- `packages/licenses-scraper`: the license scrape over `licenses-client` and
   `muni-gis-client`: which license pages to read, the writes and quality
   checks.
-- `packages/parcels-scraper`: the parcel import from anchorage-property: its
+- `packages/parcels-scraper`: the parcel scrape from anchorage-property: its
   checks and the write.
 - `packages/db`: the DuckDB schema, defined with Drizzle, its migrations and
   the views.

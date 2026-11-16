@@ -485,11 +485,11 @@ export const STR_CERTIFICATE = 'STR Certificate';
 export const ACTIVE_ISSUANCE_STATUSES = ['Active', 'Issued'] as const;
 
 const REGISTRY_VIEWS_SQL = `
--- The latest license scan that completed its writes. The registry is the
+-- The latest license scrape that completed its writes. The registry is the
 -- Short-Term Rentals licenses among the license pages, so this is the date
 -- \`registrations\` is current to.
 CREATE OR REPLACE VIEW latest_registry_date AS
-SELECT max(scrape_date) AS scrape_date FROM muni_license_runs
+SELECT max(scrape_date) AS scrape_date FROM muni_license_scrape_runs
 WHERE error_summary IS NULL;
 
 -- One row per license with a visible page, of any license type: the latest
@@ -507,7 +507,7 @@ WHERE error_summary IS NULL;
 -- licensee typed. parcel_id: the parcel id when the page names exactly one.
 -- parcel__property_type ('RESIDENTIAL', 'CONDO', ...) and
 -- parcel__total_living_units are property_parcels' columns for parcel_id,
--- NULL when the license names no single parcel or the parcel import has not
+-- NULL when the license names no single parcel or the parcel scrape has not
 -- seen it. The parcel__ prefix marks them as coming from property_parcels.
 -- geocoded_* and community_council are the Muni geocoder's match for the
 -- address (muni_address_geocodes), NULL when it has none or has not been
@@ -776,7 +776,7 @@ SELECT * FROM registrations WHERE is_active;
 -- \`listings_active\` plus the registration its page cites. The registration
 -- columns are NULL when the listing shows no number or no license page read
 -- shows it: a typo, a number on a license whose page is hidden, or one issued
--- since the license scan last read new license ids.
+-- since the license scrape last read new license ids.
 CREATE OR REPLACE VIEW listings_active_with_registration AS
 SELECT
     l.*,
@@ -794,7 +794,7 @@ SELECT
 FROM listings_active l
 LEFT JOIN registrations r ON r.registration_id = l.registration_id;
 
-COMMENT ON VIEW latest_registry_date IS 'The latest license scan that completed its writes (muni_license_runs with no error_summary).';
+COMMENT ON VIEW latest_registry_date IS 'The latest license scrape that completed its writes (muni_license_scrape_runs with no error_summary).';
 COMMENT ON VIEW licenses IS 'One row per CityView license with a visible page, of any type (Short-Term Rentals, Business, Alcohol): its latest page read, first_read_date and last_read_date. Licenses whose latest read found the id hidden are left out. is_active means the most recent issuance''s status is Active or Issued. parcel__property_type (RESIDENTIAL, CONDO, ...) and parcel__total_living_units are from property_parcels for parcel_id. geocoded_* and community_council are the Muni geocoder''s match for address.';
 COMMENT ON VIEW registrations IS 'One row per STR registration: each STR Certificate number on a Short-Term Rentals license page, plus registrations only the archived registration layer holds. is_active means the STR Certificate''s status is Active; archive-only registrations are not active. geocoded_* and community_council are the license''s geocode, else the archived layer''s. parcel_type is property_parcels.property_type for the license''s parcel (RESIDENTIAL, CONDO, ...) when the parcel is there, else the archived layer''s ParcelType (Residential, Commercial); the two vocabularies differ. submitted_date comes from the archived layer.';
 COMMENT ON VIEW listings_active_with_registration IS 'listings_active plus the Municipal registration matching registration_id. Registration columns are NULL when there is no match.';
@@ -808,18 +808,18 @@ COMMENT ON VIEW listings_active_with_registration IS 'listings_active plus the M
 const FRESHNESS_VIEWS_SQL = `
 -- One row per upstream source, always present, over its runs that completed
 -- their writes (no error_summary): last_success_date is the latest scrape_date
--- (import_date for parcels) and last_success_finished_at the latest
--- run_finished_at, both NULL when the source has no such run.
+-- and last_success_finished_at the latest run_finished_at, both NULL when
+-- the source has no such run.
 CREATE OR REPLACE VIEW source_freshness AS
 SELECT 'airbnb' AS source, max(scrape_date) AS last_success_date,
     max(run_finished_at) AS last_success_finished_at
 FROM airbnb_scrape_runs WHERE error_summary IS NULL
 UNION ALL
 SELECT 'muni_licenses', max(scrape_date), max(run_finished_at)
-FROM muni_license_runs WHERE error_summary IS NULL
+FROM muni_license_scrape_runs WHERE error_summary IS NULL
 UNION ALL
-SELECT 'property_parcels', max(import_date), max(run_finished_at)
-FROM property_parcel_imports WHERE error_summary IS NULL;
+SELECT 'property_parcels', max(scrape_date), max(run_finished_at)
+FROM property_parcel_scrape_runs WHERE error_summary IS NULL;
 
 COMMENT ON VIEW source_freshness IS 'One row per upstream source (airbnb, muni_licenses, property_parcels): the latest date and finish time among its runs with no error_summary, NULL when it has none.';
 `;

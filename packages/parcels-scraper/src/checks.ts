@@ -12,21 +12,21 @@ import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { STAGED_PARCELS, SOURCE_TABLE, type SourceRead } from './store.ts';
 
 /**
- * Fewer parcels than this fails the import. The Muni has about 98,500
+ * Fewer parcels than this fails the scrape. The Muni has about 98,500
  * (98,571 on 2026-11-13), so a shortfall means a truncated or broken source.
  */
 export const MIN_PARCELS = 90_000;
 
 /**
  * A newest ingest run that started more than this many days before the
- * import date fails `parcel_source_fresh`. A warning: anchorage-property
+ * scrape date fails `parcel_source_fresh`. A warning: anchorage-property
  * ingests daily, and a day-old snapshot still describes the parcels.
  */
 export const MAX_SOURCE_AGE_DAYS = 3;
 
 export async function runSourceChecks(
   db: Database,
-  importDate: IsoDate,
+  scrapeDate: IsoDate,
   source: SourceRead,
 ): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
@@ -71,7 +71,7 @@ export async function runSourceChecks(
   );
 
   const run = source.newestIngestRun;
-  const oldest = `${addDays(importDate, -MAX_SOURCE_AGE_DAYS)} 00:00:00`;
+  const oldest = `${addDays(scrapeDate, -MAX_SOURCE_AGE_DAYS)} 00:00:00`;
   check(
     'parcel_source_fresh',
     'warn',
@@ -79,7 +79,7 @@ export async function runSourceChecks(
     run === null
       ? 'the source records no successful ingest run'
       : `the source's newest ingest run, ${run.runId}, started ${run.startedAt} UTC ` +
-          `(max ${MAX_SOURCE_AGE_DAYS} days before ${importDate})`,
+          `(max ${MAX_SOURCE_AGE_DAYS} days before ${scrapeDate})`,
   );
 
   return results;

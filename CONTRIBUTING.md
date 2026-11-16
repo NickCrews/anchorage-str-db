@@ -15,9 +15,9 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 | package | does | runtime dependencies |
 | --- | --- | --- |
 | `packages/cli` | the one command line, `anchorage-str-db scrape <airbnb\|licenses\|parcels>` | `airbnb-scraper`, `licenses-scraper`, `parcels-scraper`, `utils` |
-| `packages/airbnb-scraper` | the daily run over `airbnb-client`: decides what is stored, writes, checks | `db`, `airbnb-client`, `utils` |
-| `packages/licenses-scraper` | the license scan over `licenses-client` and `muni-gis-client`: chooses which license ids to read, geocodes, writes, checks | `db`, `licenses-client`, `muni-gis-client`, `utils` |
-| `packages/parcels-scraper` | the parcel import from anchorage-property's published database: reads it, checks it, replaces `property_parcels` | `db`, `utils` |
+| `packages/airbnb-scraper` | the Airbnb scrape over `airbnb-client`: decides what is stored, writes, checks | `db`, `airbnb-client`, `utils` |
+| `packages/licenses-scraper` | the license scrape over `licenses-client` and `muni-gis-client`: chooses which license ids to read, geocodes, writes, checks | `db`, `licenses-client`, `muni-gis-client`, `utils` |
+| `packages/parcels-scraper` | the parcel scrape from anchorage-property's published database: reads it, checks it, replaces `property_parcels` | `db`, `utils` |
 | `packages/db` | the DuckDB schema (Drizzle), its migrations, the views, and the connection | `utils`, `@duckdb/node-api`, `drizzle-orm`, `@duckdbfan/drizzle-duckdb` |
 | `packages/airbnb-client` | searches Airbnb and fetches listing pages, calendars, price quotes and reviews | `utils`, `impit` |
 | `packages/licenses-client` | fetches and parses the Muni's CityView license pages, and finds the newest license id | `utils` |
@@ -124,7 +124,7 @@ own README.
 
 ### Fetch everything, then write everything
 
-`runScrape` makes every network request (search, then a page and a calendar
+`scrapeAirbnb` makes every network request (search, then a page and a calendar
 per listing) before touching the database, then does all writes in a single
 `db.transaction`.
 
@@ -210,7 +210,7 @@ and about 75 minutes. The first-review pass adds about one request per
 unresolved listing, at most ~1030 (~10 minutes) while backfilling and a handful
 once caught up. The per-listing passes dominate.
 
-The Airbnb API key is fetched once per run in `pipeline.ts` and passed to
+The Airbnb API key is fetched once per run in `scrape.ts` and passed to
 every search and calendar request. It is a long-lived public value, and
 fetching it per request would re-download the ~600 KB homepage for each
 listing.
@@ -220,30 +220,30 @@ The shared Airbnb request rate is in `airbnb-client/src/pace.ts`, and
 that every pass uses: a 429 aborts the run, a streak of timeouts halves the
 request rate, and any other error is retried.
 
-## The license scan
+## The license scrape
 
-`pnpm scrape licenses` (`packages/licenses-scraper/src/scan.ts`) records
+`pnpm scrape licenses` (`packages/licenses-scraper/src/scrape.ts`) records
 every license the Muni's CityView portal publishes: Short-Term Rentals, Business and Alcohol
 licenses, read from their license pages by id. It is a separate app and
 workflow from the Airbnb scrape, with its own transaction, run log
-(`muni_license_runs`) and checks, so an outage at either source leaves the
-other's day intact. A scan reads at most `MAX_READS_PER_SCAN` (3000) pages,
+(`muni_license_scrape_runs`) and checks, so an outage at either source leaves the
+other's day intact. A scrape reads at most `MAX_READS_PER_SCRAPE` (3000) pages,
 about 25 minutes at the portal's 2 requests a second.
 
 License ids are one counter across every license type, and most ids are
-hidden license ids. The read history is the scan's state: each scan finds
+hidden license ids. The read history is the scrape's state: each scrape finds
 the newest id from the License Locator, then reads new ids, never-read ids,
 and ids whose latest read is due, in the order `chooseLicenseIds` documents
 ([`packages/licenses-scraper/README.md`](packages/licenses-scraper/README.md)). A failed
-read writes nothing and is retried next scan.
+read writes nothing and is retried next scrape.
 
 The license page is the only source for the licensee's own description of
 the business, the parcel id, and every certificate issued under the license.
 The `licenses` view holds each license's latest read, and `registrations`
 one row per STR Certificate number on a Short-Term Rentals license.
 
-After the page reads are written, the scan's geocoding pass sends each new
-license address to the Muni's geocoder (at most 1000 a scan) and stores
+After the page reads are written, the scrape's geocoding pass sends each new
+license address to the Muni's geocoder (at most 1000 a scrape) and stores
 the match and the community council containing it in
 `muni_address_geocodes`. It makes its requests first and writes in its own transaction, so a failure
 in it leaves the page reads written. An address with no match is asked about
@@ -266,17 +266,17 @@ published there, and how it is cleaned:
   (-150.20935, 61.153442). Stored as published; `registrations.geocoded_lat`/`lng`
   are NULL.
 
-## The parcel import
+## The parcel scrape
 
-`pnpm scrape parcels` (`packages/parcels-scraper/src/import.ts`) copies the
+`pnpm scrape parcels` (`packages/parcels-scraper/src/scrape.ts`) copies the
 current parcels from [anchorage-property](https://github.com/NickCrews/anchorage-property),
 which reads the Muni's parcel layer daily and keeps each parcel's history,
 into `property_parcels`. Nothing in this repo scrapes parcels. DuckDB
 attaches anchorage-property's published `anchorage-current.duckdb` read-only
 over HTTPS and reads only the columns the table takes, about 98,500 rows.
 
-The import reads the source into a temporary table, checks it, then replaces
-the whole table and logs the run in `property_parcel_imports` in one
+The scrape reads the source into a temporary table, checks it, then replaces
+the whole table and logs the run in `property_parcel_scrape_runs` in one
 transaction. A source with fewer than 90,000 parcels, a duplicate or missing
 `parcel_id`, or a missing column fails a check and leaves the table as it
 was. The table holds the current snapshot only; history stays in
@@ -302,9 +302,9 @@ broken source stops only its own updates:
 
 | workflow | source | runs (UTC) | outage issue |
 | --- | --- | --- | --- |
-| [`licenses.yml`](.github/workflows/licenses.yml) | the Muni's CityView license pages (`pnpm scrape licenses`) | 08:00 | License scan is failing |
+| [`licenses.yml`](.github/workflows/licenses.yml) | the Muni's CityView license pages (`pnpm scrape licenses`) | 08:00 | License scrape is failing |
 | [`airbnb.yml`](.github/workflows/airbnb.yml) | Airbnb (`pnpm scrape airbnb`) | 12:00 | Airbnb scrape is failing |
-| [`parcels.yml`](.github/workflows/parcels.yml) | anchorage-property's current parcels (`pnpm scrape parcels`) | 16:00 | Parcel import is failing |
+| [`parcels.yml`](.github/workflows/parcels.yml) | anchorage-property's current parcels (`pnpm scrape parcels`) | 16:00 | Parcel scrape is failing |
 
 Each first runs `pnpm typecheck` on `packages/cli` and the packages it
 imports, so a type error fails before any request.
@@ -403,7 +403,7 @@ Every run fails with `LegacySchemaError` until someone:
   with no listings, and the second alone would let a failed run retire every
   listing.
 - **A community council is found when an address is geocoded, not in SQL.**
-  The geocoding pass fetches the council polygons each scan it geocodes
+  The geocoding pass fetches the council polygons each scrape it geocodes
   anything and stores each match's council on its row. Storing the polygons
   and joining in SQL would need DuckDB's spatial extension in every reader
   of the published file, including the browser viewer, for a value that
@@ -499,11 +499,11 @@ pnpm typecheck
   council layer.
 - `scraper/test/store.test.ts` and `registrations.test.ts` run the merge
   logic and views against a real DuckDB file, and
-  `licenses/test/scan.test.ts` runs a license scan, geocoding pass included,
+  `licenses-scraper/test/scrape.test.ts` runs a license scrape, geocoding pass included,
   against one with injected page reads and GIS services. `licenses/test/select.test.ts` covers which ids a
-  scan reads.
-- `parcels/test/import.test.ts` imports from a local DuckDB file shaped like
-  anchorage-property's, offline: `runImport` takes the source as `sourceUrl`.
+  scrape reads.
+- `parcels-scraper/test/scrape.test.ts` scrapes a local DuckDB file shaped like
+  anchorage-property's, offline: `scrapeParcels` takes the source as `sourceUrl`.
 - `db/test/connect.test.ts` checks that migrations apply once and that an
   incompatible file is rejected; `database.test.ts` checks how `appendRows`
   converts values.
@@ -513,7 +513,7 @@ Only `licenses-client/test/licensePage.test.ts` and the live tests in
 `fetchPage`, `fetchCalendars` takes a `fetchOne`, `fetchFirstReviews` takes a
 `fetchPage`, `fetchLayer` and `fetchCommunityCouncils` take a `fetchJson`,
 `fetchLicensePages` takes a `fetchOne`, `geocodeAddresses` takes a
-`geocodeOne`, and `runScan` takes all of the license scan's. The `live*`
+`geocodeOne`, and `scrapeLicenses` takes all of the license scrape's. The `live*`
 functions are the only places real requests are made.
 
 When Airbnb changes something, `airbnb-client/src/api/` and `parse.ts` break

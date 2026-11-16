@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Imports the current parcels from anchorage-property's published database into the database",
+  "description": "Copies the current parcels from anchorage-property's published database into the database",
   "license": "MIT",
   "exports": {
     "./*": "./src/*.ts"

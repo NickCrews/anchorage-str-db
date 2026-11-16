@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Runs the daily Airbnb run over airbnb-client and writes it to the database",
+  "description": "Runs the Airbnb scrape over airbnb-client and writes it to the database",
   "license": "MIT",
   "exports": {
     "./*": "./src/*.ts"

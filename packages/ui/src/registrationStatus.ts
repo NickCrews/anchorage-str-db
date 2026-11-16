@@ -3,7 +3,7 @@
  * registration id matches the Muni registry. `alias` is the table alias
  * the query gives that view.
  *
- * "Id not in registry" includes ids issued since the license scan last read
+ * "Id not in registry" includes ids issued since the license scrape last read
  * new license ids, so it is not proof of an invalid id.
  */
 export const registrationStatusSql = (alias: string) => `CASE

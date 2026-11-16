@@ -49,6 +49,17 @@ const TABLE_NAMES: ReadonlySet<string> = new Set(
 );
 
 /**
+ * Old names of tables a migration renames, accepted before `migrate` runs.
+ * After it, `rejectMismatchedTables` finds any that a migration did not
+ * rename, since its new name is then missing.
+ */
+const RENAMED_TABLES: ReadonlySet<string> = new Set([
+  // 0007_scrape_runs
+  'muni_license_runs',
+  'property_parcel_imports',
+]);
+
+/**
  * Every table must be one `schema.ts` declares. A table from an older schema
  * (tables named without their source prefix, or `listings` as a table rather
  * than a view) means the file predates the migrations, and migrating it would
@@ -62,7 +73,7 @@ async function rejectUnknownTables(db: Database): Promise<void> {
     )
   )
     .map((row) => row.table_name)
-    .filter((name) => !TABLE_NAMES.has(name));
+    .filter((name) => !TABLE_NAMES.has(name) && !RENAMED_TABLES.has(name));
   if (unknown.length > 0) {
     throw new LegacySchemaError(
       `this database has tables the schema does not declare: ` +

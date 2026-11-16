@@ -24,7 +24,7 @@ describe('chooseLicenseIds', () => {
     );
   });
 
-  it('stops at max, newest first, so the next scan continues below', () => {
+  it('stops at max, newest first, so the next scrape continues below', () => {
     const first = chooseLicenseIds({ newestCityviewLicenseId: 16459, latestReads: [], scrapeDate: SCRAPE_DATE, max: 3 });
     expect(first).toEqual([16459, 16458, 16457]);
 

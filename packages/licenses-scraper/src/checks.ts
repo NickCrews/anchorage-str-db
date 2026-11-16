@@ -1,5 +1,5 @@
 /**
- * Data-quality checks run after each license scan's writes. Any failed
+ * Data-quality checks run after each license scrape's writes. Any failed
  * error-severity check makes `pnpm scrape licenses` exit non-zero, which blocks
  * publishing.
  */
@@ -12,19 +12,19 @@ import type { IsoDate } from '@anchorage-str-db/utils/dates';
 import type { GeocodePassStats } from './geocode.ts';
 import { SHORT_TERM_RENTALS } from './select.ts';
 
-/** A license-page failure rate above this fails the scan. */
+/** A license-page failure rate above this fails the scrape. */
 const MAX_LICENSE_PAGE_FAILURE_RATE = 0.25;
 
 /**
  * The share of visible pages read with a status and an issuance below which
- * the scan fails. Every page sampled had both, so a shortfall means the page
+ * the scrape fails. Every page sampled had both, so a shortfall means the page
  * layout changed under the parser.
  */
 const MIN_PAGE_FIELD_SHARE = 0.95;
 
 /**
  * A geocoding-pass failure rate above this fails `geocode_failure_rate`. A
- * warning: a failed geocode is retried next scan, and the page
+ * warning: a failed geocode is retried next scrape, and the page
  * reads are written already.
  */
 const MAX_GEOCODE_FAILURE_RATE = 0.25;
@@ -38,13 +38,13 @@ const MAX_GEOCODE_FAILURE_RATE = 0.25;
 const MIN_GEOCODE_MATCH_SHARE = 0.85;
 
 export interface ScanCheckInputs {
-  /** This scan's visible page reads. */
+  /** This scrape's visible page reads. */
   pages: readonly LicensePage[];
   /** What the geocoding pass did, or why it failed. */
   geocoding: GeocodePassStats | { error: string };
 }
 
-export async function runScanChecks(
+export async function runChecks(
   db: Database,
   scrapeDate: IsoDate,
   inputs: ScanCheckInputs,
@@ -60,17 +60,17 @@ export async function runScanChecks(
       pages_attempted: number | null;
       pages_failed: number | null;
     }>(
-      'SELECT newest_cityview_license_id, pages_attempted, pages_failed FROM muni_license_runs ' +
+      'SELECT newest_cityview_license_id, pages_attempted, pages_failed FROM muni_license_scrape_runs ' +
         'WHERE scrape_date = CAST(? AS DATE) AND pages_attempted IS NOT NULL ' +
         'ORDER BY run_started_at DESC LIMIT 1',
       [scrapeDate],
     )
   )[0];
   if (!run) {
-    check('license_run_logged', 'error', false, `no completed muni_license_runs row for ${scrapeDate}`);
+    check('license_run_logged', 'error', false, `no completed muni_license_scrape_runs row for ${scrapeDate}`);
     return results;
   }
-  check('license_run_logged', 'error', true, `muni_license_runs has a completed scan for ${scrapeDate}`);
+  check('license_run_logged', 'error', true, `muni_license_scrape_runs has a completed scrape for ${scrapeDate}`);
 
   const attempted = run.pages_attempted ?? 0;
   if (attempted) {
@@ -116,8 +116,8 @@ export async function runScanChecks(
       (malformed.length ? `; e.g. licenses ${malformed.slice(0, 5).join(', ')}` : ''),
   );
 
-  // The newest license should be in the read history once the scan has
-  // caught up; a failed read of it is retried next scan.
+  // The newest license should be in the read history once the scrape has
+  // caught up; a failed read of it is retried next scrape.
   const newest = run.newest_cityview_license_id;
   if (newest !== null) {
     const found = await db.count(

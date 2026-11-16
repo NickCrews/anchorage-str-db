@@ -1,12 +1,12 @@
 /**
- * Which license ids a scan reads. The read history in the database is the
- * scan's only state: every id read, when, and whether it was hidden.
+ * Which license ids a scrape reads. The read history in the database is the
+ * scrape's only state: every id read, when, and whether it was hidden.
  */
 
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 
-/** License pages read per scan. At ~0.5 s a page, 3000 reads take about 25 minutes. */
-export const MAX_READS_PER_SCAN = 3000;
+/** License pages read per scrape. At ~0.5 s a page, 3000 reads take about 25 minutes. */
+export const MAX_READS_PER_SCRAPE = 3000;
 
 /** A hidden license id among this many newest ids is re-read daily: a new license is often hidden at first. */
 export const RECENT_ID_WINDOW = 500;
@@ -40,7 +40,7 @@ export interface LicenseIdSelection {
 }
 
 /**
- * The ids to read this scan, at most `max`, in this order:
+ * The ids to read this scrape, at most `max`, in this order:
  *
  * 1. Ids above the highest id ever read (visible or hidden), up to the
  *    newest, newest first.
@@ -52,7 +52,7 @@ export interface LicenseIdSelection {
  * 6. Older hidden ids last read 90 days ago or more.
  *
  * Within 3 to 6, the oldest read comes first, then the newest id. A failed
- * read writes nothing, so its id keeps its place for the next scan.
+ * read writes nothing, so its id keeps its place for the next scrape.
  */
 export function chooseLicenseIds(selection: LicenseIdSelection): number[] {
   const { newestCityviewLicenseId: newest, latestReads, scrapeDate, max } = selection;

@@ -1,11 +1,11 @@
 /**
- * The geocoding pass: after a scan writes its page reads, geocode the
+ * The geocoding pass: after a scrape writes its page reads, geocode the
  * addresses of licenses in `licenses` that have no geocode yet, place each
  * match in a community council. Like the page reads, every request comes
  * first, then one transaction writes `muni_address_geocodes`.
  *
  * The council is found when the address is geocoded, against the council
- * polygons fetched that scan, and stored on the geocode, so the views need no
+ * polygons fetched that scrape, and stored on the geocode, so the views need no
  * spatial extension (the browser viewer's DuckDB would have to load one).
  */
 
@@ -22,12 +22,12 @@ import { log } from '@anchorage-str-db/utils/log';
 import { addressesToGeocode, recordGeocodes, type AddressGeocodeRow } from './store.ts';
 
 /**
- * Addresses geocoded per scan. About 3,000 licenses have an address (2,237
- * distinct among the 2,480 read by 2026-09-28), so the first scans spread
+ * Addresses geocoded per scrape. About 3,000 licenses have an address (2,237
+ * distinct among the 2,480 read by 2026-09-28), so the first scrapes spread
  * them over three days; at the geocoder's 4 requests a second, 1000 take
  * about four minutes.
  */
-export const MAX_GEOCODES_PER_SCAN = 1000;
+export const MAX_GEOCODES_PER_SCRAPE = 1000;
 
 /** Days before an address the geocoder could not match is asked about again. */
 export const GEOCODE_MISS_RETRY_DAYS = 90;
@@ -63,7 +63,7 @@ export async function runGeocodePass(
   const addresses = await addressesToGeocode(
     db,
     addDays(scrapeDate, -GEOCODE_MISS_RETRY_DAYS),
-    options.maxGeocodes ?? MAX_GEOCODES_PER_SCAN,
+    options.maxGeocodes ?? MAX_GEOCODES_PER_SCRAPE,
   );
   const geocodes: AddressGeocodeRow[] = [];
   let failed = 0;
