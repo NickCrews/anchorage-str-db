@@ -14,8 +14,11 @@ Anchorage, Alaska, for answering questions like:
 - One DuckDB file, `anchorage_str.duckdb`, with daily snapshots of listings
   and calendar availability, and of the Municipality's STR registrations
 - Policy queries in `docs/policy_questions.sql`
-- A browser viewer in `packages/ui/`, published at
-  <https://nickcrews.github.io/anchorage-str-db/>
+- A browser story in `packages/ui/`, published at
+  <https://nickcrews.github.io/anchorage-str-db/>: one chapter per policy
+  question (listing and host revenue, nightly rates, occupancy, room tax, who
+  owns the dwellings), with estimates of revenue and occupancy computed in
+  the browser
 
 ## Quick start
 
@@ -157,9 +160,11 @@ and the Muni's license portal, stored as published:
   [anchorage-property](https://github.com/NickCrews/anchorage-property)'s
   current parcels by each parcel scrape: `parcel_address`, `property_type`
   (`RESIDENTIAL`, `CONDO`, ...), `total_living_units`, `land_use`,
-  `zoning_district`, the parcel's centroid, and `valid_from`, when
-  anchorage-property last saw it change. No history; that stays in
-  anchorage-property.
+  `zoning_district`, the parcel's centroid, `valid_from`, when
+  anchorage-property last saw it change, the owner of record and mailing
+  address (`owner_name`, `owner_address`, `owner_city`, `owner_state`,
+  `owner_zip`), `exemption_types_all` (`OWNERS PRIMARY RESIDENCE`, ...) and
+  `appraised_total_value`. No history; that stays in anchorage-property.
 - `property_parcel_scrape_runs`: one row per parcel scrape, with the
   anchorage-property ingest run it copied
 - `licenses` *(view)*: one row per license with a visible page, of every
@@ -225,7 +230,8 @@ A pnpm workspace sharing `tsconfig.base.json`:
 - `packages/muni-gis-client`: queries the Muni's ArcGIS services, in memory:
   its feature layers, the address geocoder and community councils.
 - `packages/utils`: dependency-free helpers shared by the scrapers.
-- `packages/ui`: the browser viewer.
+- `packages/ui`: the browser story, and the revenue and occupancy estimates
+  it is told with.
 
 See [CONTEXT.md](./CONTEXT.md) for the vocabulary these tables and docs use,
 [CONTRIBUTING.md](./CONTRIBUTING.md) to run or change the pipeline, and the

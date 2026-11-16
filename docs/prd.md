@@ -14,8 +14,11 @@ This will help answer the basic questions
 - what policy levers could we pull and how would they affect them (ie conversion to long term rentals or owner-occupied)
 - How do these change over time, location, housing type, other sub-populations
 
-This repo serves as feedstock of data, but it doesn't contain opinions or analysis.
-Other repos/projects should be able to pull data easily from this programmatically.
+The database is feedstock: it records what the sources publish, with no
+opinions or estimates, and other repos/projects should be able to pull data
+easily from it programmatically. The viewer in `packages/ui` is where analysis
+lives: it tells the story chapter by chapter and estimates revenue and
+occupancy in the browser, so those interpretations never enter the database.
 
 ## DB Requirements
 
