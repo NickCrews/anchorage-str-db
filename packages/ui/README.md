@@ -1,38 +1,93 @@
 # Anchorage STR DB viewer
 
-A [SQLRooms](https://sqlrooms.org) app for browsing `anchorage_str.duckdb`.
-Queries run in the browser with
-[DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview); there is no server.
+A scrolling story about short-term rentals in the Muni, built on
+`anchorage_str.duckdb`. Queries run in the browser with
+[DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview), through
+[SQLRooms](https://sqlrooms.org)' DuckDB connector, and cross-filter with
+[Mosaic](https://idl.uw.edu/mosaic/); there is no server.
 
-- **Overview**: active listings, nights not available tonight, distinct
-  listings over the last year, current Muni registrations and how many
-  listings show one, registration status by listing type and community council,
-  host concentration, near-term available vs. not, monthly distinct-listing
-  trend, active listings by year first available, and bedroom mix.
-- **Map**: every current Airbnb listing plus every active registration no
-  Airbnb listing cites, colored by registration status or price. A listing is
-  placed at its registration's geocoded license address when it has one,
-  otherwise at Airbnb's pin; filled dots are known locations and rings are
-  Airbnb's approximate pins.
-- **Listings**: a searchable table of active listings with a cover-photo
-  thumbnail, listing type, their latest rating, review count and price quote,
-  host name, years hosting, the host's portfolio size, registration status
-  with the registered address and parcel, and estimated first-available date.
-  Filters by registration status.
-- **Hosts**: a searchable table of Airbnb hosts with active listings: listing
-  count, distinct registration ids, listings per registration status, and
-  the business names on the registrations their listings cite. Filters to
-  hosts with 2+ listings or with listings that show no number.
-- **Registrations**: a searchable table of the Muni's STR registrations with
-  their license page description and the number of current Airbnb listings
-  citing each. Filters to active, active with no Airbnb listing, or
-  lapsed.
+The page is written for the general public. A banner says it is a work in
+progress, not to be quoted, with a contact address. The header holds the
+Methodology menu, links to each section and a link to this repository.
 
-Registration status compares the number a listing page shows with the
-registry, the STR certificates on the Muni's license pages: `Registered`,
-`Registration lapsed` (its certificate is no longer Active), `Id not in
-registry` (includes numbers issued since the last license scrape), or `No id
-shown`.
+The page asks one question per section. The left column holds the
+question, a sticky chart with its controls, and the narrative steps
+scrolling beneath it. The right column holds a sticky map above a table of
+the section's listings. The step in the reading band below the chart sets
+the chart's view; a control the reader changes overrides it until the next
+step, and "back to the story" restores it.
+
+The chart, map and table cross-filter through one Mosaic selection per
+section. Dragging across a histogram, clicking a bar in a click-to-filter
+chart, or clicking a category or brushing a range in a table column's
+header narrows all three; "N filters · clear" resets them. Clicking a dot
+on the map or a row in the table opens that listing's details over the map.
+
+The Methodology menu, top left, explains in plain language where the
+numbers come from, what they assume and what they can't tell, and holds
+the page-wide choice of model: low, middle or high estimate, which decides
+how closed nights are counted (`src/story/model.ts`). Every chart, map and
+table follows it; the narrative quotes the middle estimate and gives the
+low-to-high range where it matters. Closed, the menu shows the current
+model under its name.
+
+| Section | Question |
+| --- | --- |
+| Earnings | How much does a short-term rental earn? |
+| Hosts | Who runs them, and how much do they make? |
+| Prices | What does a night cost? |
+| Occupancy | How often are they booked? |
+| How many | How many are there, and are they registered? |
+| Rent long-term? | Would owners earn more renting long-term? |
+| Visitors | How many visitors do they house? |
+| Neighborhoods | What do they take from neighborhoods? |
+| Room tax | What do they pay the Muni in room tax? |
+| Who earns | Who earns the money? |
+| Baseline | Where do things stand today? |
+
+The long-term rents and running costs in "Rent long-term?" are editable.
+"Visitors" lists the hotel and room-tax data it still needs.
+
+## Estimates
+
+Revenue and occupancy are not in the database, which records only what
+Airbnb publishes: one open/closed bit per night and a price for an open
+stay. [`src/model/estimates.ts`](src/model/estimates.ts) builds the `est_*`
+tables after the database loads:
+
+- `est_nights`: each listing-night's state on the last run before it,
+  classified as open, blocked (in a run of more than 14 closed nights),
+  booked and observed (seen open earlier), or booked and inferred
+- `est_quotes`, `est_listing_rate`: median quoted nightly price per listing
+  per check-in month, and overall
+- `est_listing_months`: per listing per month, nights by state, the nightly
+  rate, and occupancy and revenue with low and high bounds
+- `est_listings`: each listing's latest version with its host,
+  registration, area, parcel and parcel owner
+
+The Methodology menu explains them to readers.
+
+## Layout
+
+- `src/story/Story.tsx`: the page: banner, header, introduction and section order
+- `src/story/Chapter.tsx`: `Chapter`, which tracks the active step,
+  `ChapterGrid`, the two-column layout, and `useStepState`, the per-step
+  view presets
+- `src/story/chapters/`: one file per chapter
+- `src/story/Methodology.tsx`: the Methodology menu
+- `src/story/xf/`: the cross-filtering. `XfProvider` builds a section's
+  table (`table.ts`: one row per listing for the chosen month and model,
+  with plain-word column names that become the table headers; named per
+  section, model and month because Mosaic caches results by query text)
+  and owns its selection; `XfHistogram` is a brushable vgplot
+  histogram; `XfSide` stacks `XfMap` over `XfTable` with `ListingDetail`;
+  `clause.ts` lets a plain chart filter on click. Charts that query other
+  tables restrict them with `selectedListingsSql`.
+- `src/story/near.ts`: a chapter mounts its chart, map and table only near
+  the viewport, since each map holds two WebGL contexts and browsers cap a
+  page at about sixteen
+- `src/story/context.tsx`: the month the story quotes, the latest complete
+  one
 
 ## Published site
 
@@ -56,7 +111,8 @@ pnpm --filter @anchorage-str-db/ui dev
 ```
 
 Open the printed `localhost` URL. After a scrape, reload the page to see the
-new data.
+new data. The "Rent long-term?", "Neighborhoods" and "Who earns" sections need `property_parcels`' owner columns; a
+database whose last parcel scrape predates them needs `pnpm scrape parcels` first.
 
 ## Data loading
 
@@ -64,5 +120,5 @@ The `serveDatabase` plugin in [`vite.config.ts`](vite.config.ts) serves
 `data/anchorage_str.duckdb` at `/anchorage_str.duckdb` in dev and copies it
 into `dist/` on build; a build without it fails. On startup,
 [`src/dataInitSlice.ts`](src/dataInitSlice.ts) fetches that file, attaches it
-read-only, and creates a view in the main schema for each name in
-`LAKE_TABLES`.
+read-only, creates a view in the main schema for each name in `LAKE_TABLES`,
+and builds the estimate tables.

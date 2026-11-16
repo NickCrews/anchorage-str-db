@@ -1,6 +1,7 @@
 import { isWasmDuckDbConnector } from '@sqlrooms/duckdb';
 import type { RoomShellSliceState } from '@sqlrooms/room-shell';
 import type { StateCreator } from 'zustand';
+import { ESTIMATE_STATEMENTS } from './model/estimates';
 
 /**
  * Tables and views from the attached database that are exposed in the main
@@ -28,6 +29,7 @@ export const LAKE_TABLES = [
   'registrations',
   'registrations_active',
   'listings_active_with_registration',
+  'property_parcels',
 ] as const;
 
 const DB_FILE_URL = `${import.meta.env.BASE_URL}anchorage_str.duckdb`;
@@ -45,8 +47,9 @@ export type DataInitSliceState = {
 
 /**
  * Fetches `anchorage_str.duckdb`, which `vite.config.ts` serves from the
- * repo's `data/`, attaches it read-only, and creates a main-schema view for
- * each name in `LAKE_TABLES`.
+ * repo's `data/`, attaches it read-only, creates a main-schema view for
+ * each name in `LAKE_TABLES`, then builds the story's `est_*` tables
+ * (`model/estimates.ts`) in memory.
  */
 export function createDataInitSlice(): StateCreator<
   RoomShellSliceState & DataInitSliceState,
@@ -86,6 +89,32 @@ export function createDataInitSlice(): StateCreator<
             await connector.execute(
               `CREATE OR REPLACE VIEW ${table} AS SELECT * FROM ${ATTACHED_SCHEMA}.${table}`,
             ).result;
+          }
+
+          // A database whose last parcel scrape predates the owner columns
+          // gets them as NULLs, so the owner chapters show no matches
+          // instead of the page failing to load.
+          const ownerColumns = await connector.query(
+            `SELECT count(*)::INT AS n FROM duckdb_columns()
+             WHERE database_name = '${ATTACHED_SCHEMA}' AND table_name = 'property_parcels' AND column_name = 'owner_name'`,
+          );
+          if (Number(ownerColumns.getChild('n')?.get(0)) === 0) {
+            await connector.execute(
+              `CREATE OR REPLACE VIEW property_parcels AS SELECT *,
+                 NULL::VARCHAR AS owner_name, NULL::VARCHAR AS owner_address, NULL::VARCHAR AS owner_city,
+                 NULL::VARCHAR AS owner_state, NULL::VARCHAR AS owner_zip,
+                 NULL::VARCHAR AS exemption_types_all, NULL::DOUBLE AS appraised_total_value
+               FROM ${ATTACHED_SCHEMA}.property_parcels`,
+            ).result;
+          }
+
+          for (const [table, sql] of ESTIMATE_STATEMENTS) {
+            try {
+              await connector.execute(sql).result;
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              throw new Error(`Could not build ${table}: ${message}`);
+            }
           }
 
           await get().db.refreshTableSchemas();

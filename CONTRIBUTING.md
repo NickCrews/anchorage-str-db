@@ -23,7 +23,7 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 | `packages/licenses-client` | fetches and parses the Muni's CityView license pages, and finds the newest license id | `utils` |
 | `packages/muni-gis-client` | queries the Muni's ArcGIS services: feature layers, the address geocoder, community councils | `utils` |
 | `packages/utils` | dates, logging, check results, concurrency, request pacing and retries, `fetch`, the Municipality boundary | none |
-| `packages/ui` | the browser viewer | |
+| `packages/ui` | the browser story and its estimates | |
 
 Each source is split in two. A `*-client` package (`airbnb-client`,
 `licenses-client`, `muni-gis-client`) works in memory: it returns typed
@@ -408,6 +408,11 @@ Every run fails with `LegacySchemaError` until someone:
   and joining in SQL would need DuckDB's spatial extension in every reader
   of the published file, including the browser viewer, for a value that
   only changes when an address is first geocoded.
+- **Estimates live in the viewer, not the database.** Revenue, occupancy and
+  booked-or-blocked are interpretations of the calendar and quotes, with
+  tunable rules (`BLOCK_RUN_NIGHTS`). `packages/ui/src/model/estimates.ts`
+  builds them in the browser from the published tables, so changing a rule
+  needs no migration and the database keeps only what the sources said.
 - **Licenses are stored raw, and joined to listings in views.**
   `muni_license_page_reads` and the archived
   `muni_str_registration_observations` hold what the Muni publishes, with its
