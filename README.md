@@ -36,7 +36,7 @@ root:
 
 ```sh
 pnpm install
-pnpm airbnb
+pnpm scrape airbnb
 ```
 
 This searches the Anchorage bounding box, keeps the listings inside the
@@ -44,7 +44,7 @@ Municipality's boundary, fetches each listing's page and calendar, writes the
 day to the database in one transaction, and runs the data-quality checks.
 
 ```sh
-pnpm licenses
+pnpm scrape licenses
 ```
 
 This reads a batch of the Muni's CityView license pages, every license type,
@@ -53,7 +53,7 @@ ones that are due, then geocodes the licenses' new addresses with the Muni's
 geocoder.
 
 ```sh
-pnpm parcels
+pnpm scrape parcels
 ```
 
 This copies the current parcels from
@@ -207,21 +207,23 @@ and the Muni's license portal, stored as published:
 
 A pnpm workspace sharing `tsconfig.base.json`:
 
-- `packages/scraper`: the Airbnb scrape: its writes, quality checks and
-  CLI.
-- `packages/licenses`: the license scan: which license pages to read, the
-  writes, quality checks and CLI.
-- `packages/parcels`: the parcel import from anchorage-property: its
-  checks, the write and CLI.
+- `packages/cli`: the one command line, `pnpm scrape <airbnb|licenses|parcels>`.
+- `packages/airbnb-scraper`: the daily Airbnb run over `airbnb-client`: its
+  writes and quality checks.
+- `packages/licenses-scraper`: the license scan over `licenses-client` and
+  `muni-gis-client`: which license pages to read, the writes and quality
+  checks.
+- `packages/parcels-scraper`: the parcel import from anchorage-property: its
+  checks and the write.
 - `packages/db`: the DuckDB schema, defined with Drizzle, its migrations and
   the views.
-- `packages/scraper-airbnb`: fetches and parses Airbnb listings, in memory.
+- `packages/airbnb-client`: fetches and parses Airbnb listings, in memory.
   Uses `impit`, an HTTP client that impersonates Chrome's TLS fingerprint,
   which Airbnb requires. The endpoints are in `src/api/`.
-- `packages/muni-gis`: queries the Muni's ArcGIS services, in memory: its
-  feature layers, the address geocoder and community councils.
-- `packages/muni-licenses`: fetches and parses the Muni's license pages, in
-  memory.
+- `packages/licenses-client`: fetches and parses the Muni's license pages,
+  in memory.
+- `packages/muni-gis-client`: queries the Muni's ArcGIS services, in memory:
+  its feature layers, the address geocoder and community councils.
 - `packages/utils`: dependency-free helpers shared by the scrapers.
 - `packages/ui`: the browser viewer.
 

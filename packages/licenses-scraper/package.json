@@ -1,0 +1,27 @@
+{
+  "name": "@anchorage-str-db/licenses-scraper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Reads every license the Municipality of Anchorage's CityView portal publishes and writes them to the database",
+  "license": "MIT",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@anchorage-str-db/db": "workspace:*",
+    "@anchorage-str-db/licenses-client": "workspace:*",
+    "@anchorage-str-db/muni-gis-client": "workspace:*",
+    "@anchorage-str-db/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "5.9.2",
+    "vitest": "^4.1.11"
+  }
+}

@@ -25,5 +25,5 @@ import { addDays } from '@anchorage-str-db/utils/dates';
 ```
 
 Each caller creates its own `Pacer`, since each service has its own limits.
-`scraper-airbnb/src/pace.ts` is an example: one process-wide pacer at
+`airbnb-client/src/pace.ts` is an example: one process-wide pacer at
 Airbnb's rate, whose 429 aborts the run.

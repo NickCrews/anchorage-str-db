@@ -1,7 +1,7 @@
 # Location data on Airbnb's listing page
 
 Measured 2026-08-26 on Girdwood listings. Explains
-`packages/scraper-airbnb/src/listingPage.ts`. See also
+`packages/airbnb-client/src/listingPage.ts`. See also
 [`airbnb-address-deanonymization.md`](airbnb-address-deanonymization.md).
 
 **Summary:** The listing page (PDP) says whether each listing's coordinate is
@@ -170,7 +170,7 @@ which those are. The project makes no attempt to reverse the jitter.
 ## Reproducing
 
 ```sh
-pnpm daily
+pnpm scrape airbnb
 ```
 
 ```sql

@@ -1,0 +1,23 @@
+{
+  "name": "@anchorage-str-db/muni-gis-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Clients for the Municipality of Anchorage's ArcGIS services (feature layers, the address geocoder), in memory",
+  "license": "MIT",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@anchorage-str-db/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "5.9.2",
+    "vitest": "^4.1.11"
+  }
+}

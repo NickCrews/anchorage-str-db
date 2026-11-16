@@ -396,14 +396,14 @@ _Avoid_: snapshot, record, reading, sample, event
 
 **Run**:
 One execution of a pipeline, stamped with `scrape_date` and logged in a
-`*_runs` table. The **Airbnb scrape** (`pnpm airbnb`, `airbnb_scrape_runs`)
-reads Airbnb; the **license
-scan** (`pnpm licenses`, `muni_license_runs`) reads the Muni's license pages.
-A **registry run**, logged in `muni_str_registry_runs`, read the Clerk's
-registration layer; the layer answers only with a token, so those rows are an
-archive. The **parcel import** (`pnpm parcels`, `property_parcel_imports`,
-stamped with `import_date`) copies anchorage-property's current parcels. A
-run records a whole day or nothing.
+`*_runs` table. The **daily run** (`pnpm scrape airbnb`) reads Airbnb; the
+**license scan** (`pnpm scrape licenses`, `muni_license_runs`) reads the
+Muni's license pages. A **registry run**, logged in
+`muni_str_registry_runs`, read the Clerk's registration layer; the layer
+answers only with a token, so those rows are an archive. The
+**parcel import** (`pnpm scrape parcels`, `property_parcel_imports`, stamped
+with `import_date`) copies anchorage-property's current parcels. A run
+records a whole day or nothing.
 _Avoid_: job, scrape, crawl, batch, pass (a pass is one stage within a run)
 
 **Seen**:

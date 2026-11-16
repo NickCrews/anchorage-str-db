@@ -12,6 +12,72 @@ importers:
         specifier: 5.9.2
         version: 5.9.2
 
+  packages/airbnb-client:
+    dependencies:
+      '@anchorage-str-db/utils':
+        specifier: workspace:*
+        version: link:../utils
+      impit:
+        specifier: 0.14.5
+        version: 0.14.5
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.4
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.11
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.13.4)(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
+
+  packages/airbnb-scraper:
+    dependencies:
+      '@anchorage-str-db/airbnb-client':
+        specifier: workspace:*
+        version: link:../airbnb-client
+      '@anchorage-str-db/db':
+        specifier: workspace:*
+        version: link:../db
+      '@anchorage-str-db/utils':
+        specifier: workspace:*
+        version: link:../utils
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.4
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.11
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.13.4)(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
+
+  packages/cli:
+    dependencies:
+      '@anchorage-str-db/airbnb-scraper':
+        specifier: workspace:*
+        version: link:../airbnb-scraper
+      '@anchorage-str-db/licenses-scraper':
+        specifier: workspace:*
+        version: link:../licenses-scraper
+      '@anchorage-str-db/parcels-scraper':
+        specifier: workspace:*
+        version: link:../parcels-scraper
+      '@anchorage-str-db/utils':
+        specifier: workspace:*
+        version: link:../utils
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.4
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.11
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.13.4)(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
+
   packages/db:
     dependencies:
       '@anchorage-str-db/utils':
@@ -40,48 +106,7 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.13.4)(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
 
-  packages/licenses:
-    dependencies:
-      '@anchorage-str-db/db':
-        specifier: workspace:*
-        version: link:../db
-      '@anchorage-str-db/muni-gis':
-        specifier: workspace:*
-        version: link:../muni-gis
-      '@anchorage-str-db/muni-licenses':
-        specifier: workspace:*
-        version: link:../muni-licenses
-      '@anchorage-str-db/utils':
-        specifier: workspace:*
-        version: link:../utils
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.4
-      typescript:
-        specifier: 5.9.2
-        version: 5.9.2
-      vitest:
-        specifier: ^4.1.11
-        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.13.4)(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
-
-  packages/muni-gis:
-    dependencies:
-      '@anchorage-str-db/utils':
-        specifier: workspace:*
-        version: link:../utils
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.4
-      typescript:
-        specifier: 5.9.2
-        version: 5.9.2
-      vitest:
-        specifier: ^4.1.11
-        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.13.4)(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
-
-  packages/muni-licenses:
+  packages/licenses-client:
     dependencies:
       '@anchorage-str-db/utils':
         specifier: workspace:*
@@ -100,11 +125,17 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.13.4)(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
 
-  packages/parcels:
+  packages/licenses-scraper:
     dependencies:
       '@anchorage-str-db/db':
         specifier: workspace:*
         version: link:../db
+      '@anchorage-str-db/licenses-client':
+        specifier: workspace:*
+        version: link:../licenses-client
+      '@anchorage-str-db/muni-gis-client':
+        specifier: workspace:*
+        version: link:../muni-gis-client
       '@anchorage-str-db/utils':
         specifier: workspace:*
         version: link:../utils
@@ -119,14 +150,8 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.13.4)(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
 
-  packages/scraper:
+  packages/muni-gis-client:
     dependencies:
-      '@anchorage-str-db/db':
-        specifier: workspace:*
-        version: link:../db
-      '@anchorage-str-db/scraper-airbnb':
-        specifier: workspace:*
-        version: link:../scraper-airbnb
       '@anchorage-str-db/utils':
         specifier: workspace:*
         version: link:../utils
@@ -141,14 +166,14 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.13.4)(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
 
-  packages/scraper-airbnb:
+  packages/parcels-scraper:
     dependencies:
+      '@anchorage-str-db/db':
+        specifier: workspace:*
+        version: link:../db
       '@anchorage-str-db/utils':
         specifier: workspace:*
         version: link:../utils
-      impit:
-        specifier: 0.14.5
-        version: 0.14.5
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
