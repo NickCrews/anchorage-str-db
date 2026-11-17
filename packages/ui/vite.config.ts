@@ -37,4 +37,12 @@ function serveDatabase(): Plugin {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), serveDatabase()],
+  build: {
+    rollupOptions: {
+      input: {
+        story: fileURLToPath(new URL('index.html', import.meta.url)),
+        registrationProblems: fileURLToPath(new URL('registration-problems.html', import.meta.url)),
+      },
+    },
+  },
 });

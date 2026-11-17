@@ -1,12 +1,13 @@
 import { RoomShell } from '@sqlrooms/room-shell';
 import { ThemeProvider } from '@sqlrooms/ui';
-import { Story } from './story/Story';
+import type { FC, ReactNode } from 'react';
 import { roomStore } from './store';
 
-export const Room = () => (
+/** The database, theme and loading bar around one page. */
+export const Room: FC<{ children: ReactNode }> = ({ children }) => (
   <ThemeProvider defaultTheme="light" storageKey="sqlrooms-ui-theme">
     <RoomShell className="h-screen" roomStore={roomStore}>
-      <Story />
+      {children}
       <RoomShell.LoadingProgress />
     </RoomShell>
   </ThemeProvider>
