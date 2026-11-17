@@ -32,6 +32,13 @@ export const LAKE_TABLES = [
   'property_parcels',
 ] as const;
 
+/**
+ * Whether this page builds the story's `est_*` tables. A page whose `<html>`
+ * carries `data-skip-estimates` reads only the attached database.
+ */
+const BUILD_ESTIMATES =
+  typeof document === 'undefined' || !('skipEstimates' in document.documentElement.dataset);
+
 const DB_FILE_URL = `${import.meta.env.BASE_URL}anchorage_str.duckdb`;
 const DB_FILE_NAME = 'anchorage_str.duckdb';
 const ATTACHED_SCHEMA = 'str';
@@ -49,7 +56,7 @@ export type DataInitSliceState = {
  * Fetches `anchorage_str.duckdb`, which `vite.config.ts` serves from the
  * repo's `data/`, attaches it read-only, creates a main-schema view for
  * each name in `LAKE_TABLES`, then builds the story's `est_*` tables
- * (`model/estimates.ts`) in memory.
+ * (`model/estimates.ts`) in memory unless the page skips them.
  */
 export function createDataInitSlice(): StateCreator<
   RoomShellSliceState & DataInitSliceState,
@@ -108,7 +115,7 @@ export function createDataInitSlice(): StateCreator<
             ).result;
           }
 
-          for (const [table, sql] of ESTIMATE_STATEMENTS) {
+          for (const [table, sql] of BUILD_ESTIMATES ? ESTIMATE_STATEMENTS : []) {
             try {
               await connector.execute(sql).result;
             } catch (err) {
