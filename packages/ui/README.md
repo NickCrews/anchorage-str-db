@@ -50,7 +50,7 @@ The long-term rents and running costs in "Rent long-term?" are editable.
 
 ## Registration problems
 
-`registration-problems.html` is a second page, linked from the header and
+`registration-problems.html` is a second page, served at `/registration-problems`, linked from the header and
 the "How many" section, laid out like the report in
 [`docs/research/registration-location-mismatch`](../../docs/research/registration-location-mismatch/README.md):
 a card per problem with an example and a suggested fix, a table of every

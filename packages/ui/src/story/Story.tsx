@@ -91,7 +91,7 @@ const Header: FC = () => (
       ))}
     </nav>
     <a
-      href={`${import.meta.env.BASE_URL}registration-problems.html`}
+      href={`${import.meta.env.BASE_URL}registration-problems`}
       className="text-muted-foreground hover:text-foreground shrink-0 text-xs"
     >
       Registration problems

@@ -49,7 +49,7 @@ export const Supply: FC = () => {
           Since July 31, 2026, the Muni has required every short-term rental listing to show its registration
           number. <N>{pct1(s && s.registered / s.active)}</N> show a current registration, and <N>{int(s?.noId)}</N>{' '}
           show none at all. Click a bar to see those listings on the map, or see every listing with a{' '}
-          <a className="underline" href={`${import.meta.env.BASE_URL}registration-problems.html`}>
+          <a className="underline" href={`${import.meta.env.BASE_URL}registration-problems`}>
             registration problem
           </a>
           .
