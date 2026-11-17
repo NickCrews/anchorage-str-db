@@ -91,6 +91,12 @@ const Header: FC = () => (
       ))}
     </nav>
     <a
+      href={`${import.meta.env.BASE_URL}registration-problems.html`}
+      className="text-muted-foreground hover:text-foreground shrink-0 text-xs"
+    >
+      Registration problems
+    </a>
+    <a
       href={REPO_URL}
       target="_blank"
       rel="noreferrer"

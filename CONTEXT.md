@@ -252,6 +252,14 @@ coordinate, from the Muni's council polygons (`community_council`).
 Licenses and their registrations have one; listings do not.
 _Avoid_: neighborhood, district, area
 
+**Registration problem**:
+What an active listing shows that falls short of the Muni's rule that every
+listing show its registration id: no id, an id no registration has, a
+lapsed registration's id, or the id of a registration more than 500 m away.
+A lead to check, not a finding: only the Muni decides whether a rental breaks
+the rules, and a listing can be right in ways this data cannot see.
+_Avoid_: violation, offense, illegal listing
+
 ### Identifiers
 
 **`_id`, not `_number`**:

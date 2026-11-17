@@ -48,6 +48,24 @@ model under its name.
 The long-term rents and running costs in "Rent long-term?" are editable.
 "Visitors" lists the hotel and room-tax data it still needs.
 
+## Registration problems
+
+`registration-problems.html` is a second page, linked from the header and
+the "How many" section: every active listing with a registration problem,
+as cards per problem with what it means and what would fix it, above a
+table that filters by problem, searches, and downloads as CSV. The query
+and the problem definitions are in
+[`src/problems/sql.ts`](src/problems/sql.ts). Each listing gets the first
+problem that applies:
+
+| Problem | Test |
+| --- | --- |
+| No id | the listing shows no registration id |
+| Id not on file | no registration has the id; the table marks ids higher than the newest on file |
+| Lapsed | the registration is not active |
+| One id, two places | more than 500 m from the registration's geocoded coordinate, and another listing with the id is within 200 m of it |
+| Not at the registered address | more than 500 m from it, and no listing with the id is within 200 m |
+
 ## Estimates
 
 Revenue and occupancy are not in the database, which records only what
@@ -88,6 +106,8 @@ The Methodology menu explains them to readers.
   page at about sixteen
 - `src/story/context.tsx`: the month the story quotes, the latest complete
   one
+- `src/problems/`: the registration problems page
+- `src/room.tsx`: the database and theme around either page
 
 ## Published site
 
