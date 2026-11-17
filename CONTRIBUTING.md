@@ -306,6 +306,7 @@ broken source stops only its own updates:
 | --- | --- | --- | --- |
 | [`licenses.yml`](.github/workflows/licenses.yml) | the Muni's CityView license pages (`pnpm scrape licenses`) | 08:00 | License scrape is failing |
 | [`airbnb.yml`](.github/workflows/airbnb.yml) | Airbnb (`pnpm scrape airbnb`) | 12:00 | Airbnb scrape is failing |
+| [`airbnb-check.yml`](.github/workflows/airbnb-check.yml) | one request per Airbnb endpoint (`pnpm airbnb:check`); also on each push to `main` that touches `airbnb-client` | 10:00 | Airbnb API check is failing |
 | [`parcels.yml`](.github/workflows/parcels.yml) | anchorage-property's current parcels (`pnpm scrape parcels`) | 16:00 | Parcel scrape is failing |
 
 Each first runs `pnpm typecheck` on `packages/cli` and the packages it
@@ -349,6 +350,38 @@ The steps the workflows share are composite actions in `.github/actions/`:
 `outage-issue` (open or close the workflow's outage issue).
 
 The workflows need no secrets; `gh` uses the automatic `GITHUB_TOKEN`.
+
+### Airbnb API changes
+
+The Airbnb client calls Airbnb's internal GraphQL queries, each pinned to a
+persisted-query id (`OPERATION_ID` in each `airbnb-client/src/api/` file).
+Any edit Airbnb makes to a query's text changes its id, and once Airbnb stops
+accepting the old id, every request for it fails with HTTP 400. Old ids keep
+working for a while after the new one appears in Airbnb's scripts.
+
+```sh
+pnpm airbnb:check     # one request per endpoint, ~5 s; says which broke and how
+pnpm airbnb:capture   # headless browser: each query's current id vs the client's
+pnpm airbnb:capture --write   # also replace stale ids in src/api/
+```
+
+`airbnb:check` (`airbnb-client/src/probe.ts`) runs before every scrape and
+daily in `airbnb-check.yml`, and reports each failure as one of:
+
+| problem | meaning | fix |
+| --- | --- | --- |
+| `query-changed` | HTTP 400: the id is no longer accepted | `pnpm airbnb:capture --write`, then `pnpm airbnb:check` |
+| `variables-changed` | GraphQL errors: the id is accepted, the variables are not | compare the client's variables with the request `airbnb:capture` saved in `airbnb-capture/<operation>.json` |
+| `response-changed` | a field the scrape reads is empty on every listing tried | compare the parser with the saved response |
+| `blocked` | HTTP 403 or 429 | not an API change; retry later |
+
+If `airbnb:capture` reports a query `NOT FOUND`, Airbnb renamed it or moved
+its data to another query; its list of the other queries the pages ran names
+the candidates. The calendar's move to `PdpAvailabilityCalendarV2Query` and
+the price quote's to `StaysPdpBookItQuery` were both of this kind.
+
+`airbnb:capture` needs Playwright's Chromium (`pnpm exec playwright install
+chromium`), so it does not run in CI.
 
 ### When the published database has an incompatible schema
 
@@ -497,7 +530,7 @@ pnpm typecheck
 
 - `airbnb-client/test/listingPage.test.ts` and `standardize.test.ts` parse
   synthetic Airbnb responses. They catch parser regressions but not changes
-  on Airbnb's side.
+  on Airbnb's side; `pnpm airbnb:check` does that against the live site.
 - `licenses-client/test/licensePage.test.ts` reads real license pages from the
   Muni's portal, one per markup case the parser handles (listed in that
   package's README), so it fails when the portal's markup changes.

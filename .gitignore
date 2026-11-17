@@ -13,3 +13,6 @@ data/
 .env
 .vscode/*
 !.vscode/extensions.json
+
+# `pnpm airbnb:capture` output
+airbnb-capture/

@@ -46,6 +46,10 @@ jobs:
       # mid-run. `...` includes the workspace packages the CLI imports.
       - run: pnpm --filter "@anchorage-str-db/cli..." typecheck
 
+      # One request per endpoint, so an Airbnb API change fails here with the
+      # endpoint named instead of an hour into the run.
+      - run: pnpm airbnb:check
+
       # The runner starts clean, so restore the database from the release. A
       # missing database fails the run unless `start_fresh` is set.
       - name: Restore previous database

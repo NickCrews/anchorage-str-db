@@ -13,7 +13,8 @@
 
 import { requestJson } from './http.ts';
 
-const OPERATION_ID = 'cfdc3ffbe997a618795fc5a8f9a9b484054ce9be68c8788cd2ffda999934c5ae';
+/** Persisted-query hash for `StaysPdpReviewsQuery`. Airbnb rotates it; 400s mean it changed. */
+export const OPERATION_ID = 'cfdc3ffbe997a618795fc5a8f9a9b484054ce9be68c8788cd2ffda999934c5ae';
 
 export interface ReviewPage {
   /** Airbnb's count of every review on the listing, not just this page. */

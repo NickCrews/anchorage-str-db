@@ -1,0 +1,54 @@
+name: Airbnb API check
+
+# Calls each Airbnb endpoint once (`pnpm airbnb:check`) and fails with the
+# endpoint and kind of change. Runs two hours before the scrape, so a fix can
+# land before it, and on every push to main that touches the client, so a
+# fix is verified as soon as it lands.
+on:
+  schedule:
+    - cron: "0 10 * * *"
+  push:
+    branches: [main]
+    paths:
+      - "packages/airbnb-client/**"
+      - "packages/utils/**"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write # to open an issue when the check fails
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter "@anchorage-str-db/airbnb-client..." typecheck
+
+      - run: pnpm airbnb:check
+
+      - name: Close the outage issue
+        continue-on-error: true
+        uses: ./.github/actions/outage-issue
+        with:
+          action: close
+          title: Airbnb API check is failing
+          docs: '"Airbnb API changes" in CONTRIBUTING.md'
+
+      - name: Open an issue on failure
+        if: failure() || cancelled()
+        uses: ./.github/actions/outage-issue
+        with:
+          action: open
+          title: Airbnb API check is failing
+          docs: '"Airbnb API changes" in CONTRIBUTING.md'

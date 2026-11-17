@@ -22,12 +22,14 @@ export function http(): Impit {
 export class HttpError extends Error {
   readonly status: number;
   readonly url: string;
+  readonly body: string;
 
-  constructor(status: number, url: string, body?: string) {
+  constructor(status: number, url: string, body = '') {
     super(`HTTP ${status} for ${url}${body ? `: ${body.slice(0, 200)}` : ''}`);
     this.name = 'HttpError';
     this.status = status;
     this.url = url;
+    this.body = body;
   }
 }
 

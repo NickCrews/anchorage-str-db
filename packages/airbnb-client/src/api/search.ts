@@ -10,7 +10,7 @@
 import { requestJson } from './http.ts';
 
 /** Persisted-query hash for `StaysSearch`. Airbnb rotates it; 400s mean it changed. */
-const OPERATION_ID = 'aec09eb74dbd01c4019adbb6b4fcc3cc2ca224457ebcc3a2219bb4f4f5c8f206';
+export const OPERATION_ID = 'aec09eb74dbd01c4019adbb6b4fcc3cc2ca224457ebcc3a2219bb4f4f5c8f206';
 
 const TREATMENT_FLAGS = [
   'feed_map_decouple_m11_treatment',

@@ -12,7 +12,7 @@ import { requestJson } from './http.ts';
 import { parsePriceAmount } from './search.ts';
 
 /** Persisted-query hash for `StaysPdpBookItQuery`. Airbnb rotates it; 400s mean it changed. */
-const OPERATION_ID = '9afe04ccb0e7082750ec50fb56513196422b992449bb0406c3dffcc954863b68';
+export const OPERATION_ID = '9afe04ccb0e7082750ec50fb56513196422b992449bb0406c3dffcc954863b68';
 
 export interface PriceQuoteQuery {
   apiKey: string;

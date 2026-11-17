@@ -12,9 +12,12 @@ file per endpoint plus the shared HTTP client.
 | `priceQuote.ts` | `GET /api/v3/StaysPdpBookItQuery/<hash>` | the booking sidebar's price for one stay, given check-in and check-out |
 | `reviews.ts` | `GET /api/v3/StaysPdpReviewsQuery/<hash>` | a page of reviews, newest first, and the total count; only review dates are read |
 
-Each endpoint is pinned to a persisted-query hash, which Airbnb rotates. If an
-endpoint starts returning 400, check its hash first. Airbnb sometimes renames
-an operation or changes its variables at the same time.
+Each endpoint is pinned to a persisted-query hash (`OPERATION_ID`), which
+Airbnb rotates. If an endpoint starts returning 400, check its hash first.
+Airbnb sometimes renames an operation or changes its variables at the same
+time. `pnpm airbnb:check` says which endpoint broke and how, and `pnpm
+airbnb:capture` reads the current hashes from a real browser; see "Airbnb API
+changes" in `CONTRIBUTING.md`.
 
 `http.ts` is the shared `impit` client impersonating Chrome 124. Airbnb sits
 behind Akamai, which fingerprints the TLS ClientHello and refuses Node's own

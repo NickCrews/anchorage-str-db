@@ -14,7 +14,7 @@
 import { requestJson } from './http.ts';
 
 /** Persisted-query hash for `PdpAvailabilityCalendarV2Query`. Airbnb rotates it; 400s mean it changed. */
-const OPERATION_ID = '4d4724885b57d91f65be3c50c8b792b92a0dc723a871affb6ee358a0caf6d694';
+export const OPERATION_ID = '4d4724885b57d91f65be3c50c8b792b92a0dc723a871affb6ee358a0caf6d694';
 
 /** How many months forward to ask for. Airbnb's own picker asks for 12. */
 const MONTHS = 12;

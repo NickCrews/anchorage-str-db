@@ -110,7 +110,7 @@ const USER_ID_KEY_RE = /^user_?id$/i;
 // then Airbnb's rendering of it.
 const BIO_TEXT_KEYS = ['source', 'localizedString', 'localizedStringWithTranslationPreference'];
 
-const PAGE_HEADERS = {
+export const PAGE_HEADERS = {
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language': 'en',
 };
