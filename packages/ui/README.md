@@ -51,20 +51,24 @@ The long-term rents and running costs in "Rent long-term?" are editable.
 ## Registration problems
 
 `registration-problems.html` is a second page, linked from the header and
-the "How many" section: every active listing with a registration problem,
-as cards per problem with what it means and what would fix it, above a
-table that filters by problem, searches, and downloads as CSV. The query
-and the problem definitions are in
-[`src/problems/sql.ts`](src/problems/sql.ts). Each listing gets the first
-problem that applies:
+the "How many" section, laid out like the report in
+[`docs/research/registration-location-mismatch`](../../docs/research/registration-location-mismatch/README.md):
+a card per problem with an example and a suggested fix, a table of every
+case that filters, searches, copies and downloads as CSV, and a case-by-case
+view with a Leaflet map of the listing, its registered address, the other
+listings showing its id and the registrations near it. The queries are in
+[`src/problems/sql.ts`](src/problems/sql.ts) and the sorting and wording in
+[`src/problems/problems.ts`](src/problems/problems.ts). Each active listing
+gets the first problem that applies:
 
 | Problem | Test |
 | --- | --- |
-| No id | the listing shows no registration id |
-| Id not on file | no registration has the id; the table marks ids higher than the newest on file |
-| Lapsed | the registration is not active |
-| One id, two places | more than 500 m from the registration's geocoded coordinate, and another listing with the id is within 200 m of it |
-| Not at the registered address | more than 500 m from it, and no listing with the id is within 200 m |
+| No id shown | the listing shows no registration id |
+| Id not on file | no registration has the id |
+| Registration lapsed | the registration is not active |
+| Likely the wrong id | more than 500 m from the registration's geocoded coordinate, and a registration within 200 m of the listing has a matching business name, host name or title |
+| One id, two places | more than 500 m from it, and another listing with the id is within 500 m of it |
+| Not at the registered address | more than 500 m from it, and neither of the above |
 
 ## Estimates
 

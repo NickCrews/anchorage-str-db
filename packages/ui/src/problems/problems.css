@@ -1,0 +1,142 @@
+/* The registration problems page, in the style of the report in
+   docs/research/registration-location-mismatch. Scoped to .report so the
+   story's styles are untouched. */
+
+.report {
+  --ink: #1c2128;
+  --muted: #57606a;
+  --line: #d0d7de;
+  --soft: #f6f8fa;
+  --paper: #ffffff;
+  --registered: #c62828;
+  --listing: #1f5fbf;
+  --match: #1a7f37;
+  --amber: #bf8700;
+  --other: #6e7781;
+  --violet: #8250df;
+  height: 100%;
+  overflow-y: auto;
+  padding-inline: 16px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+}
+.report main { max-width: 1200px; margin: 0 auto; padding-block: 32px 64px; }
+.report h1 { font-size: 1.75rem; line-height: 1.25; margin: 0 0 6px; font-weight: 600; }
+.report h2 { font-size: 1.3rem; font-weight: 600; margin: 40px 0 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.report h3 { font-size: 1rem; font-weight: 600; margin: 20px 0 8px; }
+.report p { margin: 0 0 12px; max-width: 75ch; }
+.report a { color: var(--listing); text-decoration: underline; }
+.report ol { margin: 0 0 12px; padding-left: 22px; list-style: decimal; }
+.report ol li { margin-bottom: 6px; max-width: 75ch; }
+.report .back { font-size: 0.9rem; margin-bottom: 16px; display: inline-block; }
+.report .dateline { color: var(--muted); margin-bottom: 24px; }
+.report .muted { color: var(--muted); }
+
+.report .finding-tag { display: inline-block; font-size: 0.78rem; font-weight: 600; padding: 1px 8px; border-radius: 10px; white-space: nowrap; }
+.report .f-wrong-id { background: #dafbe1; color: #116329; }
+.report .f-second-place { background: #fff1d6; color: #7d4e00; }
+.report .f-not-at-address { background: #ffe2e0; color: #a0111f; }
+.report .f-no-id { background: #fbefff; color: #6639ba; }
+.report .f-not-on-file { background: #ddf4ff; color: #0a3069; }
+.report .f-lapsed { background: #eaeef2; color: #424a53; }
+
+.report .kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.report .kind { border: 1px solid var(--line); border-top: 5px solid var(--ink); border-radius: 8px; padding: 14px 16px; background: var(--paper); color: var(--ink); display: flex; flex-direction: column; text-align: left; font: inherit; }
+.report button.kind { cursor: pointer; }
+.report button.kind:hover { background: var(--soft); }
+.report .kind.picked { box-shadow: 0 0 0 2px var(--listing); }
+.report .kind.f-wrong-id { border-top-color: var(--match); }
+.report .kind.f-second-place { border-top-color: var(--amber); }
+.report .kind.f-not-at-address { border-top-color: var(--registered); }
+.report .kind.f-no-id { border-top-color: var(--violet); }
+.report .kind.f-not-on-file { border-top-color: var(--listing); }
+.report .kind.f-lapsed { border-top-color: var(--other); }
+.report .kind h3 { margin: 4px 0 8px; font-size: 1.1rem; }
+.report .kind p { font-size: 0.93rem; }
+.report .kind-count { color: var(--muted); font-size: 0.9rem; }
+.report .kind-count b { color: var(--ink); font-size: 1.6rem; margin-right: 4px; }
+.report .kind .example { background: var(--soft); border-radius: 6px; padding: 10px 12px; margin: auto 0 0; }
+.report .kind .fix { margin: 10px 0 0; }
+.report .kind .spacer { margin-top: auto; }
+
+.report .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0 12px; }
+.report button,
+.report select,
+.report input {
+  font: inherit; font-size: 0.9rem; padding: 6px 12px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--paper); color: var(--ink);
+}
+.report button, .report select { cursor: pointer; }
+.report button:hover { background: var(--soft); }
+.report select { max-width: 100%; min-width: 0; }
+.report input[type='search'] { flex: 1 1 16rem; min-width: 0; cursor: text; }
+.report .case-select { flex: 1 1 14rem; width: 14rem; }
+.report .status { color: var(--match); font-size: 0.9rem; }
+
+.report .table-wrap { overflow: auto; max-height: 80vh; border: 1px solid var(--line); border-radius: 8px; }
+.report table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+.report th, .report td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+.report th { background: var(--soft); position: sticky; top: 0; white-space: nowrap; font-weight: 600; z-index: 1; }
+.report tbody tr { cursor: pointer; }
+.report tbody tr:hover { background: #eef4fc; }
+.report tbody tr.active { background: #ddeafb; }
+.report td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.report .viewer { border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; }
+.report .viewer-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.report .viewer-head h3 { margin: 0; font-size: 1.15rem; }
+.report .finding { margin: 14px 0; padding: 12px 14px; border-left: 4px solid var(--ink); background: var(--soft); max-width: none; }
+.report .finding.f-wrong-id { border-color: var(--match); }
+.report .finding.f-second-place { border-color: var(--amber); }
+.report .finding.f-not-at-address { border-color: var(--registered); }
+.report .finding.f-no-id { border-color: var(--violet); }
+.report .finding.f-not-on-file { border-color: var(--listing); }
+.report .finding.f-lapsed { border-color: var(--other); }
+.report .case-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 16px; }
+.report .sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.report .card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.report .card h4 { margin: 0 0 6px; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; display: flex; align-items: center; gap: 6px; }
+.report .card.listing h4 { color: var(--listing); }
+.report .card.registered h4 { color: var(--registered); }
+.report .card img { width: 100%; max-height: 200px; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 6px; background: var(--soft); margin-bottom: 6px; }
+.report dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 0.86rem; }
+.report dt { color: var(--muted); }
+.report dd { margin: 0; overflow-wrap: break-word; min-width: 0; }
+.report .map-wrap { display: flex; flex-direction: column; gap: 8px; order: -1; }
+.report .map { height: 520px; border-radius: 8px; border: 1px solid var(--line); z-index: 0; }
+.report .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.82rem; color: var(--muted); }
+.report .legend span { display: inline-flex; align-items: center; gap: 6px; }
+.report .mini-list { font-size: 0.86rem; margin: 0; padding-left: 18px; list-style: disc; }
+.report .mini-list li { margin-bottom: 4px; }
+
+.report .pin { display: flex; align-items: center; justify-content: center; color: #fff; font: 700 11px/1 sans-serif; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45); }
+.report .pin-registered { background: var(--registered); border-radius: 3px; }
+.report .pin-listing { background: var(--listing); border-radius: 50%; }
+.report .pin-sibling { background: #7aa7e6; border-radius: 50%; }
+.report .pin-match { background: var(--match); border-radius: 3px; }
+.report .pin-other { background: var(--other); border-radius: 3px; opacity: 0.8; }
+.report .swatch { width: 12px; height: 12px; display: inline-block; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25); }
+.report .leaflet-tooltip.distance { background: var(--ink); color: #fff; border: 0; font-weight: 600; }
+.report .leaflet-tooltip.distance::before { display: none; }
+.report .leaflet-control-layers label { font-size: 0.85rem; }
+.report .leaflet-control-layers input { padding: 0; }
+
+.report footer { margin-top: 40px; color: var(--muted); font-size: 0.85rem; }
+
+@media (max-width: 900px) {
+  .report .case-grid { grid-template-columns: minmax(0, 1fr); }
+  .report .map { height: 380px; }
+}
+@media (max-width: 560px) {
+  .report .viewer { padding: 10px; }
+  .report .sources { grid-template-columns: minmax(0, 1fr); }
+  .report .case-select { flex: 1 1 100%; }
+}
+@media print {
+  .report { height: auto; overflow: visible; }
+  .report .toolbar, .report .viewer-section { display: none; }
+  .report { font-size: 11px; }
+  .report th { position: static; }
+  .report .table-wrap { overflow: visible; max-height: none; border: 0; }
+}
