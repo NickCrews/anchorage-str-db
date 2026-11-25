@@ -233,6 +233,10 @@ workflow from the Airbnb scrape, with its own transaction, run log
 other's day intact. A scrape reads license pages for up to 45 minutes, then
 geocodes addresses for up to 10 minutes; see the
 [license scraper README](packages/licenses-scraper/README.md#budget).
+Pages are read one at a time at up to 1/s, about 2,700 reads in the budget.
+A 429 from the portal halves the request rate and the read is retried after
+a wait; the rate climbs back after a run of successes. See
+[`packages/licenses-client/README.md`](packages/licenses-client/README.md#pacing).
 
 License ids are one counter across every license type, and most ids are
 hidden license ids. The read history is the scrape's state: each scrape finds

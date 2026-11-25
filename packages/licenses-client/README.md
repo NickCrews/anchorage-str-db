@@ -30,7 +30,7 @@ cityviewLicenseId }`, a result rather than an error; a visible page has
 
 | export | does |
 | --- | --- |
-| `fetchLicensePages(cityviewLicenseIds)` | reads pages at `REQUESTS_PER_SECOND` (2/s) and returns a result per id: the page (visible or hidden), or the error when the read failed |
+| `fetchLicensePages(cityviewLicenseIds)` | reads pages one at a time at up to `REQUESTS_PER_SECOND` (1/s) and returns a result per id: the page (visible or hidden), or the error when the read failed |
 | `parseLicensePage(html, cityviewLicenseId)` | the parser alone: `LicensePage \| HiddenLicensePage` |
 | `fetchNewestCityviewLicenseId()` | the newest id, from the License Locator |
 | `parseNewestCityviewLicenseId(json)` | the Locator parser alone |
@@ -89,10 +89,17 @@ from the Muni's property records (a parcel id, or the record's address, which
 is the registration layer's `Location`); an unlinked value is text the
 registrant typed that matched no record.
 
+## Pacing
+
 Plain `fetch` works through the portal's Cloudflare front. A page takes
-~0.5s. A first batch of 1000 pages at 2/s had no failures; a second batch of
-1000 started 15 minutes later began timing out partway through, the pacer
-backed off to 0.5/s, and 2 reads failed.
+~0.5s. From GitHub's runners the front answers HTTP 429 to about half of the
+requests sent at 2/s, so pages are read one at a time at 1/s. A 429 is a
+signal to slow down, not a failure: it halves the request rate (down to
+0.25/s) and the read is retried after 10s, then 20s, or after the response's
+`Retry-After` when that is longer, up to a minute. A read fails only once its
+3 attempts are spent. After 20 successes in a row the rate rises by a
+quarter, back up to 1/s. A streak of timeouts also halves the rate. The
+License Locator requests share the same pacer and handling.
 
 ## Tests
 
@@ -101,4 +108,6 @@ from the live portal, about 30 requests. The expected values are the pages
 as of 2026-09-14 (Short-Term Rentals) and 2026-11-10 (the rest); a failure on
 one field can also mean a licensee edited their license.
 `test/newestLicenseId.test.ts` runs offline: which id the Locator parser
-takes from a response, and what it rejects.
+takes from a response, and what it rejects. So does `test/rateLimit.test.ts`,
+with `fetch` stubbed: a 429 slows the pacer and is retried, and a read fails
+only once every attempt was refused.

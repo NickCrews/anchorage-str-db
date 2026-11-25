@@ -3,8 +3,11 @@
  *
  * `TokenBucket` spaces requests at a fixed rate. `Pacer` wraps one and reacts
  * to the service's signals: a streak of timeouts halves the rate, and a
- * rate-limit response throws `RateLimitedError`. The caller decides what a
- * rate-limit response is (see `withRetries`).
+ * rate-limit response either throws `RateLimitedError` (`noteRateLimited`) or
+ * halves the rate (`noteThrottled`). With `recoverAfter` set, a run of
+ * successes raises a lowered rate back toward the starting one. The caller
+ * decides what a rate-limit response is and which way it goes (see
+ * `withRetries`).
  */
 
 import { log } from './log.ts';
@@ -80,6 +83,11 @@ export interface PacerOptions {
   minRate?: number;
   /** Consecutive timeouts before the rate is halved. */
   timeoutBackoff?: number;
+  /**
+   * Consecutive successes after which a lowered rate is raised by a quarter,
+   * up to `rate`. Unset: a lowered rate stays lowered.
+   */
+  recoverAfter?: number;
   /** Names the service in the `RateLimitedError` message. */
   service?: string;
   /** Appended to the `RateLimitedError` message: what the operator should do. */
@@ -88,18 +96,24 @@ export interface PacerOptions {
 
 export class Pacer {
   readonly bucket: TokenBucket;
+  readonly maxRate: number;
   readonly minRate: number;
   readonly timeoutBackoff: number;
+  readonly recoverAfter: number | null;
   readonly service: string;
   readonly rateLimitAdvice: string;
   sent = 0;
   timeouts = 0;
+  throttles = 0;
   #consecutiveTimeouts = 0;
+  #consecutiveOk = 0;
 
   constructor(options: PacerOptions) {
     this.bucket = new TokenBucket(options.rate);
+    this.maxRate = this.bucket.rate;
     this.minRate = options.minRate ?? 0.5;
     this.timeoutBackoff = options.timeoutBackoff ?? 5;
+    this.recoverAfter = options.recoverAfter ?? null;
     this.service = options.service ?? 'the service';
     this.rateLimitAdvice = options.rateLimitAdvice ?? '';
   }
@@ -110,17 +124,37 @@ export class Pacer {
     this.sent += 1;
   }
 
+  /** A successful request. After `recoverAfter` in a row, raise a lowered rate. */
   noteOk(): void {
     this.#consecutiveTimeouts = 0;
+    if (this.recoverAfter === null) return;
+    this.#consecutiveOk += 1;
+    if (this.#consecutiveOk < this.recoverAfter) return;
+    this.#consecutiveOk = 0;
+    const current = this.bucket.rate;
+    const raised = Math.min(current * 1.25, this.maxRate);
+    if (raised > current) {
+      this.bucket.setRate(raised);
+      log.info(
+        `${this.recoverAfter} consecutive successes from ${this.service}; raising the request rate ` +
+          `${current.toFixed(2)}/s -> ${raised.toFixed(2)}/s`,
+      );
+    }
   }
 
-  /** A rate-limit response. Always throws `RateLimitedError`. */
+  /** A rate-limit response, for a service whose limit should end the run. Always throws `RateLimitedError`. */
   noteRateLimited(): never {
     throw new RateLimitedError(
       `${this.service} refused a request for exceeding its rate limit. Sent ${this.sent} ` +
         `requests this run at ${this.bucket.rate.toFixed(2)}/s.` +
         (this.rateLimitAdvice ? ` ${this.rateLimitAdvice}` : ''),
     );
+  }
+
+  /** A rate-limit response, for a service that should just be asked more slowly: halve the rate. */
+  noteThrottled(): void {
+    this.throttles += 1;
+    this.#lower('a rate-limit response');
   }
 
   /**
@@ -132,12 +166,18 @@ export class Pacer {
     this.#consecutiveTimeouts += 1;
     if (this.#consecutiveTimeouts < this.timeoutBackoff) return;
     this.#consecutiveTimeouts = 0;
+    this.#lower(`${this.timeoutBackoff} consecutive timeouts`);
+  }
+
+  /** Halve the rate, down to `minRate`, and restart the run of successes. */
+  #lower(reason: string): void {
+    this.#consecutiveOk = 0;
     const current = this.bucket.rate;
     const reduced = Math.max(current / 2, this.minRate);
     if (reduced < current) {
       this.bucket.setRate(reduced);
       log.warn(
-        `${this.timeoutBackoff} consecutive timeouts from ${this.service}; lowering the request rate ` +
+        `${reason} from ${this.service}; lowering the request rate ` +
           `${current.toFixed(2)}/s -> ${reduced.toFixed(2)}/s`,
       );
     }
