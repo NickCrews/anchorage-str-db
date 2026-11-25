@@ -28,7 +28,7 @@ jobs:
       DB_PATH: data/anchorage_str.duckdb
     steps:
       # For the outage-issue action.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Runs daily but backs up only when the newest backup is 7+ days old,
       # so a failed backup is retried the next day rather than next week.

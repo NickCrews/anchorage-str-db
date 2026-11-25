@@ -26,11 +26,11 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: pnpm
@@ -46,7 +46,7 @@ jobs:
             --pattern anchorage_str.duckdb --output data/anchorage_str.duckdb
 
       - id: pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       # The site is served under /<repo>/, so assets and the database URL
       # (import.meta.env.BASE_URL) need that prefix.
@@ -57,7 +57,7 @@ jobs:
           pnpm --filter @anchorage-str-db/ui exec tsc -b
           pnpm --filter @anchorage-str-db/ui exec vite build --base "$BASE_PATH"
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: packages/ui/dist
 
@@ -72,4 +72,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
