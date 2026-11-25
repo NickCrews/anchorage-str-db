@@ -36,6 +36,12 @@ export const LIVES_THERE_SQL = `CASE
   ELSE 'Owner lives elsewhere'
 END`;
 
+/** FREHM values, in the order charts list them. */
+export const FREHM_VALUES = ['Yes', 'No', 'Unknown'] as const;
+
+/** Whether a listing is FREHM, as `est_listing_frehm f` SQL. */
+const FREHM_SQL = `CASE WHEN f.is_frehm THEN 'Yes' WHEN NOT f.is_frehm THEN 'No' ELSE 'Unknown' END`;
+
 /**
  * Airbnb listing and host ids exceed 2^53, which Mosaic's Arrow reader
  * refuses to turn into JS numbers, so the table holds them as text.
@@ -80,6 +86,8 @@ export const buildXfTableSql = (table: string, month: string, model: Model) => {
     m.${c.booked} AS "nights booked",
     m.nights_available AS "nights open",
     m.nights - m.nights_available - m.${c.booked} AS "nights closed",
+    ${FREHM_SQL} AS "FREHM?",
+    f.frehm_reason AS "FREHM reason",
     least(m.${c.revenue}, ${REVENUE_CAP}) AS _revenue_capped,
     least(m.nightly_rate, ${RATE_CAP}) AS _price_capped,
     round(100 * m.${c.occupancy}) AS _occupancy,
@@ -88,6 +96,7 @@ export const buildXfTableSql = (table: string, month: string, model: Model) => {
     ST_AsWKB(ST_Point(l.lng, l.lat)) AS geom
   FROM est_listing_months m
   JOIN est_listings l USING (listing_id)
+  JOIN est_listing_frehm f ON f.listing_id = l.listing_id AND f.model = '${model}'
   LEFT JOIN host_names h USING (host_id)
   WHERE m.month = DATE '${month}'
 `;
@@ -95,15 +104,15 @@ export const buildXfTableSql = (table: string, month: string, model: Model) => {
 
 /** Columns the table shows, per chapter. */
 export const TABLE_COLUMNS = {
-  revenue: ['listing', 'type', 'area', 'bedrooms', 'revenue', 'nights booked', 'nightly price', 'host'],
-  host: ['listing', 'host', "host's listings", 'type', 'area', 'revenue', 'nights booked'],
-  rate: ['listing', 'type', 'area', 'bedrooms', 'nightly price', 'sleeps', 'revenue'],
-  occupancy: ['listing', 'type', 'area', 'occupancy %', 'nights booked', 'nights closed', 'nights open'],
-  supply: ['listing', 'type', 'area', 'registration', 'bedrooms', 'host'],
-  incentive: ['listing', 'type', 'bedrooms', 'owner lives there?', 'revenue', 'area'],
-  tourism: ['listing', 'type', 'area', 'sleeps', 'nights booked', 'revenue'],
-  locals: ['listing', 'type', 'community council', 'owner lives there?', 'nights closed', 'nights booked', "owner's mail goes to"],
-  tax: ['listing', 'type', 'area', 'revenue', 'nights booked', 'host'],
-  owners: ['listing', 'owner', 'owner type', "owner's mail goes to", 'type', 'area', 'revenue'],
-  baseline: ['listing', 'type', 'area', 'registration', 'owner lives there?', 'owner type', 'revenue'],
+  revenue: ['listing', 'type', 'area', 'bedrooms', 'revenue', 'nights booked', 'nightly price', 'host', 'FREHM?'],
+  host: ['listing', 'host', "host's listings", 'type', 'area', 'revenue', 'nights booked', 'FREHM?'],
+  rate: ['listing', 'type', 'area', 'bedrooms', 'nightly price', 'sleeps', 'revenue', 'FREHM?'],
+  occupancy: ['listing', 'type', 'area', 'occupancy %', 'nights booked', 'nights closed', 'nights open', 'FREHM?', 'FREHM reason'],
+  supply: ['listing', 'type', 'area', 'registration', 'bedrooms', 'host', 'FREHM?'],
+  incentive: ['listing', 'type', 'bedrooms', 'owner lives there?', 'revenue', 'area', 'FREHM?'],
+  tourism: ['listing', 'type', 'area', 'sleeps', 'nights booked', 'revenue', 'FREHM?'],
+  locals: ['listing', 'type', 'community council', 'owner lives there?', 'nights closed', 'nights booked', "owner's mail goes to", 'FREHM?'],
+  tax: ['listing', 'type', 'area', 'revenue', 'nights booked', 'host', 'FREHM?'],
+  owners: ['listing', 'owner', 'owner type', "owner's mail goes to", 'type', 'area', 'revenue', 'FREHM?'],
+  baseline: ['listing', 'type', 'area', 'registration', 'owner lives there?', 'owner type', 'revenue', 'FREHM?'],
 } as const;

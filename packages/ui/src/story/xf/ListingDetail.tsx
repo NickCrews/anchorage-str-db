@@ -37,11 +37,13 @@ export const ListingDetail: FC = () => {
     closed: number;
     open: number;
     price: number | null;
+    frehmReason: string;
   }>(
     `SELECT "listing", url, "type", "bedrooms", "area", "community council" AS council, "host", host_id AS "hostId",
        "host's listings"::INT AS "hostListings", "registration", "owner", "owner's mail goes to" AS "ownerMail",
        "owner lives there?" AS "livesThere", "revenue", "nights booked"::INT AS booked, "nights closed"::INT AS closed,
-       "nights open"::INT AS open, "nightly price" AS price
+       "nights open"::INT AS open, "nightly price" AS price,
+       "FREHM reason" AS "frehmReason"
      FROM ${table} WHERE listing_id = '${id}'`,
     { enabled: picked != null },
   );
@@ -103,6 +105,8 @@ export const ListingDetail: FC = () => {
           </dd>
           <dt className="text-muted-foreground">Owner lives there?</dt>
           <dd>{info?.livesThere}</dd>
+          <dt className="text-muted-foreground">FREHM?</dt>
+          <dd>{info?.frehmReason}</dd>
         </dl>
         <div className="mt-2 h-28">
           <ResponsiveContainer width="100%" height="100%">
