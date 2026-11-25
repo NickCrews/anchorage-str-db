@@ -110,11 +110,13 @@ export const Occupancy: FC = () => {
           the dates get closer. A full year of records will show the seasons.
         </>,
         <>
-          Housing researchers call an entire-home listing <em>frequently rented</em> (FREH) if, over a year, it was
-          open or booked at least {FREH_OFFERED_NIGHTS} nights and booked at least {FREH_BOOKED_NIGHTS}. A home
-          rented that often probably has nobody living in it. We don't have a year yet, only{' '}
-          <N>{int(f?.nights)}</N> nights, so we use the same test scaled down to the nights we have, and call it
-          FREHM. By that test, <N>{int(f?.middle)}</N> of the <N>{int(f?.entireHomes)}</N> entire-home listings on
+          Which of these listings could become long-term housing? An entire home rented out most of the year is
+          probably being used mainly as a short-term rental, not as someone's home or long-term rental that is
+          only rented out now and then. Housing researchers call these <em>frequently rented entire homes</em>{' '}
+          (FREH): housing stock that is an opportunity for conversion to long-term housing. A listing is FREH if,
+          over a year, it was open or booked at least {FREH_OFFERED_NIGHTS} nights and booked at least{' '}
+          {FREH_BOOKED_NIGHTS}. We don't have a year yet, only <N>{int(f?.nights)}</N> nights, so we use the same
+          test scaled down to the nights we have, and call it FREHM. By that test, <N>{int(f?.middle)}</N> of the <N>{int(f?.entireHomes)}</N> entire-home listings on
           Airbnb are FREHM. Click a bar to see them; each row of the table says why.
           <Caveat>
             Between {int(f?.low)} and {int(f?.high)} depending on how closed nights are counted. These are fall
@@ -183,7 +185,7 @@ const Visual: FC<{ step: number; focusMonth: string }> = ({ step, focusMonth }) 
             <span>Dashed line: today. Later nights show bookings so far.</span>
           </span>
         ) : state.top === 'frehm' ? (
-          `Listings by whether they pass the FREH test scaled to the nights on record: open or booked at least ${FREH_OFFERED_NIGHTS} of every ${FREH_WINDOW_NIGHTS} nights and booked at least ${FREH_BOOKED_NIGHTS}. Rooms are never FREHM; listings with fewer than ${FREHM_MIN_NIGHTS} nights on record are unknown.`
+          `Listings by whether they are probably used mainly as short-term rentals: whether they pass the FREH test scaled to the nights on record: open or booked at least ${FREH_OFFERED_NIGHTS} of every ${FREH_WINDOW_NIGHTS} nights and booked at least ${FREH_BOOKED_NIGHTS}. Rooms are never FREHM; listings with fewer than ${FREHM_MIN_NIGHTS} nights on record are unknown.`
         ) : state.top === 'months' ? (
           'The shaded band covers the middle 60% of listings and the line is the typical one; dashes show the low and high estimates. * Bookings so far.'
         ) : (

@@ -119,9 +119,11 @@ const Panel: FC = () => {
 
       <Section title="Frequently rented entire homes (FREHM)">
         <p>
-          How many homes have short-term rentals taken from people who would live in them year-round? Airbnb
-          doesn't say which listings are someone's home rented out now and then and which are rented to visitors
-          all year, so housing researchers count the listings rented too often for anyone to be living there.
+          How many homes could short-term rentals give back to long-term housing? An entire home rented to
+          visitors most of the year is probably being used mainly as a short-term rental, not as someone's home
+          or long-term rental that is only rented out now and then. Each one is housing stock that is an
+          opportunity for conversion to long-term housing. Airbnb doesn't say which listings these are, so housing
+          researchers pick them out by how often they are rented.
         </p>
         <p>
           They call a listing FREH, a frequently rented entire home, if over {FREH_WINDOW_NIGHTS} nights it is an
