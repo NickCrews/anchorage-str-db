@@ -2,7 +2,9 @@
 
 Every name in this repo — table, column, identifier, comment, UI string —
 comes from [CONTEXT.md](./CONTEXT.md). Read it before adding a concept, and
-add the term there before using it.
+add the term there before using it. For how the sources fit together and
+what the data can't tell, read [docs/methodology.md](docs/methodology.md)
+first; this file covers how the code does it.
 
 ## Setup
 
@@ -436,16 +438,16 @@ Every run fails with `LegacySchemaError` until someone:
   `available: false`. `toNights(days, minDate)` filters them so they don't
   read as bookings. The unit test covers the filter, not Airbnb's response
   shape, so check live output after changing calendar parsing.
-- **About half of the coordinates are jittered; `location_is_exact` says
-  which.** Airbnb offsets the pin unless the host shows the exact location.
-  Filter on `location_is_exact` before any spatial join to parcels or
-  addresses. The flag sits next to the coordinate in `listings` so that
-  filter needs no join. The jitter is stable per listing, so repeated
-  scraping does not average it out. `location_exact_address` is stored when
-  Airbnb provides it and is null for most listings. Before adding geocoding
-  or parcel matching, read
-  [`docs/research/airbnb-address-deanonymization.md`](docs/research/airbnb-address-deanonymization.md),
-  which recommends a public-records request to the Municipality instead.
+- **A listing's address comes from its registration, not its coordinate.**
+  Airbnb jitters about two thirds of coordinates; `location_is_exact` says
+  which, and sits next to the coordinate in `listings` so filtering on it
+  needs no join. The jitter is stable per listing, so repeated scraping does
+  not average it out. A listing showing a registration id gets the
+  registration's address and parcel in `listings_active_with_registration`;
+  nothing matches the rest to an address or parcel by location. Before
+  adding that, read
+  [`docs/research/airbnb-address-deanonymization.md`](docs/research/airbnb-address-deanonymization.md)
+  and [`docs/research/registration-inference/`](docs/research/registration-inference/README.md).
 - **The listing-page parse has three layers.** `listingPage.ts` extracts the
   same fields from schema.org JSON-LD, a shape search over the embedded
   GraphQL state, and regexes over the raw HTML, because none of it is a
@@ -504,16 +506,17 @@ pnpm typecheck
 - `muni-gis-client/test/geocoder.test.ts` and `councils.test.ts` test parsing,
   matching and council lookup offline, then ask the live geocoder and
   council layer.
-- `scraper/test/store.test.ts` and `registrations.test.ts` run the merge
-  logic and views against a real DuckDB file, and
-  `licenses-scraper/test/scrape.test.ts` runs a license scrape, geocoding pass included,
-  against one with injected page reads and GIS services. `licenses/test/select.test.ts` covers which ids a
+- `airbnb-scraper/test/store.test.ts` and `registrations.test.ts`, and
+  `db/test/registrations.test.ts`, run the merge logic and views against a
+  real DuckDB file, and `licenses-scraper/test/scrape.test.ts` runs a license
+  scrape, geocoding pass included, against one with injected page reads and
+  GIS services. `licenses-scraper/test/select.test.ts` covers which ids a
   scrape reads.
 - `parcels-scraper/test/scrape.test.ts` scrapes a local DuckDB file shaped like
   anchorage-property's, offline: `scrapeParcels` takes the source as `sourceUrl`.
 - `db/test/connect.test.ts` checks that migrations apply once and that an
   incompatible file is rejected; `database.test.ts` checks how `appendRows`
-  converts values.
+  converts values; `sourceFreshness.test.ts` covers `source_freshness`.
 
 Only `licenses-client/test/licensePage.test.ts` and the live tests in
 `muni-gis-client` need the network. Fetching is injected: `searchAnchorage` takes a

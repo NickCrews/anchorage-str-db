@@ -5,6 +5,10 @@ Municipal Clerk's STR registration layer), `muni_license_` (the Muni's
 CityView license pages), `muni_address_` (the Muni's geocoder), or
 `property_` (anchorage-property's parcels). Views have no prefix.
 
+For how the sources fit together, see [methodology.md](methodology.md).
+
+## From Airbnb
+
 - `airbnb_listing_observations`: one row per listing per scrape date, including
   whether its page was read (`page_fetch_ok`) and a price quote: Airbnb's
   price (`quote_total`) for a stay of `quote_nights` nights from
@@ -62,18 +66,13 @@ CityView license pages), `muni_address_` (the Muni's geocoder), or
   data that night, and how many of those were available"; it drops the frozen
   future nights of inactive listings
 
-From the Municipal Clerk's
-[Short Term Rental Registration Viewer](https://experience.arcgis.com/experience/22b40a78a9fc459e9950a16249b37ed2)
-and the Muni's license portal, stored as published:
+## From the Muni
 
-- `muni_str_registration_observations`: one row per registration per registry
-  run, an archive: the layer answers only with a token, so nothing writes it.
-  The Muni published only active registrations, so a registration missing
-  from a run has lapsed or been withdrawn. `registered_address` is the address
-  on the license: a Muni property record's address, or the registrant's typed
-  text.
-  `geocoded_address`, the coordinate, `community_council` and `parcel_type` are
-  the Muni's derivations from it.
+The Muni's CityView license portal, the Muni's geocoder, and the archived
+registration layer the Municipal Clerk published in the
+[Short Term Rental Registration Viewer](https://experience.arcgis.com/experience/22b40a78a9fc459e9950a16249b37ed2),
+stored as published:
+
 - `muni_license_page_reads`: each visible CityView license page read
   ([example](https://www.muni.org/CityViewPortal/License/Status?licenseId=13923&category=B)),
   of every license type, Short-Term Rentals re-read weekly and others
@@ -83,6 +82,8 @@ and the Muni's license portal, stored as published:
   certificate `issuances` records, and the `submittals` the licensee filed.
   A location with a `link` comes from the Muni's property records (a parcel
   id, or that record's address); one without is text the registrant typed.
+  Keyed by `cityview_license_id`, CityView's internal row id, which fetches
+  the page and means nothing outside the portal.
 - `muni_license_hidden_reads`: one row per read of a hidden license id, whose
   page says "Invalid License"
 - `muni_license_scrape_runs`: one row per license scrape
@@ -90,7 +91,56 @@ and the Muni's license portal, stored as published:
   geocoder: its `matched_address`, coordinate and `community_council`, all
   NULL when the geocoder could not place it, plus its best candidate's
   `score` and `match_type`
+- `muni_str_registration_observations`: one row per registration per registry
+  run, an archive: the layer answers only with a token, so nothing writes it.
+  The Muni published only active registrations, so a registration missing
+  from a run had lapsed or been withdrawn. `registered_address` is the address
+  on the license: a Muni property record's address, or the registrant's typed
+  text. `geocoded_address`, the coordinate, `community_council` and
+  `parcel_type` are the Muni's derivations from it. `BusinessName` was the
+  string `'None'` when none was given, and an address the geocoder could not
+  match has `geocoded_address` `'Incomplete address provided. No Match.'`
+  and a placeholder coordinate; both are stored as published and cleaned in
+  `registrations`.
 - `muni_str_registry_runs`: one row per registry run, an archive
+- `licenses` *(view)*: one row per license with a visible page, of every
+  type: its latest page read, `first_read_date`, `last_read_date`, and
+  `is_active` (its most recent issuance is Active or Issued). `address` is
+  the page's Address location (a property record's address), else the first
+  location that is not a parcel id, usually the licensee's typed text.
+  `parcel_id` is set when the page names exactly one parcel, and
+  `parcel__property_type` and `parcel__total_living_units` are that
+  parcel's in `property_parcels`. The geocoded coordinate and
+  `community_council` are the geocoder's match for `address`, NULL when it
+  has none or has not been asked yet. An id whose latest read is hidden is
+  left out.
+- `registrations` *(view)*: one row per STR Certificate number on a
+  Short-Term Rentals license in `licenses`, plus the registrations only the
+  archived layer holds.
+  - `status`, `issued_date`, `expires_date` and `is_active` come from the
+    STR Certificate issuance; `is_active` means its status is `Active`.
+    `registrations_active` filters to it.
+  - `business_name` (NULL for the layer's `'None'`), `registered_address`
+    (the license's `address`), `parcel_id` and the `license_*` columns come
+    from the license's latest page read. `first_seen_date` and
+    `last_seen_date` are the first and latest page reads showing the number.
+  - The geocoded coordinate and `community_council` are the license's own
+    when the geocoder matched its address, else the archived layer's; one
+    row never mixes the two. They are NULL where the layer's geocoder found
+    no match.
+  - `parcel_type` is the license's parcel's `property_type` in
+    `property_parcels` (`RESIDENTIAL`, `CONDO`, `APARTMENT`, ...), else the
+    archived layer's `Residential`/`Commercial`; the two vocabularies
+    differ.
+  - `submitted_date` comes from the archived layer alone.
+  - `airbnb_listings_active` counts the active Airbnb listings showing the
+    id.
+  - A registration only the archive holds keeps its layer row, with
+    `is_active` false and NULL `license_*` columns. A registration whose
+    license page goes hidden drops out unless the archive holds it.
+
+## From anchorage-property
+
 - `property_parcels`: one row per parcel, copied whole from
   [anchorage-property](https://github.com/NickCrews/anchorage-property)'s
   current parcels by each parcel scrape: `parcel_address`, `property_type`
@@ -100,28 +150,21 @@ and the Muni's license portal, stored as published:
   address (`owner_name`, `owner_address`, `owner_city`, `owner_state`,
   `owner_zip`), `exemption_types_all` (`OWNERS PRIMARY RESIDENCE`, ...) and
   `appraised_total_value`. No history; that stays in anchorage-property.
+  Join on `parcel_id` from `licenses`, `registrations` or
+  `listings_active_with_registration.registration_parcel_id`.
 - `property_parcel_scrape_runs`: one row per parcel scrape, with the
   anchorage-property ingest run it copied
-- `licenses` *(view)*: one row per license with a visible page, of every
-  type: its latest page read, `first_read_date`, `last_read_date`, and
-  `is_active` (its most recent issuance is Active or Issued), its `address`
-  and `parcel_id`, its parcel's `parcel__property_type` and
-  `parcel__total_living_units` from `property_parcels`, and the geocoded coordinate and `community_council` of
-  the address. An id whose latest read is hidden is left out.
-- `registrations` *(view)*: one row per STR certificate number on a
-  Short-Term Rentals license, plus the registrations only the archived layer
-  holds. `is_active` means the certificate's status is Active.
-  The geocoded coordinate and `community_council` are the license's own,
-  else the archived layer's. `parcel_type` is the license's parcel's
-  `property_type` in `property_parcels` (`RESIDENTIAL`, `CONDO`, ...), else
-  the archived layer's `Residential`/`Commercial`; the two vocabularies
-  differ. `submitted_date` comes from the archived layer alone. `airbnb_listings_active` counts the active Airbnb listings
-  showing the id. `registrations_active` filters to `is_active`.
+
+## Across sources
+
 - `listings_active_with_registration` *(view)*: `listings_active` plus
-  the registration matching `registration_id`: its address, parcel,
-  business name and description. `registration_found` is false when the
+  the registration matching `registration_id`, as `registration_*`
+  columns: active or not, business name, address, parcel id and type,
+  community council, issue and expiry dates, the license description, and
+  how many active listings cite it. `registration_found` is false when the
   listing shows no id, or one not in the registry, which includes ids
-  issued since the last license scrape.
+  issued since the last license scrape. See
+  [methodology.md](methodology.md#how-a-listing-gets-an-address-a-parcel-and-an-owner).
 - `source_freshness` *(view)*: one row per upstream source (`airbnb`,
   `muni_licenses`, `property_parcels`) with the date and finish time of its
   latest successful run. Each source runs on its own schedule, so the dates
