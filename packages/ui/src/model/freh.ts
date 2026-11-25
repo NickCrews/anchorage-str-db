@@ -2,7 +2,7 @@
  * Which listings are probably used mainly as short-term rentals, and so are
  * housing stock that could be converted to long-term housing: whether each
  * listing is FREH or FREHM, as an estimate table the viewer builds after the
- * database loads. `CONTEXT.md` defines both terms.
+ * database loads. `docs/TERMINOLOGY.md` defines both terms.
  */
 
 /**

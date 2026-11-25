@@ -1,4 +1,4 @@
--- Renames to the vocabulary in CONTEXT.md. No data moves: every statement is
+-- Renames to the vocabulary in docs/TERMINOLOGY.md. No data moves: every statement is
 -- a column rename, which keeps each column's position, so `appendRows`, which
 -- writes by position, is unaffected.
 --

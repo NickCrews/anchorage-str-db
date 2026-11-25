@@ -60,7 +60,7 @@ LEFT JOIN property_parcels p ON p.parcel_id = l.registration_parcel_id;
   sources link, how history is kept, and what the data cannot tell you.
   Read its limitations before quoting a number.
 - [Tables](docs/tables.md): every table and view, and how each is derived
-- [CONTEXT.md](CONTEXT.md): the vocabulary the tables and docs use
+- [docs/TERMINOLOGY.md](docs/TERMINOLOGY.md): the vocabulary the tables and docs use
 - [Product requirements](docs/prd.md): who this is for and what it must do
 - [`docs/research/`](docs/research): dated investigations behind the
   design decisions

@@ -3,7 +3,7 @@
 How the database is built: what each source contributes, how the sources
 link a listing to an address, a parcel and an owner of record, how history
 is kept, and what the data cannot tell you. The words used here are
-defined in [CONTEXT.md](../CONTEXT.md); every table and column is in
+defined in [TERMINOLOGY.md](./TERMINOLOGY.md); every table and column is in
 [tables.md](tables.md).
 
 Counts are marked with the run they come from. They change with every run;
@@ -34,7 +34,7 @@ run, re-reads Short-Term Rentals licenses weekly and others monthly
 ([order](../packages/licenses-scraper/README.md)). A Short-Term Rentals
 license holds exactly one STR Certificate, whose number is the
 `registration_id`, so a registration and its license are one record
-(see "Three ids, one license" in [CONTEXT.md](../CONTEXT.md)). The page
+(see "Three ids, one license" in [TERMINOLOGY.md](./TERMINOLOGY.md)). The page
 carries the license's address, either a Muni property record's address or
 text the registrant typed, and a parcel id when the registrant picked a
 property record.
@@ -133,7 +133,7 @@ operating.
 **What a registration covers has no fixed grain.** One registration may
 cover many rooms or many dwellings, and one dwelling may hold several
 registrations; see "What a registration covers" in
-[CONTEXT.md](../CONTEXT.md).
+[TERMINOLOGY.md](./TERMINOLOGY.md).
 
 **License → parcel: many-to-one, optional.** Several licenses can name one
 parcel (a building with a registration per dwelling). A license whose page

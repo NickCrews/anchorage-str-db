@@ -1,7 +1,7 @@
 # Contributing
 
 Every name in this repo — table, column, identifier, comment, UI string —
-comes from [CONTEXT.md](./CONTEXT.md). Read it before adding a concept, and
+comes from [docs/TERMINOLOGY.md](./docs/TERMINOLOGY.md). Read it before adding a concept, and
 add the term there before using it. For how the sources fit together and
 what the data can't tell, read [docs/methodology.md](docs/methodology.md)
 first; this file covers how the code does it.

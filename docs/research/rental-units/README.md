@@ -32,7 +32,7 @@ sources know about it.
 
 ## 1. Vocabulary
 
-Defined in [CONTEXT.md](../../../CONTEXT.md).
+Defined in [TERMINOLOGY.md](../../TERMINOLOGY.md).
 
 - **Dwelling:** short for dwelling unit. A house, apartment, cabin or
   accessory unit that could be rented long-term. Title 21 defines a dwelling

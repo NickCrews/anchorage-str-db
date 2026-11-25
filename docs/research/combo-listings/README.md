@@ -24,9 +24,9 @@ enough to say that every other listing is atomic.
 ## Words
 
 **Dwelling**, **room**, **combo listing**, **component listing** and
-**atomic listing** are defined in [CONTEXT.md](../../../CONTEXT.md), which
+**atomic listing** are defined in [TERMINOLOGY.md](../../TERMINOLOGY.md), which
 also shows the 700 M St triplex as a worked example. This doc adds two words
-for the calendar. "Stretch" is used rather than "run", which CONTEXT.md
+for the calendar. "Stretch" is used rather than "run", which TERMINOLOGY.md
 reserves for one execution of a pipeline.
 
 - **Stretch:** consecutive not-available nights on one listing's calendar. An

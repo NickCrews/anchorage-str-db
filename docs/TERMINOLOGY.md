@@ -4,7 +4,7 @@ A daily record of short-term rentals in the Municipality of Anchorage, built
 from Airbnb's public pages, the Municipality's STR registrations, and the
 Muni's parcels. Airbnb and the Muni share no key but the registration id a
 listing prints on its page; a registration's license names its parcel. See
-[methodology](./docs/methodology.md).
+[methodology](./methodology.md).
 
 This file is the vocabulary the whole repo uses: table and column names, code
 identifiers, comments, docs and UI copy. When a word here has an `_Avoid_`
@@ -29,7 +29,7 @@ a separate question: a dwelling may be a short-term rental, a long-term
 rental, or owner-occupied, and nothing here sees the ones that are not STRs.
 The cross-source concept: a dwelling may have listings on several platforms,
 a registration, both, or neither. No table holds dwellings yet; see
-[rental-units](./docs/research/rental-units/README.md) for the design
+[rental-units](./research/rental-units/README.md) for the design
 ([#40](https://github.com/NickCrews/anchorage-str-db/issues/40)).
 _Avoid_: unit, property, rental, home, STR
 
@@ -57,7 +57,7 @@ Turnagain Blvd E Unit 4A is listed twice, by a property manager and by the
 owner, from two host accounts — and one listing can cover several dwellings —
 STR20261828's triplex is listed whole as well as by dwelling, and booking the
 whole makes the others unavailable. See
-[rental-units](./docs/research/rental-units/README.md).
+[rental-units](./research/rental-units/README.md).
 _Avoid_: room, rental, ad, property, STR, unit
 
 **Combo listing**, **component listing**, **atomic listing**:
@@ -190,7 +190,7 @@ its key. The registrant decides what to file, and both directions occur:
 The ordinance (AMC 10.90.010, from AO 2025-115(S-2)) asks for one
 registration per "separate and distinct living unit", bedrooms included, so
 Turpin St is the literal reading and the Ski Inn the exception; see
-[rental-units](./docs/research/rental-units/README.md).
+[rental-units](./research/rental-units/README.md).
 
 On 2026-09-15, 115 (registrant, address) pairs held more than one of the
 2,564 active registrations in the registration layer, covering 293 of them.
