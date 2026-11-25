@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState, type FC, type ReactNode } from 'react';
 import { longDate, pct1 } from '../format';
-import { BLOCK_RUN_NIGHTS, ROOM_TAX_RATE } from '../model/estimates';
+import {
+  BLOCK_RUN_NIGHTS,
+  FREH_BOOKED_NIGHTS,
+  FREH_OFFERED_NIGHTS,
+  FREH_WINDOW_NIGHTS,
+  FREHM_MIN_NIGHTS,
+  ROOM_TAX_RATE,
+} from '../model/estimates';
 import { useStory } from './context';
 import { MODELS, modelLabel } from './model';
 
@@ -113,6 +120,27 @@ const Panel: FC = () => {
           A "long closed stretch" is more than {BLOCK_RUN_NIGHTS} closed nights in a row. Every chart, map and table
           follows your choice. The story's text quotes the middle estimate, with the low-to-high range where it
           matters.
+        </p>
+      </Section>
+
+      <Section title="Frequently rented whole homes (FREHM)">
+        <p>
+          Housing researchers call a listing FREH, a frequently rented entire home, if over {FREH_WINDOW_NIGHTS}{' '}
+          nights it is a whole home, open or booked at least {FREH_OFFERED_NIGHTS} of them, and booked at least{' '}
+          {FREH_BOOKED_NIGHTS}. A home rented that often is unlikely to be anyone's home.
+        </p>
+        <p>
+          Until we have a full year, we use FREHM, FREH modified: the same test over the nights we have recorded,
+          up to the last {FREH_WINDOW_NIGHTS}, with both thresholds scaled to that many nights. Over 60 nights, a
+          whole home needs to be open or booked at least {Math.ceil((FREH_OFFERED_NIGHTS * 60) / FREH_WINDOW_NIGHTS)}{' '}
+          and booked at least {Math.ceil((FREH_BOOKED_NIGHTS * 60) / FREH_WINDOW_NIGHTS)}. A listing with fewer than{' '}
+          {FREHM_MIN_NIGHTS} nights recorded is unknown. Once a listing has a full year recorded, FREHM is FREH.
+        </p>
+        <p>
+          Which nights count as booked follows the estimate chosen above. Our nights so far are fall nights, so
+          FREHM leans toward listings that are busy outside the summer. It counts listings, not homes: one home
+          listed twice counts twice, and a listing that rents several homes together counts on top of the
+          listings for each home.
         </p>
       </Section>
 

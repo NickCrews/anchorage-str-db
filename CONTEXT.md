@@ -437,3 +437,23 @@ never report either as a count: say "not available", and caveat any occupancy
 figure derived from it.
 _Avoid_: for available — open, free, vacant, unbooked; for booked — reserved,
 occupied, sold
+
+**FREH**:
+Frequently rented entire-home: the housing-research test for a listing
+that has likely left the long-term market. Over 365 past nights, an
+`Entire home/apt` listing open or booked at least 183 of them and booked at
+least 90. Only the industry-standard definition, at the full 365 nights;
+anything scaled or shortened is FREHM. "Booked" is an interpretation of not
+available (above), so FREH is an estimate. A test of listings, not
+dwellings: a dwelling with two listings counts twice, and a combo listing
+counts on top of its component listings. `est_listing_frehm.is_freh` in the
+viewer, NULL until a listing has 365 past nights on record.
+_Avoid_: commercial STR, full-time STR, ghost hotel, lost unit
+
+**FREHM**:
+FREH modified: the FREH test over the past nights on record, up to the
+last 365, with both thresholds scaled to that many nights. No answer below
+28 nights. Equal to FREH at 365 nights. `est_listing_frehm.is_frehm` in
+the viewer, one row per listing per model, with the counts the test reads
+and the reason in words (`frehm_reason`).
+_Avoid_: FREH (for this), provisional FREH, estimated FREH

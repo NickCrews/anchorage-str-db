@@ -32,7 +32,7 @@ const PICKED_LAYER = {
   getRadius: 9,
 };
 
-const TOOLTIP_COLUMNS = ['listing_id', 'listing', 'type', 'bedrooms', 'revenue', 'nights booked', 'registration'];
+const TOOLTIP_COLUMNS = ['listing_id', 'listing', 'type', 'bedrooms', 'revenue', 'nights booked', 'registration', 'FREHM reason'];
 
 /**
  * One record batch: DuckDB-WASM streams results in ~2k-row batches and the
@@ -144,6 +144,7 @@ export const XfMap: FC<{ color: XfMapColor }> = ({ color }) => {
           String(object.type ?? ''),
           object.revenue != null ? `About ${money(Number(object.revenue))} from ${object['nights booked']} booked nights` : '',
           object.registration ? `Muni registration: ${String(object.registration).toLowerCase()}` : '',
+          object['FREHM reason'] ? String(object['FREHM reason']) : '',
           'Click for details',
         ].filter(Boolean);
         return { text: lines.join('\n') };

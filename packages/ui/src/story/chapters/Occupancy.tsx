@@ -2,7 +2,10 @@ import type { FC } from 'react';
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
+  Cell,
   ComposedChart,
   Line,
   ReferenceLine,
@@ -13,20 +16,21 @@ import {
 } from 'recharts';
 import { int, monthLabel, monthName, pct1, shortDate } from '../../format';
 import { useRow, useRows } from '../../lib/query';
-import { BLOCK_RUN_NIGHTS } from '../../model/estimates';
+import { BLOCK_RUN_NIGHTS, FREH_BOOKED_NIGHTS, FREH_OFFERED_NIGHTS, FREH_WINDOW_NIGHTS, FREHM_MIN_NIGHTS } from '../../model/estimates';
 import { Chapter, ChapterGrid, useStepState } from '../Chapter';
 import { useStory } from '../context';
 import { useStartedMonths } from '../hooks';
 import { listingMonthsSql } from '../sql';
 import type { Model } from '../model';
-import { axisProps, Caveat, ChartBox, COLOR, N, Segmented, Select, Swatch, tooltipProps } from '../ui';
+import { axisProps, CATEGORY, Caveat, ChartBox, COLOR, N, Segmented, Select, Swatch, tooltipProps } from '../ui';
+import { predicateWithout, selectedValue, toggleEqualsClause } from '../xf/clause';
 import { selectedListingsSql, useXf } from '../xf/context';
-import { TABLE_COLUMNS } from '../xf/table';
+import { FREHM_VALUES, TABLE_COLUMNS } from '../xf/table';
 import { XfHistogram } from '../xf/XfHistogram';
 import { XfProvider } from '../xf/XfProvider';
 import { XfSide } from '../xf/XfSide';
 
-type Top = 'nights' | 'distribution' | 'months';
+type Top = 'nights' | 'distribution' | 'months' | 'frehm';
 interface VisualState {
   top: Top;
   month: string;
@@ -58,6 +62,15 @@ export const Occupancy: FC = () => {
     { enabled: !!focus },
   );
   const month = meta ? monthName(meta.focusMonth) : '…';
+  const { row: f } = useRow<{ entireHomes: number; nights: number; low: number; middle: number; high: number }>(
+    `SELECT count(*) FILTER (WHERE f.model = 'middle')::INT AS "entireHomes",
+       max(f.nights)::INT AS nights,
+       count(*) FILTER (WHERE f.model = 'low' AND f.is_frehm)::INT AS low,
+       count(*) FILTER (WHERE f.model = 'middle' AND f.is_frehm)::INT AS middle,
+       count(*) FILTER (WHERE f.model = 'high' AND f.is_frehm)::INT AS high
+     FROM est_listing_frehm f JOIN est_listings l USING (listing_id)
+     WHERE l.is_active AND f.is_entire_home`,
+  );
 
   return (
     <Chapter
@@ -95,6 +108,19 @@ export const Occupancy: FC = () => {
           Month by month. Months that haven't happened yet show only bookings made so far, so they will rise as
           the dates get closer. A full year of records will show the seasons.
         </>,
+        <>
+          Housing researchers call a whole-home listing <em>frequently rented</em> (FREH) if, over a year, it was
+          open or booked at least {FREH_OFFERED_NIGHTS} nights and booked at least {FREH_BOOKED_NIGHTS}. A home
+          rented that often probably has nobody living in it. We don't have a year yet, only{' '}
+          <N>{int(f?.nights)}</N> nights, so we use the same test scaled down to the nights we have, and call it
+          FREHM. By that test, <N>{int(f?.middle)}</N> of the <N>{int(f?.entireHomes)}</N> whole-home listings on
+          Airbnb are FREHM. Click a bar to see them; each row of the table says why.
+          <Caveat>
+            Between {int(f?.low)} and {int(f?.high)} depending on how closed nights are counted. These are fall
+            nights, and summer is busier, so a full year may look different. And this counts listings, not
+            homes: one home listed twice counts twice.
+          </Caveat>
+        </>,
       ]}
       visual={(step) => <Visual step={step} focusMonth={focus} />}
     />
@@ -108,6 +134,7 @@ const Visual: FC<{ step: number; focusMonth: string }> = ({ step, focusMonth }) 
     { top: 'nights', month: focusMonth },
     { top: 'distribution', month: focusMonth },
     { top: 'months', month: focusMonth },
+    { top: 'frehm', month: focusMonth },
   ]);
   return (
     <XfProvider chapterId="q4" month={state.month}>
@@ -122,6 +149,7 @@ const Visual: FC<{ step: number; focusMonth: string }> = ({ step, focusMonth }) 
               { value: 'nights', label: 'Every night' },
               { value: 'distribution', label: 'All listings' },
               { value: 'months', label: 'By month' },
+              { value: 'frehm', label: 'FREHM' },
             ]}
             onChange={(top) => update({ top })}
           />
@@ -138,8 +166,10 @@ const Visual: FC<{ step: number; focusMonth: string }> = ({ step, focusMonth }) 
           <Nights />
         ) : state.top === 'distribution' ? (
           <XfHistogram column="_occupancy" label="Share of offered nights that were booked (%)" bins={20} />
-        ) : (
+        ) : state.top === 'months' ? (
           <ByMonth />
+        ) : (
+          <Frehm />
         )
       }
       caption={
@@ -151,13 +181,24 @@ const Visual: FC<{ step: number; focusMonth: string }> = ({ step, focusMonth }) 
             <Swatch color={COLOR.available} label="Open" />
             <span>Dashed line: today. Later nights show bookings so far.</span>
           </span>
+        ) : state.top === 'frehm' ? (
+          `Listings by whether they pass the FREH test scaled to the nights on record: open or booked at least ${FREH_OFFERED_NIGHTS} of every ${FREH_WINDOW_NIGHTS} nights and booked at least ${FREH_BOOKED_NIGHTS}. Rooms are never FREHM; listings with fewer than ${FREHM_MIN_NIGHTS} nights on record are unknown.`
         ) : state.top === 'months' ? (
           'The shaded band covers the middle 60% of listings and the line is the typical one; dashes show the low and high estimates. * Bookings so far.'
         ) : (
           'Number of listings by how booked they were. A listing closed all month offered no nights and is left out.'
         )
       }
-      side={<XfSide mapColor={{ field: 'occupancy %', type: 'quantile', scheme: 'OrRd', title: 'Booked (%)' }} columns={TABLE_COLUMNS.occupancy} />}
+      side={
+        <XfSide
+          mapColor={
+            state.top === 'frehm'
+              ? { field: 'FREHM?', type: 'categorical', scheme: 'Set1', title: 'FREHM?' }
+              : { field: 'occupancy %', type: 'quantile', scheme: 'OrRd', title: 'Booked (%)' }
+          }
+          columns={TABLE_COLUMNS.occupancy}
+        />
+      }
     />
   </XfProvider>
   );
@@ -222,6 +263,44 @@ const ByMonth: FC = () => {
           <Line dataKey="p50Low" name="Low estimate" stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" dot={false} isAnimationActive={false} />
           <Line dataKey="p50High" name="High estimate" stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" dot={false} isAnimationActive={false} />
         </ComposedChart>
+      </ResponsiveContainer>
+    </ChartBox>
+  );
+};
+
+/** The FREHM chart's identity as a clause source in the chapter selection. */
+const FREHM_SOURCE = { name: 'frehm-bars' };
+
+/** Listings by FREHM; clicking a bar filters the chapter to it. */
+const Frehm: FC = () => {
+  const xf = useXf();
+  const { rows, isLoading, error } = useRows<{ value: string; n: number }>(
+    // Its own clause is left out, as Mosaic does for its clients, so every bar stays clickable.
+    `SELECT "FREHM?" AS value, count(*)::INT AS n FROM ${xf.table} WHERE ${predicateWithout(xf, FREHM_SOURCE)} GROUP BY ALL`,
+  );
+  const data = FREHM_VALUES.map((value) => ({ value, n: rows.find((r) => r.value === value)?.n ?? 0 }));
+  const picked = selectedValue(xf.selection, FREHM_SOURCE);
+  return (
+    <ChartBox isLoading={isLoading} error={error}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} layout="vertical" margin={{ top: 4, right: 24, bottom: 0, left: 8 }}>
+          <CartesianGrid horizontal={false} stroke="hsl(var(--border))" />
+          <XAxis type="number" {...axisProps} />
+          <YAxis type="category" dataKey="value" {...axisProps} width={80} />
+          <Tooltip {...tooltipProps} formatter={(v) => int(v as number)} />
+          <Bar
+            dataKey="n"
+            name="Listings"
+            fill={CATEGORY[0]}
+            cursor="pointer"
+            isAnimationActive={false}
+            onClick={(d: { value?: string }) => toggleEqualsClause(xf.selection, FREHM_SOURCE, 'FREHM?', d.value ?? null)}
+          >
+            {data.map((d) => (
+              <Cell key={d.value} fill={picked && picked !== d.value ? COLOR.muted : CATEGORY[0]} />
+            ))}
+          </Bar>
+        </BarChart>
       </ResponsiveContainer>
     </ChartBox>
   );
