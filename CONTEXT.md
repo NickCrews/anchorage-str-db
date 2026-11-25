@@ -439,8 +439,11 @@ _Avoid_: for available — open, free, vacant, unbooked; for booked — reserved
 occupied, sold
 
 **FREH**:
-Frequently rented entire-home: the housing-research test for a listing
-that has likely left the long-term market. Over 365 past nights, an
+Frequently rented entire-home: the housing-research test for an entire home
+probably being used mainly as a short-term rental, as opposed to someone's
+home or long-term rental that is only rented out now and then. A FREH
+listing is housing stock that is an opportunity for conversion to long-term
+housing. Over 365 past nights, an
 `Entire home/apt` listing open or booked at least 183 of them and booked at
 least 90. Only the industry-standard definition, at the full 365 nights;
 anything scaled or shortened is FREHM. "Booked" is an interpretation of not
