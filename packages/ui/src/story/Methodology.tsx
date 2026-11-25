@@ -1,13 +1,7 @@
 import { useEffect, useRef, useState, type FC, type ReactNode } from 'react';
 import { longDate, pct1 } from '../format';
-import {
-  BLOCK_RUN_NIGHTS,
-  FREH_BOOKED_NIGHTS,
-  FREH_OFFERED_NIGHTS,
-  FREH_WINDOW_NIGHTS,
-  FREHM_MIN_NIGHTS,
-  ROOM_TAX_RATE,
-} from '../model/estimates';
+import { BLOCK_RUN_NIGHTS, ROOM_TAX_RATE } from '../model/estimates';
+import { FREH_BOOKED_NIGHTS, FREH_OFFERED_NIGHTS, FREH_WINDOW_NIGHTS, FREHM_MIN_NIGHTS } from '../model/freh';
 import { useStory } from './context';
 import { MODELS, modelLabel } from './model';
 

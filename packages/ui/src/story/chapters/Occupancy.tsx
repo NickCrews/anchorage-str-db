@@ -16,7 +16,8 @@ import {
 } from 'recharts';
 import { int, monthLabel, monthName, pct1, shortDate } from '../../format';
 import { useRow, useRows } from '../../lib/query';
-import { BLOCK_RUN_NIGHTS, FREH_BOOKED_NIGHTS, FREH_OFFERED_NIGHTS, FREH_WINDOW_NIGHTS, FREHM_MIN_NIGHTS } from '../../model/estimates';
+import { BLOCK_RUN_NIGHTS } from '../../model/estimates';
+import { FREH_BOOKED_NIGHTS, FREH_OFFERED_NIGHTS, FREH_WINDOW_NIGHTS, FREHM_MIN_NIGHTS } from '../../model/freh';
 import { Chapter, ChapterGrid, useStepState } from '../Chapter';
 import { useStory } from '../context';
 import { useStartedMonths } from '../hooks';
