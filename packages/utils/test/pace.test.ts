@@ -73,4 +73,53 @@ describe('Pacer', () => {
 
     expect(pacer.bucket.rate).toBe(0.5);
   });
+
+  it('halves the rate on each throttle, down to its floor, keeping the throw-on-rate-limit path', () => {
+    const pacer = new Pacer({ rate: 1, minRate: 0.25 });
+
+    pacer.noteThrottled();
+    expect(pacer.bucket.rate).toBe(0.5);
+    pacer.noteThrottled();
+    pacer.noteThrottled();
+    expect(pacer.bucket.rate).toBe(0.25);
+    expect(pacer.throttles).toBe(3);
+    expect(() => pacer.noteRateLimited()).toThrow(RateLimitedError);
+  });
+
+  it('raises a lowered rate by a quarter after a run of successes, up to the starting rate', () => {
+    const pacer = new Pacer({ rate: 1, minRate: 0.25, recoverAfter: 3 });
+    pacer.noteThrottled();
+    pacer.noteThrottled();
+
+    pacer.noteOk();
+    pacer.noteOk();
+    expect(pacer.bucket.rate).toBe(0.25);
+    pacer.noteOk();
+    expect(pacer.bucket.rate).toBeCloseTo(0.3125);
+
+    for (let i = 0; i < 30; i++) pacer.noteOk();
+    expect(pacer.bucket.rate).toBe(1);
+  });
+
+  it('restarts the run of successes on a throttle', () => {
+    const pacer = new Pacer({ rate: 1, minRate: 0.25, recoverAfter: 3 });
+    pacer.noteThrottled();
+
+    pacer.noteOk();
+    pacer.noteOk();
+    pacer.noteThrottled();
+    pacer.noteOk();
+    pacer.noteOk();
+
+    expect(pacer.bucket.rate).toBe(0.25);
+  });
+
+  it('keeps a lowered rate without recoverAfter', () => {
+    const pacer = new Pacer({ rate: 4, timeoutBackoff: 1 });
+    pacer.noteTimeout();
+
+    for (let i = 0; i < 100; i++) pacer.noteOk();
+
+    expect(pacer.bucket.rate).toBe(2);
+  });
 });

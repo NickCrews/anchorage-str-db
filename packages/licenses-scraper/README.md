@@ -51,8 +51,11 @@ ids, and a share of the rest.
 A scrape starts page reads for 45 minutes (`LICENSE_READ_BUDGET_MS`), then
 geocodes for 10 minutes (`GEOCODE_BUDGET_MS`). A pass starts no request once
 its budget is spent and writes what it has. An id or address it did not reach
-has no row, so it keeps its place for the next scrape. Together the passes take
-at most about 55 minutes, inside the workflow's 90-minute timeout.
+has no row, so it keeps its place for the next scrape. Page reads go one at a
+time at up to 1/s (see `licenses-client`), so the read budget covers about
+2,700 reads, about one full read order; when the portal's 429s slow the rate,
+the ids at the end of the order wait for the next scrape. Together the passes
+take at most about 55 minutes, inside the workflow's 90-minute timeout.
 
 ## Writes
 

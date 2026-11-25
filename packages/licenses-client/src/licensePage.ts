@@ -28,10 +28,10 @@ import { HTMLElement, NodeType, parse, type Node } from 'node-html-parser';
 
 import { mapWithinBudget } from '@anchorage-str-db/utils/concurrency';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
-import { fetchCookies, fetchText } from '@anchorage-str-db/utils/http';
+import { fetchCookies, fetchText, HttpStatusError } from '@anchorage-str-db/utils/http';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { Pacer } from '@anchorage-str-db/utils/pace';
-import { withRetries } from '@anchorage-str-db/utils/retry';
+import { withRetries, type RateLimitBackoff } from '@anchorage-str-db/utils/retry';
 
 /**
  * One item of the page's Locations section.
@@ -333,26 +333,53 @@ export type LicensePageResult =
   | { cityviewLicenseId: number; page: null; error: string };
 
 /**
- * Request tuning. A license page takes ~0.5s to serve; 2/s keeps the load on
- * the CityView portal to about one request at a time.
+ * Request tuning. The portal's Cloudflare front answers HTTP 429 to GitHub's
+ * runners above about 1 request a second, so reads go one at a time at 1/s.
+ * At that rate the 45-minute read budget (`LICENSE_READ_BUDGET_MS` in
+ * `licenses-scraper`) covers about 2,700 reads, which is about a full read
+ * order; `chooseLicenseIds` puts the ids that matter most first, for when
+ * the budget runs out.
+ *
+ * A 429 halves the rate, down to `MIN_REQUESTS_PER_SECOND`, and the read is
+ * retried after `RATE_LIMIT_BACKOFF`. After `RECOVER_AFTER` successes in a
+ * row the rate rises by a quarter, back up to `REQUESTS_PER_SECOND`.
  */
-const REQUESTS_PER_SECOND = 2;
-const CONCURRENCY = 2;
+const REQUESTS_PER_SECOND = 1;
+const MIN_REQUESTS_PER_SECOND = 0.25;
+const RECOVER_AFTER = 20;
+const CONCURRENCY = 1;
 const MAX_RETRIES = 3;
 const TIMEOUT_MS = 30_000;
 
 /** Backoff between retries of a failed read: `RETRY_BACKOFF_MS * attempt`. */
 const RETRY_BACKOFF_MS = 500;
 
+/** Wait before retrying a 429: 10s, then 20s, or the response's `Retry-After` up to a minute. */
+const RATE_LIMIT_BACKOFF: RateLimitBackoff = { waitMs: 10_000, maxWaitMs: 60_000 };
+
+function isRateLimited(err: unknown): boolean {
+  return err instanceof HttpStatusError && err.status === 429;
+}
+
 export type FetchOneLicensePage = (cityviewLicenseId: number) => Promise<LicensePage | HiddenLicensePage>;
 
 function portalPacer(): Pacer {
-  return new Pacer({ rate: REQUESTS_PER_SECOND, service: 'the CityView portal' });
+  return new Pacer({
+    rate: REQUESTS_PER_SECOND,
+    minRate: MIN_REQUESTS_PER_SECOND,
+    recoverAfter: RECOVER_AFTER,
+    service: 'the CityView portal',
+  });
 }
 
-/** Real requests, paced by one `Pacer` for all pages and retried. */
+/**
+ * Real requests, paced by one `Pacer` for all pages and retried. A 429 slows
+ * the pacer and is retried after `rateLimitBackoff`; a read fails only once
+ * its retries are spent.
+ */
 export function liveLicensePageFetcher(
   pacer = portalPacer(),
+  rateLimitBackoff = RATE_LIMIT_BACKOFF,
 ): FetchOneLicensePage {
   return (cityviewLicenseId) =>
     // Parsing inside the retry means a truncated page is fetched again.
@@ -363,6 +390,8 @@ export function liveLicensePageFetcher(
         attempts: MAX_RETRIES,
         backoffMs: RETRY_BACKOFF_MS,
         pacer,
+        isRateLimited,
+        rateLimitBackoff,
       },
     );
 }
@@ -454,6 +483,13 @@ export async function fetchNewestCityviewLicenseId(pacer = portalPacer()): Promi
       });
       return parseNewestCityviewLicenseId(json);
     },
-    { label: 'the License Locator', attempts: MAX_RETRIES, backoffMs: RETRY_BACKOFF_MS, pacer },
+    {
+      label: 'the License Locator',
+      attempts: MAX_RETRIES,
+      backoffMs: RETRY_BACKOFF_MS,
+      pacer,
+      isRateLimited,
+      rateLimitBackoff: RATE_LIMIT_BACKOFF,
+    },
   );
 }
