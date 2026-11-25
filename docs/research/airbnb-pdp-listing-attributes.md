@@ -40,11 +40,27 @@ All paths are under `niobeClientData[0][1].data`.
 | Guest capacity | `…sections[].section.shareSave.embedData.personCapacity`, also `node.personCapacity` and `maxGuestCapacity` | 1–16 |
 | Bed count | `node.bedCount` (`DemandStayListing`) | 0–15 |
 | Overview | `node.pdpPresentation.overview.items` (`StaysPdpOverview`) | `["5 guests", "2 bedrooms", "3 beds", "1 bath"]` |
-| Photos | `…sections[].section.mediaItems[].baseUrl` | 6–78 per listing, median 17 |
+| Photos | `node.pdpPresentation.mediaTour.stops[].items[].image.uri` | 6–78 per listing, median 17 |
 
 Each page had exactly one distinct value for `roomType`, `personCapacity` and
-`bedCount`, one overview, and one `mediaItems` list. No page has a bedroom or
-bathroom count anywhere except the overview's text.
+`bedCount`, and one overview. No page has a bedroom or bathroom count anywhere
+except the overview's text.
+
+### Photos
+
+Measured again on 2026-11-25 on 7 listings, 3 of them hotel rooms, after the
+gallery's `mediaItems` list stopped appearing in the page. Each page's
+`mediaTour` held the same photos as the gallery stored from `mediaItems`, with
+the same cover photo. The tour groups photos into `stops`, one per room, so on
+3 of the 7 one photo sat one place away from its position in `mediaItems`.
+
+The page has three other photo lists, none of them the gallery:
+
+- `pdpPresentation.heroMedia` has every photo, reordered for the page's
+  header collage; a second copy in the page has 8.
+- `contextualizedMedia` has 1, 5 or 8 photos.
+- A hotel room's page also has the property's other rooms under
+  `propertyRooms`, each with its own `contextualizedMedia`.
 
 `propertyType` is also present, twice: an enum (`HOUSE`, `TENT`, `HOSTEL`) and
 a display string (`Private room in hostel`, `Entire cabin`). It is not stored.
@@ -98,7 +114,7 @@ resizes via `?im_w=240`.
 | `guestCapacity` | the one distinct `personCapacity` number | the one distinct `"personCapacity":N` |
 | `beds` | the one distinct `bedCount` number | the one distinct `"bedCount":N` |
 | `bedrooms`, `bathrooms` | the matching line of an `items` string list | the same, from `"items":[…]` lists |
-| `photoUrls` | the longest `mediaItems` list's `baseUrl`s, de-duplicated | none |
+| `photoUrls` | the longest `mediaTour`'s image URIs, across its stops in order, de-duplicated | none |
 
 On all 44 pages the `state` layer produced every field the page had, and
 `raw-html` alone produced the same values.
