@@ -47,8 +47,10 @@ interface PageOptions {
   bedCount?: number | null;
   /** The overview's `items`; null omits the overview. */
   overviewItems?: string[] | null;
-  /** The gallery's `mediaItems` base URLs; null omits the gallery. */
+  /** The photo tour's image URIs, in order; null omits the tour. */
   photoUrls?: string[] | null;
+  /** A second, shorter tour elsewhere in the page; null omits it. */
+  previewPhotoUrls?: string[] | null;
   /** Replaces the card's `about`; `undefined` removes the key. */
   about?: unknown;
   timeAsHost?: Record<string, unknown> | null;
@@ -64,6 +66,21 @@ const BIO = {
   localizedString: 'Mark and Gwen have lived in Alaska for 20 years.',
   source: 'Mark and Gwen have lived in Alaska for 20 years.',
 };
+
+/** A `mediaTour` holding `urls` in order, split into stops of up to five images. */
+function mediaTour(urls: readonly string[]): Record<string, unknown> {
+  const stops = [];
+  for (let i = 0; i < urls.length; i += 5) {
+    stops.push({
+      __typename: 'MediaTourStop',
+      items: urls.slice(i, i + 5).map((uri) => ({
+        __typename: 'ImageMediaTourItem',
+        image: { __typename: 'Image', uri },
+      })),
+    });
+  }
+  return { __typename: 'MediaTour', stops };
+}
 
 /** A page shaped like Airbnb's: a schema.org block and a nested GraphQL blob. */
 function makePage(options: PageOptions = {}): string {
@@ -82,6 +99,7 @@ function makePage(options: PageOptions = {}): string {
     bedCount = 3,
     overviewItems = ['5 guests', '2 bedrooms', '3 beds', '1.5 baths'],
     photoUrls = PHOTOS,
+    previewPhotoUrls = null,
     timeAsHost = { __typename: 'TimeAsUser', years: 9, months: 7 },
   } = options;
   const about = 'about' in options ? options.about : BIO;
@@ -132,6 +150,7 @@ function makePage(options: PageOptions = {}): string {
                 },
                 location: stateLocation,
                 overview: overviewItems && { __typename: 'StaysPdpOverview', items: overviewItems },
+                mediaTour: photoUrls && mediaTour(photoUrls),
                 descriptions: {
                   longDescriptionHtml: {
                     localizedStringWithTranslationPreference: description,
@@ -148,9 +167,9 @@ function makePage(options: PageOptions = {}): string {
                   sections: [
                     { section: { items } },
                     {
-                      section: photoUrls && {
-                        mediaItems: photoUrls.map((baseUrl) => ({ baseUrl, accessibilityLabel: 'x' })),
+                      section: {
                         shareSave: { embedData: personCapacity && { personCapacity } },
+                        pdpPresentation: previewPhotoUrls && { mediaTour: mediaTour(previewPhotoUrls) },
                       },
                     },
                     {
@@ -420,6 +439,12 @@ describe('listing type and counts', () => {
 describe('photos', () => {
   it('are the whole gallery, in order, not the truncated JSON-LD list', () => {
     const page = parseListingPage(makePage(), '1');
+
+    expect(page.photoUrls).toEqual(PHOTOS);
+  });
+
+  it('come from the longest tour when the page has a shorter preview', () => {
+    const page = parseListingPage(makePage({ previewPhotoUrls: PHOTOS.slice(3, 8) }), '1');
 
     expect(page.photoUrls).toEqual(PHOTOS);
   });

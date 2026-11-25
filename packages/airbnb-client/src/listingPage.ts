@@ -33,7 +33,7 @@
  *    a fixed path, so renamed wrappers or script ids don't break it. The other
  *    fields are likewise found by key or value: the one GraphQL id that decodes
  *    to `DemandUser:<id>`, the `roomType`, `personCapacity` and `bedCount`
- *    keys, the overview `items` list, the `mediaItems` gallery, and the host
+ *    keys, the overview `items` list, the `mediaTour` gallery, and the host
  *    card's `timeAsHost` key.
  * 3. **`raw-html`**: regexes over the raw document, for when the JSON does not
  *    parse. Returns nothing if a pattern matches more than one distinct value.
@@ -377,18 +377,23 @@ function findOverviewLine(doc: unknown, pattern: RegExp): string | null {
 }
 
 /**
- * The gallery: the longest `mediaItems` list's `baseUrl`s, de-duplicated in
- * order. Null when there is none.
+ * The gallery: the longest `mediaTour`'s image URIs, across its `stops` (one
+ * per room) in order, de-duplicated. Null when there is none.
  */
 function findPhotoUrls(doc: unknown): string[] | null {
   let best: string[] = [];
   for (const obj of iterObjects(doc)) {
-    const media = obj['mediaItems'];
-    if (!Array.isArray(media)) continue;
+    const tour = obj['mediaTour'];
+    if (!isObject(tour) || !Array.isArray(tour['stops'])) continue;
     const urls = new Set<string>();
-    for (const item of media) {
-      const url = typeof item === 'object' && item !== null ? (item as JsonObject)['baseUrl'] : null;
-      if (typeof url === 'string' && url.startsWith('https://')) urls.add(url);
+    for (const stop of tour['stops']) {
+      const items = isObject(stop) ? stop['items'] : null;
+      if (!Array.isArray(items)) continue;
+      for (const item of items) {
+        const image = isObject(item) ? item['image'] : null;
+        const uri = isObject(image) ? image['uri'] : null;
+        if (typeof uri === 'string' && uri.startsWith('https://')) urls.add(uri);
+      }
     }
     if (urls.size > best.length) best = [...urls];
   }
