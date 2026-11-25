@@ -101,8 +101,6 @@ So downstream repos can pull this data and join it against other sources
   ([#34](https://github.com/NickCrews/anchorage-str-db/issues/34)).
 - **Relisting.** Detect a host deleting a listing and relisting it under a
   new `listing_id` to shed bad reviews or dodge registration.
-- **Community councils for listings.** Registrations have one; a listing
-  without a registration does not.
 
 ## Privacy
 
