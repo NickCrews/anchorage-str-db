@@ -86,7 +86,7 @@ export const NightlyRates: FC = () => {
           </Caveat>
         </>,
         <>
-          Bigger places cost more. A whole studio or one-bedroom asked about <N>{money(beds?.studio)}</N> a night,
+          Bigger places cost more. An entire studio or one-bedroom asked about <N>{money(beds?.studio)}</N> a night,
           two bedrooms <N>{money(beds?.two)}</N>, and four or more <N>{money(beds?.four)}</N>.
         </>,
         <>
@@ -127,7 +127,7 @@ const Visual: FC<{ step: number; focusMonth: string }> = ({ step, focusMonth }) 
               { value: 'month', label: 'By month' },
               { value: 'bedrooms', label: 'By bedrooms' },
               { value: 'area', label: 'By area' },
-              { value: 'kind', label: 'Whole home or room' },
+              { value: 'kind', label: 'Entire home or room' },
             ]}
             onChange={(top) => update({ top })}
           />

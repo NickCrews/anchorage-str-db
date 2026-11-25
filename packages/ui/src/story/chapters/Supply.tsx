@@ -39,7 +39,7 @@ export const Supply: FC = () => {
       steps={[
         <>
           As of our latest look, <N>{int(s?.active)}</N> listings were on Airbnb in the Municipality,{' '}
-          <N>{int(s?.entire)}</N> of them whole homes rather than rooms.
+          <N>{int(s?.entire)}</N> of them entire homes rather than rooms.
           <Caveat>
             When the count dips by about a hundred for a single day and bounces back, that is most likely our
             data collection missing some listings that day, not listings leaving.
@@ -55,7 +55,7 @@ export const Supply: FC = () => {
           don't appear on any Airbnb listing: they may be rented on Vrbo or directly, listed without the number,
           or not rented at all.
         </>,
-        <>Whole homes make up most listings in every part of town. They are the listings that can take a home away from people who live here year-round.</>,
+        <>Entire homes make up most listings in every part of town. They are the listings that can take a home away from people who live here year-round.</>,
       ]}
       visual={(step) => <Visual step={step} focusMonth={meta?.focusMonthSql ?? ''} />}
     />
@@ -116,7 +116,7 @@ const Trend: FC = () => {
           <Tooltip {...tooltipProps} labelFormatter={(v) => shortDate(v as number)} />
           <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
           <Line dataKey="listings" name="Listings on Airbnb" stroke={COLOR.primary} dot={false} strokeWidth={2} isAnimationActive={false} />
-          <Line dataKey="entire" name="Whole homes" stroke={COLOR.booked} dot={false} strokeWidth={2} isAnimationActive={false} />
+          <Line dataKey="entire" name="Entire homes" stroke={COLOR.booked} dot={false} strokeWidth={2} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
     </ChartBox>
@@ -182,7 +182,7 @@ const Mix: FC = () => {
           <YAxis {...axisProps} width={44} />
           <Tooltip {...tooltipProps} />
           <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
-          <Bar dataKey="entire" name="Whole home" stackId="a" fill={CATEGORY[0]} isAnimationActive={false} />
+          <Bar dataKey="entire" name="Entire home" stackId="a" fill={CATEGORY[0]} isAnimationActive={false} />
           <Bar dataKey="room" name="Room" stackId="a" fill={CATEGORY[2]} isAnimationActive={false} />
           <Bar dataKey="other" name="Hotel room or unknown" stackId="a" fill={CATEGORY[5]} isAnimationActive={false} />
         </BarChart>

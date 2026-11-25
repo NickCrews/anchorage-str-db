@@ -67,14 +67,14 @@ export const Locals: FC = () => {
       title="What do they take from neighborhoods?"
       lede={
         <>
-          A whole home rented to visitors is a home no neighbor lives in, at least on those nights. Where many
+          An entire home rented to visitors is a home no neighbor lives in, at least on those nights. Where many
           cluster, a street can have dark windows in the off-season and fewer year-round neighbors. A room rented
           inside a lived-in home doesn't take a home away.
         </>
       }
       steps={[
         <>
-          There are <N>{int(s?.entire)}</N> whole homes listed on Airbnb. By community council, the most are in{' '}
+          There are <N>{int(s?.entire)}</N> entire homes listed on Airbnb. By community council, the most are in{' '}
           <N>{s?.topCouncil}</N>, with <N>{int(s?.topCouncilHomes)}</N>. Click a bar to see that neighborhood's
           listings.
           <Caveat>
@@ -83,11 +83,11 @@ export const Locals: FC = () => {
           </Caveat>
         </>,
         <>
-          Of the <N>{int(s?.matched)}</N> whole homes we can match to an owner, <N>{int(s?.exempt)}</N> are on
+          Of the <N>{int(s?.matched)}</N> entire homes we can match to an owner, <N>{int(s?.exempt)}</N> are on
           property the owner claims as their own home. The rest have no owner living there on record.
         </>,
         <>
-          A stricter count: in <N>{month}</N>, <N>{int(s?.noResident)}</N> whole homes had no owner living there and
+          A stricter count: in <N>{month}</N>, <N>{int(s?.noResident)}</N> entire homes had no owner living there and
           were open to guests or booked for at least half the month. These are the homes most likely lost to
           people who would live in them year-round.
           <Caveat>
@@ -134,8 +134,8 @@ const Visual: FC<{ step: number; focusMonth: string }> = ({ step, focusMonth }) 
         chart={state.view === 'councils' ? <Councils /> : <NoResident month={state.month} />}
         caption={
           state.view === 'councils'
-            ? 'Whole homes on Airbnb by community council, split by whether the owner lives there. Click a bar to filter.'
-            : 'Whole homes whose owner lives elsewhere and that were open to guests or booked at least half the month.'
+            ? 'Entire homes on Airbnb by community council, split by whether the owner lives there. Click a bar to filter.'
+            : 'Entire homes whose owner lives elsewhere and that were open to guests or booked at least half the month.'
         }
         side={<XfSide mapColor={{ field: 'owner lives there?', type: 'categorical', scheme: 'Set2', title: 'Owner lives there?' }} columns={TABLE_COLUMNS.locals} />}
       />
@@ -203,7 +203,7 @@ const NoResident: FC<{ month: string }> = ({ month }) => {
           <XAxis type="number" {...axisProps} />
           <YAxis type="category" dataKey="council" {...axisProps} width={130} interval={0} />
           <Tooltip {...tooltipProps} formatter={(v, name) => (name === 'share' ? pct1(v as number) : v)} />
-          <Bar dataKey="homes" name="Whole homes" fill={CATEGORY[1]} isAnimationActive={false} />
+          <Bar dataKey="homes" name="Entire homes" fill={CATEGORY[1]} isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
     </ChartBox>

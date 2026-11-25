@@ -117,16 +117,20 @@ const Panel: FC = () => {
         </p>
       </Section>
 
-      <Section title="Frequently rented whole homes (FREHM)">
+      <Section title="Frequently rented entire homes (FREHM)">
         <p>
-          Housing researchers call a listing FREH, a frequently rented entire home, if over {FREH_WINDOW_NIGHTS}{' '}
-          nights it is a whole home, open or booked at least {FREH_OFFERED_NIGHTS} of them, and booked at least{' '}
-          {FREH_BOOKED_NIGHTS}. A home rented that often is unlikely to be anyone's home.
+          How many homes have short-term rentals taken from people who would live in them year-round? Airbnb
+          doesn't say which listings are someone's home rented out now and then and which are rented to visitors
+          all year, so housing researchers count the listings rented too often for anyone to be living there.
+        </p>
+        <p>
+          They call a listing FREH, a frequently rented entire home, if over {FREH_WINDOW_NIGHTS} nights it is an
+          entire home, open or booked at least {FREH_OFFERED_NIGHTS} of them, and booked at least {FREH_BOOKED_NIGHTS}.
         </p>
         <p>
           Until we have a full year, we use FREHM, FREH modified: the same test over the nights we have recorded,
-          up to the last {FREH_WINDOW_NIGHTS}, with both thresholds scaled to that many nights. Over 60 nights, a
-          whole home needs to be open or booked at least {Math.ceil((FREH_OFFERED_NIGHTS * 60) / FREH_WINDOW_NIGHTS)}{' '}
+          up to the last {FREH_WINDOW_NIGHTS}, with both thresholds scaled to that many nights. Over 60 nights, an
+          entire home needs to be open or booked at least {Math.ceil((FREH_OFFERED_NIGHTS * 60) / FREH_WINDOW_NIGHTS)}{' '}
           and booked at least {Math.ceil((FREH_BOOKED_NIGHTS * 60) / FREH_WINDOW_NIGHTS)}. A listing with fewer than{' '}
           {FREHM_MIN_NIGHTS} nights recorded is unknown. Once a listing has a full year recorded, FREHM is FREH.
         </p>

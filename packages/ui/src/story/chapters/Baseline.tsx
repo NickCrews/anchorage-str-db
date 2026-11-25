@@ -68,7 +68,7 @@ const useBaseline = (where: string) => {
 function baselineLines(b: BaselineRow | undefined, month: string): [string, string, string][] {
   return [
     ['Listings on Airbnb', int(b?.activeListings), 'Seen on Airbnb in the last five days'],
-    ['Whole homes', pct1(b?.entireShare), 'Share of listings that rent out an entire home rather than a room'],
+    ['Entire homes', pct1(b?.entireShare), 'Share of listings that rent out an entire home rather than a room'],
     ['Showing a current Muni registration', pct1(b?.registeredShare), 'Share of listings'],
     ['Hosts', int(b?.hosts), 'Airbnb accounts running at least one of these listings'],
     ['Run by hosts with two or more listings', pct1(b?.multiHostShare), 'Share of listings'],
@@ -227,7 +227,7 @@ const Trend: FC = () => {
           />
           <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
           <Line yAxisId="n" dataKey="listings" name="Listings on Airbnb" stroke={CATEGORY[0]} dot={false} strokeWidth={2} isAnimationActive={false} />
-          <Line yAxisId="s" dataKey="entireShare" name="Whole homes" stroke={CATEGORY[1]} dot={false} isAnimationActive={false} />
+          <Line yAxisId="s" dataKey="entireShare" name="Entire homes" stroke={CATEGORY[1]} dot={false} isAnimationActive={false} />
           <Line yAxisId="s" dataKey="idShare" name="Showing a registration" stroke={CATEGORY[2]} dot={false} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
