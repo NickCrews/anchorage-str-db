@@ -439,15 +439,10 @@ Every run fails with `LegacySchemaError` until someone:
   read as bookings. The unit test covers the filter, not Airbnb's response
   shape, so check live output after changing calendar parsing.
 - **A listing's address comes from its registration, not its coordinate.**
-  Airbnb jitters about two thirds of coordinates; `location_is_exact` says
-  which, and sits next to the coordinate in `listings` so filtering on it
-  needs no join. The jitter is stable per listing, so repeated scraping does
-  not average it out. A listing showing a registration id gets the
-  registration's address and parcel in `listings_active_with_registration`;
-  nothing matches the rest to an address or parcel by location. Before
-  adding that, read
-  [`docs/research/airbnb-address-deanonymization.md`](docs/research/airbnb-address-deanonymization.md)
-  and [`docs/research/registration-inference/`](docs/research/registration-inference/README.md).
+  A listing showing a registration id gets the registration's address and
+  parcel in `listings_active_with_registration`; nothing matches the rest by
+  location. Before adding that, read
+  [`docs/research/airbnb-address-deanonymization.md`](docs/research/airbnb-address-deanonymization.md).
 - **The listing-page parse has three layers.** `listingPage.ts` extracts the
   same fields from schema.org JSON-LD, a shape search over the embedded
   GraphQL state, and regexes over the raw HTML, because none of it is a

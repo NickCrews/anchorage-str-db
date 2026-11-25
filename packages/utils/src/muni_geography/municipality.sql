@@ -10,13 +10,9 @@
 -- holes and gaps over uninhabited land, so the holes are filled. Fire Island,
 -- which is uninhabited, is in no council and falls outside.
 --
--- The union is padded by 1 km because Airbnb shows most listings at a blurred
--- position. For listings not flagged exact, the jittered coordinate is 92 m from the
--- Muni's geocoded address for the registration it cites at the median and
--- 150 m at the 95th percentile (1361 listings, 2026-09-14), and 6 of 2519
--- listings in the Municipality fell up to 232 m outside the unpadded union.
--- The nearest listing outside the Municipality, in Hope, is 5.9 km from the
--- padded edge.
+-- The union is padded by 1 km because Airbnb offsets most listings' coordinates
+-- by up to a few hundred metres. The nearest listing outside the Municipality,
+-- in Hope, is 5.9 km from the padded edge.
 --
 -- Every home is inside. Of the 98,550 parcel centroids in
 -- https://github.com/NickCrews/anchorage-property, 100 fall outside the

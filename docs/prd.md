@@ -89,9 +89,8 @@ So downstream repos can pull this data and join it against other sources
 
 ## Follow-ups (not now)
 
-- **An address for listings that show no registration id.** Nothing
-  resolves them (no geocoding of the jittered coordinate or photo matching).
-  See [`research/airbnb-address-deanonymization.md`](research/airbnb-address-deanonymization.md)
+- **An address for listings that show no registration id.** See
+  [`research/airbnb-address-deanonymization.md`](research/airbnb-address-deanonymization.md)
   and [`research/registration-inference/`](research/registration-inference/README.md).
 - **Dwellings.** One row per dwelling and room across listings and
   registrations ([#40](https://github.com/NickCrews/anchorage-str-db/issues/40)),

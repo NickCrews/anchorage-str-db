@@ -88,11 +88,8 @@ license scrape of 2026-11-25):
 So 93% of active listings have a street address and 87% an owner of record.
 For the other 152, the coordinate is all there is. Where it is exact, a
 nearest-parcel match is usually right
-([`policy_questions.sql`](policy_questions.sql) has one); where it is
-jittered (about two thirds of listings), Airbnb has moved it, typically by
-150–200 m, and no technique available to us recovers the address
-([research](research/airbnb-address-deanonymization.md),
-[an attempt](research/apify-addresses/README.md)).
+([`policy_questions.sql`](policy_questions.sql) has one); otherwise the
+address is unknown ([research](research/airbnb-address-deanonymization.md)).
 
 An "id not in the registry" may be a typo, an id on a license whose page is
 hidden, or one issued since the license scrape last read new ids, so it is
