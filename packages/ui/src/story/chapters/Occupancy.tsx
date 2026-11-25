@@ -110,11 +110,11 @@ export const Occupancy: FC = () => {
           the dates get closer. A full year of records will show the seasons.
         </>,
         <>
-          Housing researchers call a whole-home listing <em>frequently rented</em> (FREH) if, over a year, it was
+          Housing researchers call an entire-home listing <em>frequently rented</em> (FREH) if, over a year, it was
           open or booked at least {FREH_OFFERED_NIGHTS} nights and booked at least {FREH_BOOKED_NIGHTS}. A home
           rented that often probably has nobody living in it. We don't have a year yet, only{' '}
           <N>{int(f?.nights)}</N> nights, so we use the same test scaled down to the nights we have, and call it
-          FREHM. By that test, <N>{int(f?.middle)}</N> of the <N>{int(f?.entireHomes)}</N> whole-home listings on
+          FREHM. By that test, <N>{int(f?.middle)}</N> of the <N>{int(f?.entireHomes)}</N> entire-home listings on
           Airbnb are FREHM. Click a bar to see them; each row of the table says why.
           <Caveat>
             Between {int(f?.low)} and {int(f?.high)} depending on how closed nights are counted. These are fall

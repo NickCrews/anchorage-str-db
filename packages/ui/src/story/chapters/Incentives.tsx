@@ -127,14 +127,14 @@ export const Incentives: FC = () => {
         <>
           An owner can rent a home to visitors, rent it to someone who lives here, or live in it themselves.
           Rules meant to move homes from one use to another work by changing which choice pays better. Here we
-          compare what a whole home earned on Airbnb, minus the costs of running it, with what it would rent for
+          compare what an entire home earned on Airbnb, minus the costs of running it, with what it would rent for
           to a long-term tenant. You can change both of those figures above the chart.
         </>
       }
       steps={[
         <>
           In <N>{month}</N>, after {pct1(costShare)} for running costs, <N>{pct1(s?.beatsRent)}</N> of{' '}
-          {int(s?.homes)} whole homes earned more on Airbnb than a long-term tenant would have paid. Under the high
+          {int(s?.homes)} entire homes earned more on Airbnb than a long-term tenant would have paid. Under the high
           estimate, <N>{pct1(s?.beatsRentHigh)}</N> did.
           <Caveat>
             {month} is a quiet month for tourism. The real comparison is a full year on Airbnb against a full year
@@ -142,12 +142,12 @@ export const Incentives: FC = () => {
           </Caveat>
         </>,
         <>
-          Each dot is one whole home. Dots above the dashed line earned more on Airbnb that month than the rent we
+          Each dot is one entire home. Dots above the dashed line earned more on Airbnb that month than the rent we
           assumed. Homes near the line are the ones a new fee, tax or limit on nights would tip one way or the
           other.
         </>,
         <>
-          Some owners live on the property. <N>{int(s?.ownerOcc)}</N> of the {int(s?.withParcel)} whole homes we can
+          Some owners live on the property. <N>{int(s?.ownerOcc)}</N> of the {int(s?.withParcel)} entire homes we can
           match to an owner are on property the owner claims as their home. They are renting part of where they
           live, which is a different choice from renting out a house nobody lives in.
           <Caveat>
@@ -252,7 +252,7 @@ const Compare: FC<PanelProps> = ({ state, rent, costShare }) => {
               if (!r) return null;
               return (
                 <div className="bg-popover rounded-md border p-2 text-xs shadow">
-                  <div className="font-medium">{r.bin === '1' ? 'Studio or 1' : r.bin}-bedroom whole homes</div>
+                  <div className="font-medium">{r.bin === '1' ? 'Studio or 1' : r.bin}-bedroom entire homes</div>
                   <div>Typical Airbnb earnings after costs {money(r.p50)} (middle 60%: {money(r.p20)} – {money(r.p80)})</div>
                   <div>Long-term rent {money(r.rent)}</div>
                   <div>{pct1(r.beats)} of {r.homes} earned more than the rent</div>
@@ -360,14 +360,14 @@ const ResidentOwners: FC<PanelProps> = ({ state, rent, costShare }) => {
               return (
                 <div className="bg-popover rounded-md border p-2 text-xs shadow">
                   <div className="font-medium">{r.group}</div>
-                  <div>{int(r.homes)} whole homes</div>
+                  <div>{int(r.homes)} entire homes</div>
                   <div>Typical Airbnb earnings after costs {money(r.p50)}</div>
                   <div>{pct1(r.beats)} earned more than the rent</div>
                 </div>
               );
             }}
           />
-          <Bar dataKey="homes" name="Whole homes" fill={CATEGORY[0]} isAnimationActive={false} />
+          <Bar dataKey="homes" name="Entire homes" fill={CATEGORY[0]} isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
     </ChartBox>
