@@ -25,8 +25,10 @@ export interface ScrapeOptions {
   dbPath: string;
   /** The date the run is recorded under; today, UTC, when absent. */
   scrapeDate?: IsoDate;
-  /** licenses only: milliseconds each budgeted pass may start requests for. */
-  budgetMs?: number;
+  /** licenses only: milliseconds the page reads may start requests for. */
+  readBudgetMs?: number;
+  /** licenses only: milliseconds the geocoding may start requests for. */
+  geocodeBudgetMs?: number;
   /** parcels only: anchorage-property's database, a URL or a local path. */
   sourceUrl?: string;
 }
@@ -53,10 +55,12 @@ options:
   -h, --help      show this message
 
 licenses options:
-  --budget-seconds N
-                  seconds each budgeted pass may start requests for: page
-                  reads, then geocoding (default: ${LICENSE_READ_BUDGET_MS / 1000}
-                  and ${GEOCODE_BUDGET_MS / 1000})
+  --read-budget-seconds N
+                  seconds the page reads may start requests for
+                  (default: ${LICENSE_READ_BUDGET_MS / 1000})
+  --geocode-budget-seconds N
+                  seconds the geocoding may start requests for
+                  (default: ${GEOCODE_BUDGET_MS / 1000})
 
 parcels options:
   --source URL    anchorage-property's database, a URL or a local path
@@ -64,7 +68,11 @@ parcels options:
 `;
 
 /** Options that only one source takes. */
-const SOURCE_OPTIONS = { 'budget-seconds': 'licenses', source: 'parcels' } as const satisfies Record<string, Source>;
+const SOURCE_OPTIONS = {
+  'read-budget-seconds': 'licenses',
+  'geocode-budget-seconds': 'licenses',
+  source: 'parcels',
+} as const satisfies Record<string, Source>;
 
 function usageError(message: string): number {
   process.stderr.write(`${message}\n\n${USAGE}`);
@@ -79,7 +87,8 @@ export async function main(argv: string[], scrapers: Scrapers = SCRAPERS): Promi
       options: {
         db: { type: 'string', default: DEFAULT_DB_PATH },
         date: { type: 'string' },
-        'budget-seconds': { type: 'string' },
+        'read-budget-seconds': { type: 'string' },
+        'geocode-budget-seconds': { type: 'string' },
         source: { type: 'string' },
         verbose: { type: 'boolean', short: 'v', default: false },
         help: { type: 'boolean', short: 'h', default: false },
@@ -120,10 +129,16 @@ export async function main(argv: string[], scrapers: Scrapers = SCRAPERS): Promi
   } catch (err) {
     return usageError(`--date: ${describeError(err)}`);
   }
-  const budgetSeconds =
-    values['budget-seconds'] === undefined ? undefined : Number(values['budget-seconds']);
-  if (budgetSeconds !== undefined && !(Number.isInteger(budgetSeconds) && budgetSeconds >= 0)) {
-    return usageError(`--budget-seconds: not a whole number: ${values['budget-seconds']}`);
+  const budgetsMs: { readBudgetMs?: number; geocodeBudgetMs?: number } = {};
+  for (const [option, key] of [
+    ['read-budget-seconds', 'readBudgetMs'],
+    ['geocode-budget-seconds', 'geocodeBudgetMs'],
+  ] as const) {
+    const value = values[option];
+    if (value === undefined) continue;
+    const seconds = Number(value);
+    if (!(Number.isInteger(seconds) && seconds >= 0)) return usageError(`--${option}: not a whole number: ${value}`);
+    budgetsMs[key] = seconds * 1000;
   }
 
   const dbPath = values.db;
@@ -133,7 +148,7 @@ export async function main(argv: string[], scrapers: Scrapers = SCRAPERS): Promi
     const ok = await scrapers[chosen]({
       dbPath,
       ...(date === undefined ? {} : { scrapeDate: date }),
-      ...(budgetSeconds === undefined ? {} : { budgetMs: budgetSeconds * 1000 }),
+      ...budgetsMs,
       ...(values.source === undefined ? {} : { sourceUrl: values.source }),
     });
     return ok ? 0 : 1;

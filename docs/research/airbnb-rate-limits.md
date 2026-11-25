@@ -72,7 +72,7 @@ latency rose from 0.8s to 3.1s between t=240s and t=450s, then recovered, so
 
 **Mild (4/s):** no 429s. Connections stopped responding, every worker waited
 on a timeout, and throughput fell to ~1.8/s. This shows only as rising latency
-and timeouts, which `Pacer.noteTimeout` responds to.
+and timeouts, which the pacer responds to.
 
 **Severe (17/s):** the IP was still blocked 32.6 minutes later and cleared
 about 70 minutes after that, so roughly 1–2 hours.

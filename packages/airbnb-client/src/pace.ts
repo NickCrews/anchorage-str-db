@@ -14,16 +14,19 @@
  *
  * Exceeding the limit has two effects:
  *
- * - **Mildly (4/s):** connections hang without a 429, so `noteTimeout` lowers
+ * - **Mildly (4/s):** connections hang without a 429, so the pacer lowers
  *   the rate after a streak of timeouts.
  * - **Grossly (17/s):** every endpoint on the domain returns 429 for 1-2
- *   hours, so a 429 aborts the run: the block is IP-wide, so retrying every
- *   remaining listing against it is pointless.
+ *   hours, so a 429 aborts the run (the pacer's `abort` policy): the block is
+ *   IP-wide, so retrying every remaining listing against it is pointless.
  *
- * Each pass's `*_CONCURRENCY` only caps open connections.
+ * Every pass calls `withRetries` from `utils/retry` with `pace()`. Each
+ * pass's `*_CONCURRENCY` only caps open connections.
  */
 
-import { Pacer, type PacerOptions } from '@anchorage-str-db/utils/pace';
+import { classifyFailure, Pacer, type Failure, type PacerOptions } from '@anchorage-str-db/utils/pace';
+
+import { isRateLimited } from './api/http.ts';
 
 /**
  * The rate every pass runs at, below the ~2.2/s ceiling above. A full run
@@ -32,13 +35,23 @@ import { Pacer, type PacerOptions } from '@anchorage-str-db/utils/pace';
  */
 const REQUESTS_PER_SECOND = 1.8;
 
+/** Backoff between retries of a failed fetch: `RETRY_BACKOFF_MS * attempt`. */
+export const RETRY_BACKOFF_MS = 500;
+
+/** `classifyFailure`, with impit's `HttpError` 429 as the rate limit. */
+function classifyAirbnbFailure(err: unknown): Failure {
+  return isRateLimited(err) ? { kind: 'rateLimited', retryAfterMs: null } : classifyFailure(err);
+}
+
 function airbnbPacer(options: Partial<PacerOptions>): Pacer {
   return new Pacer({
     rate: REQUESTS_PER_SECOND,
     service: 'Airbnb',
-    rateLimitAdvice:
-      'The block is IP-wide and lasts about an hour, so the run stops; lower ' +
-      'REQUESTS_PER_SECOND.',
+    classify: classifyAirbnbFailure,
+    rateLimit: {
+      action: 'abort',
+      advice: 'The block is IP-wide and lasts about an hour, so the run stops; lower REQUESTS_PER_SECOND.',
+    },
     ...options,
   });
 }

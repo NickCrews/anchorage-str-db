@@ -34,9 +34,10 @@ import { mapWithinBudget } from '@anchorage-str-db/utils/concurrency';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
+import { withRetries } from '@anchorage-str-db/utils/retry';
 
 import { fetchReviewPage, type ReviewPage } from './api/reviews.ts';
-import { RETRY_BACKOFF_MS, withRetries } from './retry.ts';
+import { pace, RETRY_BACKOFF_MS } from './pace.ts';
 
 /**
  * Milliseconds in a run during which listings' earliest reviews are resolved.
@@ -84,6 +85,7 @@ export function liveReviewPageFetcher(apiKey: string): FetchReviewPage {
         label: `reviews for listing ${listingId} at offset ${offset}`,
         attempts: FIRST_REVIEW_MAX_RETRIES,
         backoffMs: RETRY_BACKOFF_MS,
+        pacer: pace(),
       },
     );
 }

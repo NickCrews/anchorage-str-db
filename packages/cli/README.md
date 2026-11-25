@@ -10,7 +10,8 @@ pnpm scrape parcels     # scrapeParcels, packages/parcels-scraper
 pnpm scrape --help
 ```
 
-`--db`, `--date` and `--verbose` apply to every source. `--budget-seconds`
-applies only to `licenses` and `--source` only to `parcels`; either with another
-source is a usage error. A usage error exits 2, a run that fails an
+`--db`, `--date` and `--verbose` apply to every source.
+`--read-budget-seconds` and `--geocode-budget-seconds` apply only to
+`licenses`, and `--source` only to `parcels`; any of them with another source
+is a usage error. A usage error exits 2, a run that fails an
 error-severity check exits 1.

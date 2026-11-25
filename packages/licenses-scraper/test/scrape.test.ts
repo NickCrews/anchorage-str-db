@@ -354,7 +354,8 @@ describe('the geocoding pass', () => {
       fetchNewest: async () => 6,
       fetchOne: async (id) => pages[id]!,
       gis: fakeGis(asked),
-      budgetMs: 0,
+      readBudgetMs: 0,
+      geocodeBudgetMs: 0,
     });
 
     const db = await opened(path);

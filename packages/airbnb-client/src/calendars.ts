@@ -4,9 +4,10 @@ import { mapWithConcurrency } from '@anchorage-str-db/utils/concurrency';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
+import { withRetries } from '@anchorage-str-db/utils/retry';
 
 import { fetchCalendar, type CalendarDay } from './api/calendar.ts';
-import { RETRY_BACKOFF_MS, withRetries } from './retry.ts';
+import { pace, RETRY_BACKOFF_MS } from './pace.ts';
 
 /**
  * Maximum concurrent calendar requests. `pace.ts` sets the request rate; this
@@ -67,6 +68,7 @@ export function liveCalendarFetcher(apiKey: string): FetchOneCalendar {
           label: `calendar for listing ${listingId}`,
           attempts: CALENDAR_MAX_RETRIES,
           backoffMs: RETRY_BACKOFF_MS,
+          pacer: pace(),
         },
       );
       return { listingId, nights: toNights(days, minDate), error: null };

@@ -1,14 +1,19 @@
-/** The attempt loop's handling of 429s, timeouts, and other errors. */
+/** The Airbnb pacer's policy in the attempt loop: 429s, timeouts, and other errors. */
 
 import { beforeEach, expect, it } from 'vitest';
 
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
+import { RetriesExhaustedError, withRetries as pacedRetries, type RetryOptions } from '@anchorage-str-db/utils/retry';
 
 import { HttpError } from '../src/api/http.ts';
 import { pace, resetPace } from '../src/pace.ts';
-import { RetriesExhaustedError, withRetries } from '../src/retry.ts';
 
 const FAST = { label: 'test call', attempts: 4, backoffMs: 0 };
+
+/** The attempt loop as every pass calls it, with the process-wide Airbnb pacer. */
+function withRetries<T>(attempt: () => Promise<T>, options: Omit<RetryOptions, 'pacer'>): Promise<T> {
+  return pacedRetries(attempt, { ...options, pacer: pace() });
+}
 
 beforeEach(() => {
   resetPace({ rate: 1e6 });
