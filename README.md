@@ -2,23 +2,29 @@
 
 Work in progress!
 
-A daily record of Airbnb short-term rentals (STRs) in the Municipality of
-Anchorage, Alaska, for answering questions like:
+A daily record of short-term rentals (STRs) in the Municipality of
+Anchorage, Alaska: every Airbnb listing, the Muni's STR registrations, and
+the parcels they sit on. For answering questions like:
 
-- How many listings are there, how many are active?
-- What is the character of these rentals: number of bedrooms, price, run by an on-premise owner vs a host with many listings
-- How has that changed over time? How does it vary between neighborhoods, price bands, size, listing type, etc?
+- How many listings are there, and how many are active?
+- What are they like: bedrooms, price, a whole home or a room, an owner
+  renting their own place or a host with dozens of listings?
+- Who owns the dwellings, and do they live in the Muni?
+- How does that change over time, and between neighborhoods, price bands,
+  sizes and listing types?
 
 ## What you get
 
-- One DuckDB file, `anchorage_str.duckdb`, with daily snapshots of listings
-  and calendar availability, and of the Municipality's STR registrations
-- Policy queries in [`docs/policy_questions.sql`](docs/policy_questions.sql)
-- A browser story, published at
-  <https://nickcrews.github.io/anchorage-str-db/>: one chapter per policy
-  question (listing and host revenue, nightly rates, occupancy, room tax, who
-  owns the dwellings), with estimates of revenue and occupancy computed in
-  the browser
+- One DuckDB file, `anchorage_str.duckdb`, updated daily: Airbnb listings,
+  hosts and nightly availability; the Muni's STR registrations and other
+  business licenses; and every Muni parcel with its owner of record.
+  Listings that show a registration id link through it to a street
+  address, a parcel and an owner of record.
+- Example queries in [`docs/policy_questions.sql`](docs/policy_questions.sql)
+- A browser story at <https://nickcrews.github.io/anchorage-str-db/>: one
+  chapter per policy question (revenue, nightly rates, occupancy, room tax,
+  who owns the dwellings), with revenue and occupancy estimated in the
+  browser
 
 ## Quick start
 
@@ -28,41 +34,38 @@ duckdb anchorage_str.duckdb
 ```
 
 ```sql
-SELECT count(*) FROM listings WHERE is_active;
+-- Active listings with their registration's address and parcel owner
+SELECT l.name, l.url, l.registration_address, p.owner_name
+FROM listings_active_with_registration l
+LEFT JOIN property_parcels p ON p.parcel_id = l.registration_parcel_id;
 ```
 
 ## Main tables and views
 
 - `listings_active_with_host`: active listings with their host's name,
-  years hosting, and portfolio counts
-- `listings_active_with_registration`: active listings with the STR
-  registration their page shows: address, parcel, business name
+  years hosting, and listing counts
+- `listings_active_with_registration`: active listings with the
+  registration their page shows: address, parcel, community council,
+  business name
 - `calendar_current`: nightly availability for each listing
-- `hosts`, `registrations`, `licenses`, `property_parcels`: hosts, STR
-  registrations, all Muni licenses, and the Muni's parcels with owner of record
-- `source_freshness`: when each upstream source last updated successfully
+- `registrations`: one row per STR registration
+- `property_parcels`: every Muni parcel: property type, living units,
+  owner of record and mailing address, exemptions
+- `hosts`, `licenses`: Airbnb hosts, and every Muni license of any type
+- `source_freshness`: when each source last updated
 
-The full reference, with every column group and how each is derived, is in
-[`docs/tables.md`](docs/tables.md).
+## Documentation
 
-## Known gaps
-
-- **Prices are quotes for available stays, not a nightly series.** Airbnb
-  prices a stay only while it can be booked, so nights that are not
-  available — the ones revenue is made of — have no price. Each day's quote
-  is the listing's earliest bookable stay. See
-  [`docs/research/airbnb-calendar-price.md`](docs/research/airbnb-calendar-price.md).
-
-- **Unregistered listings have no street address.** A listing showing a
-  registration id gets the registered address and parcel from
-  `listings_active_with_registration` (2047 of 2628 active listings on
-  2026-09-13). For the rest, `location_exact_address` is null unless the
-  host published one. Join on `location_lat`/`location_lng`, and filter on
-  `location_is_exact` first: about half those coordinates are Airbnb's
-  privacy jitter.
+- [Methodology](docs/methodology.md): where the data comes from, how the
+  sources link, how history is kept, and what the data cannot tell you.
+  Read its limitations before quoting a number.
+- [Tables](docs/tables.md): every table and view, and how each is derived
+- [CONTEXT.md](CONTEXT.md): the vocabulary the tables and docs use
+- [Product requirements](docs/prd.md): who this is for and what it must do
+- [`docs/research/`](docs/research): dated investigations behind the
+  design decisions
 
 ## Contributing
 
 To run the scrapers, change the schema, or work on the code, see
-[CONTRIBUTING.md](CONTRIBUTING.md). For the vocabulary the tables and docs
-use, see [CONTEXT.md](CONTEXT.md). For goals, see the [PRD](docs/prd.md).
+[CONTRIBUTING.md](CONTRIBUTING.md).

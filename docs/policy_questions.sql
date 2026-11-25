@@ -117,36 +117,8 @@ ORDER BY
     bedrooms;
 
 -- ============================================================
--- Q: Which STR parcels claim the owner's-primary-residence exemption?
--- Nearest-centroid match against the parcel database; check match_m, and
--- see the location_is_exact query below.
--- ============================================================
--- ATTACH 'https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage-current.duckdb' AS parcels (READ_ONLY);
--- LOAD spatial;
--- WITH nearest AS (
---     SELECT
---         l.listing_id, l.name, l.url,
---         p.parcel_id, p.parcel_address, p.owner_name, p.exemption_6_type,
---         ST_Distance(
---             ST_Transform(ST_Point(l.location_lng, l.location_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true),
---             ST_Transform(ST_Point(p.centroid_lon, p.centroid_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true)
---         ) AS match_m,
---         row_number() OVER (PARTITION BY l.listing_id ORDER BY
---             ST_Distance(
---                 ST_Transform(ST_Point(l.location_lng, l.location_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true),
---                 ST_Transform(ST_Point(p.centroid_lon, p.centroid_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true)
---             )) AS rn
---     FROM listings l
---     JOIN parcels.parcels_current p ON p.tax_district = '4'
---     WHERE l.is_active
--- )
--- SELECT * FROM nearest
--- WHERE rn = 1 AND match_m < 60  -- roughly the same lot
---   AND exemption_6_type = 'OWNERS PRIMARY RESIDENCE'
--- ORDER BY match_m;
--- ============================================================
 -- Q: How many listings show an exact location vs. a jittered one?
--- Parcel matching is only meaningful for exact locations.
+-- A spatial match to a parcel is only meaningful for exact locations.
 -- NULL means the listing's page has never been read (page_seen_date IS NULL).
 -- ============================================================
 SELECT
@@ -279,27 +251,71 @@ ORDER BY
 -- ============================================================
 -- Q: Which registered STR parcels claim the owner's-primary-residence
 -- exemption? Joins on the license's parcel id, so no spatial match is needed.
+-- Registrations whose license names no single parcel are left out.
 -- ============================================================
--- ATTACH 'https://pub-003dd855abeb48a1927aa93a77fc5471.r2.dev/anchorage-current.duckdb' AS parcels (READ_ONLY);
--- SELECT r.registration_id, r.business_name, r.registered_address, p.owner_name,
---        r.airbnb_listings_active
--- FROM registrations_active r
--- JOIN parcels.parcels_current p ON p.parcel_id = r.parcel_id
--- WHERE p.exemption_6_type = 'OWNERS PRIMARY RESIDENCE'
--- ORDER BY r.registration_id;
+SELECT
+    r.registration_id,
+    r.business_name,
+    r.registered_address,
+    p.owner_name,
+    r.airbnb_listings_active
+FROM
+    registrations_active r
+    JOIN property_parcels p USING (parcel_id)
+WHERE
+    p.exemption_types_all ILIKE '%OWNERS PRIMARY RESIDENCE%'
+ORDER BY
+    r.registration_id;
 
 -- ============================================================
--- Q: Parcel match for listings with an exact location.
--- Run the ATTACH/LOAD lines from the parcel query above first.
+-- Q: Who owns the dwellings behind active listings?
+-- Through the registration the listing shows, to its license's parcel.
+-- owner_name is NULL when the listing shows no registered id or the license
+-- names no single parcel. One parcel can hold several dwellings, and the
+-- owner of record is a name, not an identity.
 -- ============================================================
--- SELECT l.listing_id, l.name, l.registration_id, p.parcel_id, p.parcel_address, p.owner_name
--- FROM listings l
--- JOIN parcels.parcels_current p ON p.tax_district = '4'
--- WHERE l.is_active AND l.location_is_exact
---   AND ST_Distance(
---         ST_Transform(ST_Point(l.location_lng, l.location_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true),
---         ST_Transform(ST_Point(p.centroid_lon, p.centroid_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true)
---       ) < 60;
+SELECT
+    p.owner_name,
+    any_value(p.owner_city) AS owner_city,
+    any_value(p.owner_state) AS owner_state,
+    count(DISTINCT p.parcel_id) AS parcels,
+    count(*) AS listings
+FROM
+    listings_active_with_registration l
+    JOIN property_parcels p ON p.parcel_id = l.registration_parcel_id
+GROUP BY
+    p.owner_name
+ORDER BY
+    listings DESC
+LIMIT
+    25;
+
+-- ============================================================
+-- Q: Nearest parcel for unregistered listings with an exact location.
+-- Only for listings whose page shows no registered id: the rest get their
+-- parcel from the registration. Prefilters to parcels within roughly
+-- 100 m, then keeps the nearest centroid under 60 m (roughly the same lot).
+-- Needs DuckDB's spatial extension.
+-- ============================================================
+-- INSTALL spatial; LOAD spatial;
+-- WITH candidates AS (
+--     SELECT
+--         l.listing_id, l.name, l.url,
+--         p.parcel_id, p.parcel_address, p.owner_name,
+--         ST_Distance(
+--             ST_Transform(ST_Point(l.location_lng, l.location_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true),
+--             ST_Transform(ST_Point(p.centroid_lon, p.centroid_lat), 'EPSG:4326', 'EPSG:3338', always_xy := true)
+--         ) AS match_m
+--     FROM listings_active_with_registration l
+--     JOIN property_parcels p
+--       ON abs(p.centroid_lat - l.location_lat) < 0.001
+--      AND abs(p.centroid_lon - l.location_lng) < 0.002
+--     WHERE l.location_is_exact AND NOT l.registration_found
+-- )
+-- SELECT * FROM candidates
+-- WHERE match_m < 60
+-- QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY match_m) = 1
+-- ORDER BY match_m;
 
 -- ============================================================
 -- Q: Which hosts operate the most active listings?
@@ -450,7 +466,7 @@ ORDER BY
 -- ============================================================
 -- Q: Who are the hosts, and how long have they hosted?
 -- `name` is Airbnb's display name (a first name or a business name).
--- `hosting_started_on` can be up to a month late; see README.
+-- `hosting_started_on` can be up to a month late; see docs/tables.md.
 -- ============================================================
 SELECT
     host_id,

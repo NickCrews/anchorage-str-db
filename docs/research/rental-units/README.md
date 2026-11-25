@@ -539,7 +539,7 @@ With several records per dwelling, most attributes have more than one value:
   than a listing's, except where §4 shows the registration is the wrong one.
   An exact listing coordinate beats a geocode from mistyped text.
 - **Operator:** host and registrant are different concepts (see
-  [data_model.md](../../data_model.md#owners-are-not-modeled)), so both are
+  [methodology.md](../../methodology.md#host-registrant-owner-of-record)), so both are
   kept, not coalesced.
 - **Status:** a listing can be active while its registration has lapsed,
   and a registration can be active with no listing.

@@ -1,9 +1,10 @@
 # Anchorage STR
 
 A daily record of short-term rentals in the Municipality of Anchorage, built
-from two independent sources — Airbnb's public pages and the Municipality's
-STR registry — that share no key but the registration id a listing prints on
-its page.
+from Airbnb's public pages, the Municipality's STR registrations, and the
+Muni's parcels. Airbnb and the Muni share no key but the registration id a
+listing prints on its page; a registration's license names its parcel. See
+[methodology](./docs/methodology.md).
 
 This file is the vocabulary the whole repo uses: table and column names, code
 identifiers, comments, docs and UI copy. When a word here has an `_Avoid_`
@@ -115,9 +116,13 @@ though they may be the same person. Co-hosts are not recorded.
 _Avoid_: operator, owner, property manager, landlord, account, user
 
 **Owner**:
-The legal owner of a dwelling or room. Not in this database — neither source
-publishes it. Say so rather than substituting host or registrant.
-_Avoid_: using it for host or registrant
+The legal owner of a dwelling or room. What this database has is the
+**owner of record**: `property_parcels.owner_name`, the name the Muni's parcel
+records give the owner of a parcel, with their mailing address. It reaches a
+listing only through the listing's registration and that registration's
+parcel. A name, not an identity, and the owner of the whole parcel, which
+may hold several dwellings. Never substitute host or registrant for it.
+_Avoid_: using it for host or registrant; landlord, taxpayer
 
 **Registrant**:
 The entity named on a registration, as `business_name`. Typed text, not an
@@ -135,8 +140,9 @@ _Avoid_: applicant, registrant, business, license holder
 What one party holds. Both halves are ambiguous on their own, so name them
 unless the sentence has already fixed both: whose it is (**host** or
 **owner**) and what is counted (**listings** or **dwellings**). A host listing
-portfolio and an owner dwelling portfolio are different measurements, and this
-database can only compute the first.
+portfolio and an owner dwelling portfolio are different measurements. This
+database computes the first; the second can only be approximated, by
+grouping registered parcels on the owner of record's name.
 
 A portfolio is everything the party holds, wherever it is. A host running
 forty dwellings from Palmer has a portfolio of forty, and that is the number an
@@ -249,7 +255,8 @@ _Avoid_: the assessor, CAMA, the property database
 **Community council**:
 The Muni's neighborhood district containing a license's geocoded
 coordinate, from the Muni's council polygons (`community_council`).
-Licenses and their registrations have one; listings do not.
+Licenses and their registrations have one, and a listing has its
+registration's (`registration_community_council`).
 _Avoid_: neighborhood, district, area
 
 ### Identifiers
@@ -300,10 +307,12 @@ ArcGIS's own "point layer" stays verbatim, as a source's label does.
 _Avoid_: point, location, position, pin, geo
 
 **Address**:
-A street address as text. A listing has one only when the host published it
-(`location_exact_address`); a license's is `address`, either a property
+A street address as text. A license's is `address`, either a property
 record's or the licensee's typed text, and its registration carries it as
-`registered_address`.
+`registered_address`; a listing showing that registration's id carries it as
+`registration_address`. Airbnb's own `location_exact_address` is set only
+when the host published one, which almost none do. A parcel's is
+`parcel_address`.
 _Avoid_: location, street, place
 
 **Exact and jittered**:
