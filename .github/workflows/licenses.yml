@@ -19,16 +19,19 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    # Page reads and geocoding each start no request after their time budget
-    # (45 and 10 minutes), so a slow portal shortens a run rather than failing
-    # it. The timeout leaves room for the requests in flight, the writes and
-    # the checks.
-    timeout-minutes: 90
+    # The scrape's page reads and geocoding each start no request after their
+    # time budget (READ_BUDGET_SECONDS and GEOCODE_BUDGET_SECONDS), so a slow
+    # portal shortens a run rather than failing it. The timeout is their sum
+    # plus room for setup, the reads in flight (a throttled one can take a few
+    # minutes), the writes, the checks and the publish.
+    timeout-minutes: 120
     permissions:
       contents: write # to upload the updated database as a release asset
       issues: write # to open an issue when a scrape fails
     env:
       DB_PATH: data/anchorage_str.duckdb
+      READ_BUDGET_SECONDS: 4500 # 75 minutes
+      GEOCODE_BUDGET_SECONDS: 600 # 10 minutes
     steps:
       - uses: actions/checkout@v7
 
@@ -54,7 +57,10 @@ jobs:
           start-fresh: ${{ inputs.start_fresh }}
 
       - name: Scrape license pages + quality gate
-        run: node packages/cli/src/cli.ts scrape licenses --db "$DB_PATH" --verbose
+        run: >-
+          node packages/cli/src/cli.ts scrape licenses --db "$DB_PATH" --verbose
+          --read-budget-seconds "$READ_BUDGET_SECONDS"
+          --geocode-budget-seconds "$GEOCODE_BUDGET_SECONDS"
 
       # Reached only if the quality checks passed.
       - name: Publish updated database

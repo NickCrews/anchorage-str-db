@@ -12,10 +12,11 @@ import { mapWithConcurrency } from '@anchorage-str-db/utils/concurrency';
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
+import { withRetries } from '@anchorage-str-db/utils/retry';
 
 import { fetchPriceQuote, standardizePriceQuote } from './api/priceQuote.ts';
 import type { CalendarResult } from './calendars.ts';
-import { RETRY_BACKOFF_MS, withRetries } from './retry.ts';
+import { pace, RETRY_BACKOFF_MS } from './pace.ts';
 
 /** Concurrency, attempts and timeout for price quotes. */
 const QUOTE_CONCURRENCY = 6;
@@ -83,6 +84,7 @@ export function liveQuoteFetcher(apiKey: string): FetchOneQuote {
           label: `price quote for listing ${window.listingId}`,
           attempts: QUOTE_MAX_RETRIES,
           backoffMs: RETRY_BACKOFF_MS,
+          pacer: pace(),
         },
       );
       return { ...window, ...response, error: null };

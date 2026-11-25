@@ -14,7 +14,8 @@ like `licenses-client`: it returns typed records and never touches DuckDB;
   query and throws on a mismatch.
 - `liveJsonFetcher(options)`: real requests, paced and retried. ArcGIS
   reports most errors as HTTP 200 with an `error` body; those are thrown and
-  retried. `liveMuniArcgisFetcher()` is one for the Muni's ArcGIS Online
+  retried. An HTTP 429 halves the pacer's rate and is retried after a wait
+  (the default policy in `utils/pace`). `liveMuniArcgisFetcher()` is one for the Muni's ArcGIS Online
   services at 2 requests a second.
 - `fetchLayerDataEditedAt` and `epochMsToTimestamp`: a layer's
   `editingInfo.dataLastEditDate`, and ArcGIS dates as naive UTC timestamps.

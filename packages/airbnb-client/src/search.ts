@@ -12,6 +12,7 @@
 import { epochDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { log } from '@anchorage-str-db/utils/log';
 import { MUNICIPALITY_BOUNDING_BOX } from '@anchorage-str-db/utils/muni_geography';
+import { withRetries } from '@anchorage-str-db/utils/retry';
 
 import {
   fetchSearchPage,
@@ -19,7 +20,7 @@ import {
   type BoundingBox,
   type SearchListing,
 } from './api/search.ts';
-import { withRetries } from './retry.ts';
+import { pace } from './pace.ts';
 
 /**
  * Sent to Airbnb's map search but has no effect on results: zoom 11 through
@@ -153,7 +154,7 @@ export type FetchPage = (band: PriceBand | null, box: BoundingBox) => Promise<Se
 
 /**
  * The live `FetchPage`. A failed search page fails the run, so it retries up
- * to `SEARCH_MAX_RETRIES` times; a 429 aborts immediately (see `retry.ts`).
+ * to `SEARCH_MAX_RETRIES` times; a 429 aborts immediately (see `pace.ts`).
  */
 export function liveSearchFetcher(apiKey: string): FetchPage {
   return (band, box) =>
@@ -175,6 +176,7 @@ export function liveSearchFetcher(apiKey: string): FetchPage {
         label: 'search page',
         attempts: SEARCH_MAX_RETRIES,
         backoffMs: SEARCH_RETRY_BACKOFF_MS,
+        pacer: pace(),
         onRetry: (err, attempt) => {
           log.warn(`search page failed (attempt ${attempt}), retrying: ${String(err)}`);
         },

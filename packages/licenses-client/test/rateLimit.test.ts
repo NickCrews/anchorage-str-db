@@ -22,8 +22,9 @@ function tooManyRequests(headers: Record<string, string> = {}): Response {
   return new Response('<html><title>Too Many Requests</title></html>', { status: 429, headers });
 }
 
-function fastPacer(): Pacer {
-  return new Pacer({ rate: 1e6, minRate: 1 });
+/** The portal's policy, scaled down so a test never waits long. */
+function fastPacer(maxWaitMs = 10): Pacer {
+  return new Pacer({ rate: 1e6, minRate: 1, rateLimit: { action: 'slowDown', waitMs: 1, maxWaitMs } });
 }
 
 afterEach(() => {
@@ -35,11 +36,11 @@ describe('a 429 from the portal', () => {
     const portal = stubPortal([tooManyRequests, tooManyRequests, () => new Response(HIDDEN_PAGE)]);
     const pacer = fastPacer();
 
-    const page = await liveLicensePageFetcher(pacer, { waitMs: 1, maxWaitMs: 10 })(50);
+    const page = await liveLicensePageFetcher(pacer)(50);
 
     expect(page).toEqual({ hidden: true, cityviewLicenseId: 50 });
     expect(portal.requests()).toBe(3);
-    expect(pacer.throttles).toBe(2);
+    expect(pacer.rateLimited).toBe(2);
     expect(pacer.bucket.rate).toBe(0.25e6);
   });
 
@@ -47,7 +48,7 @@ describe('a 429 from the portal', () => {
     stubPortal([() => tooManyRequests({ 'Retry-After': '120' }), () => new Response(HIDDEN_PAGE)]);
     const started = performance.now();
 
-    await liveLicensePageFetcher(fastPacer(), { waitMs: 1, maxWaitMs: 60 })(50);
+    await liveLicensePageFetcher(fastPacer(60))(50);
 
     const elapsed = performance.now() - started;
     expect(elapsed).toBeGreaterThanOrEqual(55);
@@ -58,7 +59,7 @@ describe('a 429 from the portal', () => {
     const portal = stubPortal([tooManyRequests]);
 
     const results = await fetchLicensePages([50], {
-      fetchOne: liveLicensePageFetcher(fastPacer(), { waitMs: 1, maxWaitMs: 10 }),
+      fetchOne: liveLicensePageFetcher(fastPacer()),
     });
 
     expect(portal.requests()).toBe(3);

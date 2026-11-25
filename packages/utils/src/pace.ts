@@ -1,15 +1,26 @@
 /**
- * A shared request rate for one remote service.
+ * A shared request rate for one remote service, and how that service's
+ * failures change it.
  *
- * `TokenBucket` spaces requests at a fixed rate. `Pacer` wraps one and reacts
- * to the service's signals: a streak of timeouts halves the rate, and a
- * rate-limit response either throws `RateLimitedError` (`noteRateLimited`) or
- * halves the rate (`noteThrottled`). With `recoverAfter` set, a run of
- * successes raises a lowered rate back toward the starting one. The caller
- * decides what a rate-limit response is and which way it goes (see
- * `withRetries`).
+ * `TokenBucket` spaces requests at a fixed rate. `Pacer` wraps one with the
+ * service's policy, set once where the pacer is made: `classify` sorts each
+ * failure into a rate limit, a timeout or anything else, and `noteFailure`
+ * acts on it.
+ *
+ * - **Rate limit**, under `rateLimit: { action: 'slowDown' }` (the default):
+ *   the rate is halved, and the retry waits `waitMs * attempt`, or the
+ *   response's `Retry-After` when longer, up to `maxWaitMs`. Under
+ *   `{ action: 'abort' }`: throws `RateLimitedError`, for a service whose
+ *   block outlasts the run.
+ * - **Timeout:** after `timeoutBackoff` in a row, the rate is halved.
+ * - **Anything else:** no change to the rate.
+ *
+ * The rate is never halved below `minRate`. With `recoverAfter` set, that
+ * many successes in a row raise a lowered rate by a quarter, up to `rate`.
+ * `withRetries` is the attempt loop that reports to a pacer.
  */
 
+import { HttpStatusError } from './http.ts';
 import { log } from './log.ts';
 
 export function sleep(ms: number): Promise<void> {
@@ -76,22 +87,58 @@ export class TokenBucket {
   }
 }
 
+/** A failed request, as its pacer sees it. */
+export type Failure =
+  | { kind: 'rateLimited'; retryAfterMs: number | null }
+  | { kind: 'timeout' }
+  | { kind: 'other' };
+
+/**
+ * Whether this failure is a timeout. Matches the error name, which covers
+ * `fetch`'s `TimeoutError` and `AbortError` and impit's `ReadTimeout`,
+ * `ConnectTimeout`, `PoolTimeout` and `WriteTimeout`, rather than the
+ * message, which may quote an error page.
+ */
+export function isTimeout(err: unknown): boolean {
+  return err instanceof Error && /timeout|abort/i.test(err.name);
+}
+
+/**
+ * The default `classify`: an `HttpStatusError` 429 is a rate limit, with its
+ * `Retry-After`; a timeout by `isTimeout`; anything else is other. Checks the
+ * status code only, since "429" can appear in ids and quoted error pages.
+ */
+export function classifyFailure(err: unknown): Failure {
+  if (err instanceof HttpStatusError && err.status === 429) {
+    return { kind: 'rateLimited', retryAfterMs: err.retryAfterMs };
+  }
+  return isTimeout(err) ? { kind: 'timeout' } : { kind: 'other' };
+}
+
+/** What a rate-limit response does. */
+export type RateLimitPolicy =
+  /** Throw `RateLimitedError`; `advice`, what the operator should do, ends its message. */
+  | { action: 'abort'; advice?: string }
+  /** Halve the rate and retry after `waitMs * attempt`, or `Retry-After` when longer, up to `maxWaitMs`. */
+  | { action: 'slowDown'; waitMs: number; maxWaitMs: number };
+
+export const DEFAULT_RATE_LIMIT_POLICY: RateLimitPolicy = { action: 'slowDown', waitMs: 10_000, maxWaitMs: 60_000 };
+
 export interface PacerOptions {
-  /** Requests per second. */
+  /** Requests per second, and the most `recoverAfter` raises a lowered rate to. */
   rate: number;
-  /** The rate will not be backed off below this. */
+  /** The rate will not be halved below this. */
   minRate?: number;
   /** Consecutive timeouts before the rate is halved. */
   timeoutBackoff?: number;
-  /**
-   * Consecutive successes after which a lowered rate is raised by a quarter,
-   * up to `rate`. Unset: a lowered rate stays lowered.
-   */
+  /** Consecutive successes after which a lowered rate is raised by a quarter. Unset: it stays lowered. */
   recoverAfter?: number;
-  /** Names the service in the `RateLimitedError` message. */
+  /** Sorts a failure. Default `classifyFailure`. */
+  classify?: (err: unknown) => Failure;
+  /** Default `DEFAULT_RATE_LIMIT_POLICY`. */
+  rateLimit?: RateLimitPolicy;
+  /** Names the service in log lines and the `RateLimitedError` message. */
   service?: string;
-  /** Appended to the `RateLimitedError` message: what the operator should do. */
-  rateLimitAdvice?: string;
 }
 
 export class Pacer {
@@ -100,11 +147,12 @@ export class Pacer {
   readonly minRate: number;
   readonly timeoutBackoff: number;
   readonly recoverAfter: number | null;
+  readonly classify: (err: unknown) => Failure;
+  readonly rateLimit: RateLimitPolicy;
   readonly service: string;
-  readonly rateLimitAdvice: string;
   sent = 0;
   timeouts = 0;
-  throttles = 0;
+  rateLimited = 0;
   #consecutiveTimeouts = 0;
   #consecutiveOk = 0;
 
@@ -114,8 +162,9 @@ export class Pacer {
     this.minRate = options.minRate ?? 0.5;
     this.timeoutBackoff = options.timeoutBackoff ?? 5;
     this.recoverAfter = options.recoverAfter ?? null;
+    this.classify = options.classify ?? classifyFailure;
+    this.rateLimit = options.rateLimit ?? DEFAULT_RATE_LIMIT_POLICY;
     this.service = options.service ?? 'the service';
-    this.rateLimitAdvice = options.rateLimitAdvice ?? '';
   }
 
   /** Resolves when this caller may send a request. */
@@ -124,7 +173,7 @@ export class Pacer {
     this.sent += 1;
   }
 
-  /** A successful request. After `recoverAfter` in a row, raise a lowered rate. */
+  /** A successful request. */
   noteOk(): void {
     this.#consecutiveTimeouts = 0;
     if (this.recoverAfter === null) return;
@@ -142,26 +191,35 @@ export class Pacer {
     }
   }
 
-  /** A rate-limit response, for a service whose limit should end the run. Always throws `RateLimitedError`. */
-  noteRateLimited(): never {
-    throw new RateLimitedError(
-      `${this.service} refused a request for exceeding its rate limit. Sent ${this.sent} ` +
-        `requests this run at ${this.bucket.rate.toFixed(2)}/s.` +
-        (this.rateLimitAdvice ? ` ${this.rateLimitAdvice}` : ''),
-    );
-  }
-
-  /** A rate-limit response, for a service that should just be asked more slowly: halve the rate. */
-  noteThrottled(): void {
-    this.throttles += 1;
-    this.#lower('a rate-limit response');
-  }
-
   /**
-   * Record a timed-out request. After `timeoutBackoff` in a row, halve the
-   * rate, since a streak of timeouts means the limiter is stalling requests.
+   * A failed request, attempt number `attempt`. Adjusts the rate as the
+   * policy says and returns the least milliseconds the service asks to wait
+   * before the next attempt: 0 unless rate limited. Throws `RateLimitedError`
+   * under the `abort` policy.
    */
-  noteTimeout(): void {
+  noteFailure(err: unknown, attempt: number): number {
+    const failure = this.classify(err);
+    if (failure.kind === 'timeout') {
+      this.#noteTimeout();
+      return 0;
+    }
+    if (failure.kind === 'other') return 0;
+
+    this.rateLimited += 1;
+    const policy = this.rateLimit;
+    if (policy.action === 'abort') {
+      throw new RateLimitedError(
+        `${this.service} refused a request for exceeding its rate limit. Sent ${this.sent} ` +
+          `requests this run at ${this.bucket.rate.toFixed(2)}/s.` +
+          (policy.advice ? ` ${policy.advice}` : ''),
+      );
+    }
+    this.#lower('a rate-limit response');
+    return Math.min(Math.max(policy.waitMs * attempt, failure.retryAfterMs ?? 0), policy.maxWaitMs);
+  }
+
+  /** After `timeoutBackoff` in a row, halve the rate: a streak of timeouts means the limiter is stalling requests. */
+  #noteTimeout(): void {
     this.timeouts += 1;
     this.#consecutiveTimeouts += 1;
     if (this.#consecutiveTimeouts < this.timeoutBackoff) return;

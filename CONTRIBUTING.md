@@ -49,7 +49,7 @@ extension, and Node strips the types when it runs them. For the same reason
 pnpm scrape airbnb         # Airbnb; writes data/anchorage_str.duckdb
 pnpm scrape airbnb --verbose --db /tmp/scratch.duckdb
 pnpm scrape licenses       # the Muni's license pages, same database
-pnpm scrape licenses --budget-seconds 60 --db /tmp/scratch.duckdb
+pnpm scrape licenses --read-budget-seconds 60 --geocode-budget-seconds 30 --db /tmp/scratch.duckdb
 pnpm scrape parcels        # anchorage-property's current parcels, same database
 pnpm scrape parcels --verbose --db /tmp/scratch.duckdb
 pnpm scrape --help         # every source's options
@@ -218,10 +218,10 @@ every search and calendar request. It is a long-lived public value, and
 fetching it per request would re-download the ~600 KB homepage for each
 listing.
 
-The shared Airbnb request rate is in `airbnb-client/src/pace.ts`, and
-`airbnb-client/src/retry.ts` wraps the attempt loop from `utils/src/retry.ts`
-that every pass uses: a 429 aborts the run, a streak of timeouts halves the
-request rate, and any other error is retried.
+Every pass retries with `withRetries` (`utils/src/retry.ts`) and the shared
+Airbnb pacer, `pace()` in `airbnb-client/src/pace.ts`. The pacer's policy is
+Airbnb's: a 429 aborts the run, a streak of timeouts halves the request rate,
+and any other error is retried.
 
 ## The license scrape
 
@@ -230,12 +230,13 @@ every license the Muni's CityView portal publishes: Short-Term Rentals, Business
 licenses, read from their license pages by id. It is a separate app and
 workflow from the Airbnb scrape, with its own transaction, run log
 (`muni_license_scrape_runs`) and checks, so an outage at either source leaves the
-other's day intact. A scrape reads license pages for up to 45 minutes, then
-geocodes addresses for up to 10 minutes; see the
-[license scraper README](packages/licenses-scraper/README.md#budget).
-Pages are read one at a time at up to 1/s, about 2,700 reads in the budget.
-A 429 from the portal halves the request rate and the read is retried after
-a wait; the rate climbs back after a run of successes. See
+other's day intact. A scrape reads license pages for up to 75 minutes, then
+geocodes addresses for up to 10 minutes; `licenses.yml` sets both budgets
+beside its timeout (see the
+[license scraper README](packages/licenses-scraper/README.md#budget)).
+Pages are read one at a time at up to 1/s. A 429 from the portal halves the
+request rate and the read is retried after a wait; the rate climbs back after
+a run of successes. See
 [`packages/licenses-client/README.md`](packages/licenses-client/README.md#pacing).
 
 License ids are one counter across every license type, and most ids are

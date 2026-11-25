@@ -27,18 +27,19 @@ import { runGeocodePass, type GeocodePassStats, type GisClients } from './geocod
 import { chooseLicenseIds } from './select.ts';
 import { latestReads, logRun, recordLicenseReads, type RunRow } from './store.ts';
 
-/** Milliseconds in a scrape during which license pages are read; the workflow's timeout is 90 minutes. */
-export const LICENSE_READ_BUDGET_MS = 45 * 60_000;
+/**
+ * Milliseconds in a scrape during which license pages are read, when the
+ * caller sets none. `licenses.yml` passes its own, beside its timeout.
+ */
+export const LICENSE_READ_BUDGET_MS = 75 * 60_000;
 
 export interface ScrapeLicensesOptions {
   dbPath: string;
   scrapeDate?: IsoDate;
-  /**
-   * Milliseconds each budgeted pass may start requests for: the page reads,
-   * then the geocoding. `LICENSE_READ_BUDGET_MS` and `GEOCODE_BUDGET_MS` when
-   * absent.
-   */
-  budgetMs?: number;
+  /** Milliseconds the page reads may start requests for; `LICENSE_READ_BUDGET_MS` when absent. */
+  readBudgetMs?: number;
+  /** Milliseconds the geocoding may start requests for; `GEOCODE_BUDGET_MS` when absent. */
+  geocodeBudgetMs?: number;
   /** The newest license id; the License Locator by default. */
   fetchNewest?: () => Promise<number>;
   /** One page read; the live portal by default. */
@@ -66,7 +67,7 @@ export async function scrapeLicenses(options: ScrapeLicensesOptions): Promise<bo
 
     const results = await fetchLicensePages(ids, {
       ...(options.fetchOne ? { fetchOne: options.fetchOne } : {}),
-      budgetMs: options.budgetMs ?? LICENSE_READ_BUDGET_MS,
+      budgetMs: options.readBudgetMs ?? LICENSE_READ_BUDGET_MS,
     });
     const pages: LicensePage[] = [];
     const hidden: HiddenLicensePage[] = [];
@@ -100,7 +101,7 @@ export async function scrapeLicenses(options: ScrapeLicensesOptions): Promise<bo
     try {
       geocoding = await runGeocodePass(db, scrapeDate, {
         ...options.gis,
-        ...(options.budgetMs === undefined ? {} : { budgetMs: options.budgetMs }),
+        ...(options.geocodeBudgetMs === undefined ? {} : { budgetMs: options.geocodeBudgetMs }),
       });
     } catch (err) {
       log.error(`the geocoding pass failed: ${describeError(err)}`);

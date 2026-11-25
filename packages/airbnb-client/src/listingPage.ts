@@ -42,10 +42,11 @@
 import { mapWithConcurrency } from '@anchorage-str-db/utils/concurrency';
 import { describeError, log, rootCause } from '@anchorage-str-db/utils/log';
 import { RateLimitedError } from '@anchorage-str-db/utils/pace';
+import { withRetries } from '@anchorage-str-db/utils/retry';
 
 import { request } from './api/http.ts';
 import { scriptTags } from './html.ts';
-import { RETRY_BACKOFF_MS, withRetries } from './retry.ts';
+import { pace, RETRY_BACKOFF_MS } from './pace.ts';
 
 /** Concurrency and attempts for listing-page fetches. */
 const PAGE_CONCURRENCY = 6;
@@ -53,7 +54,7 @@ const PAGE_MAX_RETRIES = 3;
 
 /**
  * A request this slow is usually the rate limiter stalling connections, so a
- * short timeout lets `Pacer.noteTimeout` lower the rate sooner.
+ * short timeout lets the pacer lower the rate sooner.
  */
 const PAGE_TIMEOUT_MS = 15_000;
 
@@ -719,6 +720,7 @@ export function livePageFetcher(): FetchOnePage {
           label: `listing page for listing ${listingId}`,
           attempts: PAGE_MAX_RETRIES,
           backoffMs: RETRY_BACKOFF_MS,
+          pacer: pace(),
         },
       );
     } catch (err) {

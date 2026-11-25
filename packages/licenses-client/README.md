@@ -98,8 +98,9 @@ signal to slow down, not a failure: it halves the request rate (down to
 0.25/s) and the read is retried after 10s, then 20s, or after the response's
 `Retry-After` when that is longer, up to a minute. A read fails only once its
 3 attempts are spent. After 20 successes in a row the rate rises by a
-quarter, back up to 1/s. A streak of timeouts also halves the rate. The
-License Locator requests share the same pacer and handling.
+quarter, back up to 1/s. A streak of timeouts also halves the rate. This is
+the default policy of `Pacer` (`utils/pace`); the License Locator requests
+share the same pacer.
 
 ## Tests
 

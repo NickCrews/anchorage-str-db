@@ -15,11 +15,11 @@ defined in `packages/db`, then geocodes their addresses. An app like
 
 ```sh
 pnpm scrape licenses
-pnpm scrape licenses --db /tmp/scratch.duckdb --budget-seconds 60 --verbose
+pnpm scrape licenses --db /tmp/scratch.duckdb --read-budget-seconds 60 --geocode-budget-seconds 30 --verbose
 ```
 
-`--budget-seconds` sets the time budget of both passes (page reads, then
-geocoding), for a quick run against a scratch database.
+`--read-budget-seconds` and `--geocode-budget-seconds` set the time budget of
+each pass, for a quick run against a scratch database.
 
 ## What a scrape reads
 
@@ -48,14 +48,22 @@ ids, and a share of the rest.
 
 ## Budget
 
-A scrape starts page reads for 45 minutes (`LICENSE_READ_BUDGET_MS`), then
-geocodes for 10 minutes (`GEOCODE_BUDGET_MS`). A pass starts no request once
-its budget is spent and writes what it has. An id or address it did not reach
-has no row, so it keeps its place for the next scrape. Page reads go one at a
-time at up to 1/s (see `licenses-client`), so the read budget covers about
-2,700 reads, about one full read order; when the portal's 429s slow the rate,
-the ids at the end of the order wait for the next scrape. Together the passes
-take at most about 55 minutes, inside the workflow's 90-minute timeout.
+A scrape reads pages for a time budget, then geocodes for another. A pass
+starts no request once its budget is spent and writes what it has, so a slow
+source shortens a run instead of letting the workflow's timeout kill it with
+nothing written. An id or address it did not reach has no row, so it keeps its
+place for the next scrape.
+
+`licenses.yml` sets both budgets (`READ_BUDGET_SECONDS`, 75 minutes, and
+`GEOCODE_BUDGET_SECONDS`, 10 minutes) beside its 120-minute timeout, which
+leaves room for setup, the reads in flight, the writes and the publish.
+Without the options, a scrape uses the same values from
+`LICENSE_READ_BUDGET_MS` and `GEOCODE_BUDGET_MS`.
+
+Page reads go one at a time at up to 1/s (see `licenses-client`), so 75
+minutes covers about 4,500 reads, more than a full read order of about 2,700
+ids. When the portal's 429s slow the rate, the ids at the end of the order wait
+for the next scrape.
 
 ## Writes
 

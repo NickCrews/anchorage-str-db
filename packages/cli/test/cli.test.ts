@@ -50,10 +50,12 @@ describe('main', () => {
     const { scrapers, calls } = recorders();
     const db = await dbPath();
 
-    expect(await main(['scrape', 'licenses', '--db', db, '--budget-seconds', '60'], scrapers)).toBe(0);
+    expect(
+      await main(['scrape', 'licenses', '--db', db, '--read-budget-seconds', '60', '--geocode-budget-seconds', '0'], scrapers),
+    ).toBe(0);
     expect(await main(['scrape', 'parcels', '--db', db, '--source', './p.duckdb'], scrapers)).toBe(0);
     expect(calls).toEqual([
-      ['licenses', { dbPath: db, budgetMs: 60_000 }],
+      ['licenses', { dbPath: db, readBudgetMs: 60_000, geocodeBudgetMs: 0 }],
       ['parcels', { dbPath: db, sourceUrl: './p.duckdb' }],
     ]);
   });
@@ -69,9 +71,10 @@ describe('main', () => {
     [['scrape']],
     [['scrape', 'vrbo']],
     [['scrape', 'airbnb', 'licenses']],
-    [['scrape', 'airbnb', '--budget-seconds', '60']],
+    [['scrape', 'airbnb', '--read-budget-seconds', '60']],
     [['scrape', 'licenses', '--source', './p.duckdb']],
-    [['scrape', 'licenses', '--budget-seconds', '-1']],
+    [['scrape', 'licenses', '--read-budget-seconds', '-1']],
+    [['scrape', 'licenses', '--geocode-budget-seconds', '1.5']],
     [['scrape', 'parcels', '--date', '14/11/2026']],
   ])('rejects %j as a usage error', async (argv) => {
     vi.spyOn(process.stderr, 'write').mockReturnValue(true);
