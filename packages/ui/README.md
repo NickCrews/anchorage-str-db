@@ -64,7 +64,7 @@ tables after the database loads:
   rate, and occupancy and revenue with low and high bounds
 - `est_listings`: each listing's latest version with its host,
   registration, area, parcel and parcel owner
-- `est_listing_frehm`: per listing per model, whether it is FREHM (the
+- `est_listing_frehm`, in [`src/model/freh.ts`](src/model/freh.ts): per listing per model, whether it is FREHM (the
   FREH test over the past nights on record, thresholds scaled to them), the
   nights it was open, booked and needed, and the reason in words. Every
   chapter's table has a `FREHM?` column and the map tooltip and listing
