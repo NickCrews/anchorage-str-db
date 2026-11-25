@@ -316,10 +316,8 @@ when the host published one, which almost none do. A parcel's is
 _Avoid_: location, street, place
 
 **Exact and jittered**:
-The two states of a listing's coordinate, and opposites. **Exact** is
-Airbnb's real position; **jittered** is the privacy offset Airbnb publishes
-instead, stable per listing so repeat scraping does not average it out. About
-half are jittered, so filter `location_is_exact` before any spatial join.
+Whether a listing's coordinate is its real position (`location_is_exact`) or
+one Airbnb has offset for privacy.
 _Avoid_: for exact — precise, real, verified, unjittered; for jittered —
 fuzzed, blurred, approximate, obfuscated
 
