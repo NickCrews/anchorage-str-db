@@ -13,3 +13,6 @@ data/
 .env
 .vscode/*
 !.vscode/extensions.json
+
+# marimo session caches
+__marimo__/
