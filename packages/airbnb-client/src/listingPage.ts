@@ -19,14 +19,16 @@
  * parsed into categories or numbers.
  *
  * The page is not a documented API, so fields are extracted by three
- * independent layers. Each field takes the first layer that produces it, and
- * `locationSource` records every layer that contributed so the quality checks
- * can detect a layer that stops working:
+ * independent layers. Each field takes the first layer, in the order below,
+ * that produces it, except the coordinate, which prefers `state` because
+ * JSON-LD rounds it to 4 decimal places. `locationSource` records every layer
+ * that produced a value so the quality checks can detect a layer that stops
+ * working:
  *
  * 1. **`json-ld`**: the schema.org `VacationRental` block Airbnb publishes for
- *    search engines. The most stable source, but has only the coordinate. Its
- *    `image` list stops at 8 photos and its `occupancy` is a bed count, so
- *    neither is read.
+ *    search engines. The most stable source, but has only the coordinate,
+ *    rounded to 4 decimal places. Its `image` list stops at 8 photos and its
+ *    `occupancy` is a bed count, so neither is read.
  * 2. **`state`**: the embedded GraphQL response, the only source of
  *    `isExactLocation`, photos and the host card. Found by searching every JSON
  *    script for an object with a boolean key matching `exact…location`, not by
@@ -177,7 +179,8 @@ export interface ListingPage extends PageFields {
   /** Only the `state` layer yields a card. Null if absent, ambiguous, or for another account. */
   hostCard: HostCard | null;
   /**
-   * Which extraction layers contributed, e.g. `"json-ld+state"`. Used for logs
+   * Which extraction layers produced a value, e.g. `"json-ld+state"`, whether
+   * or not that value was the one kept. Used for logs
    * and `PageFetchStats`; not stored in the database.
    */
   locationSource: string | null;
@@ -567,6 +570,16 @@ function fromRawHtml(html: string): Partial<PageFields> {
 export const LAYERS = ['json-ld', 'state', 'raw-html'] as const;
 export type Layer = (typeof LAYERS)[number];
 
+/** Layer order for `lat`/`lng`, which are taken as a pair from one layer. */
+const COORDINATE_LAYERS = ['state', 'json-ld', 'raw-html'] as const satisfies readonly Layer[];
+
+/**
+ * Layers' coordinates further apart than this are reported as a disagreement.
+ * JSON-LD's rounding to 4 decimal places moves a point at most about 6 m at
+ * Anchorage's latitude.
+ */
+const COORDINATE_TOLERANCE_M = 25;
+
 const PAGE_FIELD_NAMES = [
   'lat',
   'lng',
@@ -598,18 +611,27 @@ export function parseListingPage(html: string, listingId: string): ListingPage {
   };
 
   const page = emptyListingPage(listingId);
-  const contributors: Layer[] = [];
-  for (const layer of LAYERS) {
-    let used = false;
-    for (const name of PAGE_FIELD_NAMES) {
+  for (const name of PAGE_FIELD_NAMES) {
+    if (name === 'lat' || name === 'lng') continue;
+    for (const layer of LAYERS) {
       const value = byLayer[layer][name];
-      if (page[name] === null && value !== undefined && value !== null) {
+      if (value !== undefined && value !== null) {
         Object.assign(page, { [name]: value });
-        used = true;
+        break;
       }
     }
-    if (used) contributors.push(layer);
   }
+  const coordinate = coordinatesByLayer(byLayer).sort(
+    (a, b) => COORDINATE_LAYERS.indexOf(a.layer) - COORDINATE_LAYERS.indexOf(b.layer),
+  )[0];
+  if (coordinate) {
+    page.lat = coordinate.lat;
+    page.lng = coordinate.lng;
+  }
+
+  const contributors = LAYERS.filter((layer) =>
+    PAGE_FIELD_NAMES.some((name) => byLayer[layer][name] !== undefined && byLayer[layer][name] !== null),
+  );
 
   if (contributors.length === 0) {
     throw new Error(`no location data in the page for listing ${listingId}`);
@@ -622,8 +644,6 @@ export function parseListingPage(html: string, listingId: string): ListingPage {
 }
 
 const COMPARED_FIELDS = [
-  'lat',
-  'lng',
   'locationIsExact',
   'registrationId',
   'hostId',
@@ -682,6 +702,32 @@ export function collectHostCards(pages: readonly ListingPage[]): Map<string, Hos
   return cards;
 }
 
+interface LayerCoordinate {
+  layer: Layer;
+  lat: number;
+  lng: number;
+}
+
+/** Each layer's coordinate, for layers that produced both `lat` and `lng`. */
+function coordinatesByLayer(byLayer: Record<Layer, Partial<PageFields>>): LayerCoordinate[] {
+  return LAYERS.flatMap((layer) => {
+    const { lat, lng } = byLayer[layer];
+    return typeof lat === 'number' && typeof lng === 'number' ? [{ layer, lat, lng }] : [];
+  });
+}
+
+const EARTH_RADIUS_M = 6_371_000;
+
+/** Great-circle distance in meters (haversine). */
+function distanceMeters(a: LayerCoordinate, b: LayerCoordinate): number {
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLng = (b.lng - a.lng) * rad;
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(h));
+}
+
 /** Warn when layers disagree, which means one is matching the wrong thing. */
 function warnOnDisagreement(byLayer: Record<Layer, Partial<PageFields>>, listingId: string): void {
   for (const name of COMPARED_FIELDS) {
@@ -690,15 +736,22 @@ function warnOnDisagreement(byLayer: Record<Layer, Partial<PageFields>>, listing
       const value = byLayer[layer][name];
       if (value !== undefined && value !== null) reported.set(layer, value);
     }
-    const distinct = new Set(
-      [...reported.values()].map((value) =>
-        typeof value === 'number' ? value.toFixed(5) : String(value),
-      ),
-    );
-    if (distinct.size > 1) {
+    if (new Set([...reported.values()].map(String)).size > 1) {
       const detail = [...reported].map(([layer, value]) => `${layer}=${String(value)}`).join(', ');
       log.warn(`listing ${listingId}: layers disagree on ${name}: ${detail}`);
     }
+  }
+
+  const coordinates = coordinatesByLayer(byLayer);
+  const spread = Math.max(
+    0,
+    ...coordinates.flatMap((a, i) => coordinates.slice(i + 1).map((b) => distanceMeters(a, b))),
+  );
+  if (spread > COORDINATE_TOLERANCE_M) {
+    const detail = coordinates.map(({ layer, lat, lng }) => `${layer}=(${lat}, ${lng})`).join(', ');
+    log.warn(
+      `listing ${listingId}: layers disagree on the coordinate by ${Math.round(spread)} m: ${detail}`,
+    );
   }
 }
 

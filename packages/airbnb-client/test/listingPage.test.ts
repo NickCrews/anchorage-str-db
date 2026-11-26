@@ -206,7 +206,7 @@ it('reads the location flag and coordinate', () => {
   expect(page.locationSubtitle).toBe('Anchorage, Alaska, United States');
   expect(page.locationVerified).toBe(true);
   expect(page.registrationId).toBe('STR20261897');
-  expect(page.locationSource).toBe('json-ld+state');
+  expect(page.locationSource).toBe('json-ld+state+raw-html');
 });
 
 it('distinguishes fuzzed listings from exact ones', () => {
@@ -222,7 +222,7 @@ describe('resilience', () => {
     const page = parseListingPage(makePage({ wrapper: 'apolloState' }), '1');
 
     expect(page.locationIsExact).toBe(true);
-    expect(page.locationSource).toBe('json-ld+state');
+    expect(page.locationSource).toBe('json-ld+state+raw-html');
   });
 
   it('survives a renamed flag', () => {
@@ -264,6 +264,46 @@ describe('resilience', () => {
     const html = makePage().replace('id="data-deferred-state-0" type="application/json"', '');
 
     expect(parseListingPage(html, '1').locationIsExact).toBe(true);
+  });
+});
+
+// --- coordinate -------------------------------------------------------------
+
+describe('the coordinate', () => {
+  it('prefers the state, which is not rounded, without warning about rounding', () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    try {
+      const stateLocation = { ...STATE_LOCATION, latitude: 60.95681234, longitude: -149.12943456 };
+      const page = parseListingPage(makePage({ stateLocation }), '1');
+
+      expect([page.lat, page.lng]).toEqual([60.95681234, -149.12943456]);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('warns when the layers are further apart than rounding explains', () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    try {
+      const stateLocation = { ...STATE_LOCATION, latitude: 60.9668 };
+      const page = parseListingPage(makePage({ stateLocation }), '1');
+
+      expect(page.lat).toBe(60.9668);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringMatching(/layers disagree on the coordinate by 111\d m/),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('comes from json-ld when the state has none', () => {
+    const { latitude: _lat, longitude: _lng, ...stateLocation } = STATE_LOCATION;
+    const page = parseListingPage(makePage({ stateLocation }), '1');
+
+    expect([page.lat, page.lng]).toEqual([60.9568, -149.1294]);
+    expect(page.locationIsExact).toBe(true);
   });
 });
 

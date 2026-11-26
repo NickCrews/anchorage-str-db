@@ -454,8 +454,9 @@ Every run fails with `LegacySchemaError` until someone:
   documented API. Each page records which layers contributed
   (`ListingPage.locationSource`, in memory only), and the
   `extraction_layer_*_alive` checks fail when a layer stops producing values.
-  JSON-LD has only the coordinate, so the other fields come from `state` and
-  `raw-html`, and photos from `state` alone (JSON-LD lists at most 8). The
+  JSON-LD has only the coordinate, rounded to 4 decimal places, so the
+  coordinate comes from `state` when it has one, the other fields from `state`
+  and `raw-html`, and photos from `state` alone (JSON-LD lists at most 8). The
   `*_coverage` and `photo_coverage` checks fail the run when a field stops
   being produced.
 - **Bed, bedroom and bathroom counts, and listing type, come from the listing
