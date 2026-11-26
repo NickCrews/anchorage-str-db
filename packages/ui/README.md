@@ -43,7 +43,6 @@ model under its name.
 | Neighborhoods | What do they take from neighborhoods? |
 | Room tax | What do they pay the Muni in room tax? |
 | Who earns | Who earns the money? |
-| Baseline | Where do things stand today? |
 
 The long-term rents and running costs in "Rent long-term?" are editable.
 "Visitors" lists the hotel and room-tax data it still needs.
