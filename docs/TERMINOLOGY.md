@@ -317,7 +317,9 @@ _Avoid_: location, street, place
 
 **Exact and jittered**:
 Whether a listing's coordinate is its real position (`location_is_exact`) or
-one Airbnb has offset for privacy.
+one Airbnb has offset for privacy. A jittered coordinate is offset by
+0.0002° to 0.0012° on each axis
+([research](research/airbnb-jitter/README.md)).
 _Avoid_: for exact — precise, real, verified, unjittered; for jittered —
 fuzzed, blurred, approximate, obfuscated
 
