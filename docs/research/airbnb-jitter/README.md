@@ -15,6 +15,8 @@ that region is equally likely.
 the method, every figure and table, and download buttons for the data. It
 runs in the browser, with nothing to install, at
 <https://marimo.app/?src=https://github.com/NickCrews/anchorage-str-db/blob/main/docs/research/airbnb-jitter/notebook.py>.
+Run locally, it reads `public/` beside it; in the browser it fetches
+`public/` from the `main` branch on GitHub.
 
 ## Files
 
