@@ -2,7 +2,8 @@
  * A paced attempt loop. Each attempt waits for the pacer; a failure is
  * reported to `Pacer.noteFailure`, which applies the service's policy (see
  * `pace.ts`), then retried after `backoffMs * attempt`, or longer when the
- * service asks. Callers decide what exhausted retries mean.
+ * service asks. An attempt refused under a `pause` policy is retried after
+ * the pause without counting. Callers decide what exhausted retries mean.
  */
 
 import { sleep, type Pacer } from './pace.ts';
@@ -28,8 +29,8 @@ export interface RetryOptions {
 
 /**
  * Run `attempt`, paced and retried. Throws `RetriesExhaustedError` when
- * every attempt failed, or `RateLimitedError` when the pacer's policy aborts
- * on a rate limit.
+ * every attempt failed, or `RateLimitedError` when the pacer's `pause`
+ * policy gives up on a rate limit.
  */
 export async function withRetries<T>(
   attempt: () => Promise<T>,
@@ -37,19 +38,22 @@ export async function withRetries<T>(
 ): Promise<T> {
   const { pacer } = options;
   let lastError: unknown;
-  for (let n = 1; n <= options.attempts; n++) {
+  for (let n = 1; n <= options.attempts; ) {
     await pacer.waitTurn();
     try {
       const result = await attempt();
       pacer.noteOk();
       return result;
     } catch (err) {
-      const serviceWaitMs = pacer.noteFailure(err, n);
+      const advice = pacer.noteFailure(err, n);
       lastError = err;
+      // An attempt the pacer paused for is retried once the pause lifts.
+      if (!advice.counts) continue;
       if (n < options.attempts) {
         options.onRetry?.(err, n);
-        await sleep(Math.max(options.backoffMs * n, serviceWaitMs));
+        await sleep(Math.max(options.backoffMs * n, advice.waitMs));
       }
+      n += 1;
     }
   }
   throw new RetriesExhaustedError(options.label, options.attempts, lastError);

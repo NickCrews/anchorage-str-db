@@ -17,8 +17,13 @@
  * - **Mildly (4/s):** connections hang without a 429, so the pacer lowers
  *   the rate after a streak of timeouts.
  * - **Grossly (17/s):** every endpoint on the domain returns 429 for 1-2
- *   hours, so a 429 aborts the run (the pacer's `abort` policy): the block is
- *   IP-wide, so retrying every remaining listing against it is pointless.
+ *   hours.
+ *
+ * GitHub's runners share IPs with other traffic, so a run at this rate can
+ * still meet a block. A 429 pauses every request (the pacer's `pause`
+ * policy): the block is IP-wide, so retrying each listing against it is
+ * pointless. One probe goes out every `PAUSE_MS`; the first that succeeds
+ * resumes the run at half the rate with everything fetched so far.
  *
  * Every pass calls `withRetries` from `utils/retry` with `pace()`. Each
  * pass's `*_CONCURRENCY` only caps open connections.
@@ -43,14 +48,25 @@ function classifyAirbnbFailure(err: unknown): Failure {
   return isRateLimited(err) ? { kind: 'rateLimited', retryAfterMs: null } : classifyFailure(err);
 }
 
+/** How long a 429 holds every request before the next probe. */
+const PAUSE_MS = 10 * 60_000;
+
+/**
+ * The most a run spends paused before it stops: the longest block measured.
+ * `airbnb.yml`'s timeout allows for it.
+ */
+export const MAX_PAUSED_MS = 120 * 60_000;
+
 function airbnbPacer(options: Partial<PacerOptions>): Pacer {
   return new Pacer({
     rate: REQUESTS_PER_SECOND,
     service: 'Airbnb',
     classify: classifyAirbnbFailure,
     rateLimit: {
-      action: 'abort',
-      advice: 'The block is IP-wide and lasts about an hour, so the run stops; lower REQUESTS_PER_SECOND.',
+      action: 'pause',
+      pauseMs: PAUSE_MS,
+      maxPausedMs: MAX_PAUSED_MS,
+      advice: 'The block is IP-wide; the next run gets a new runner and IP.',
     },
     ...options,
   });

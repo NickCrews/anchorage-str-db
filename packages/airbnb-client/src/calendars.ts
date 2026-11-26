@@ -73,7 +73,7 @@ export function liveCalendarFetcher(apiKey: string): FetchOneCalendar {
       );
       return { listingId, nights: toNights(days, minDate), error: null };
     } catch (err) {
-      // A rate limit aborts the pass; other errors are recorded per listing.
+      // A RateLimitedError ends the pass; other errors are recorded per listing.
       if (err instanceof RateLimitedError) throw err;
       return { listingId, nights: [], error: describeError(rootCause(err)) };
     }

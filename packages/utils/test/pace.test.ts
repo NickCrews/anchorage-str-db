@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { HttpStatusError } from '../src/http.ts';
-import { classifyFailure, isTimeout, Pacer, RateLimitedError, TokenBucket } from '../src/pace.ts';
+import { classifyFailure, isTimeout, Pacer, RateLimitedError, sleep, TokenBucket } from '../src/pace.ts';
 
 describe('TokenBucket', () => {
   it('holds the requested rate once the burst is spent', async () => {
@@ -61,15 +61,99 @@ describe('Pacer', () => {
     expect(pacer.sent).toBe(5);
   });
 
-  describe("under the 'abort' policy", () => {
-    it('throws on a rate limit, naming the service, rate and advice', () => {
-      const pacer = new Pacer({ rate: 1.8, service: 'Airbnb', rateLimit: { action: 'abort', advice: 'Lower the rate.' } });
+  describe("under the 'pause' policy", () => {
+    const pause = { action: 'pause', pauseMs: 40, maxPausedMs: 200, advice: 'Try later.' } as const;
+
+    /** Resolves to true if `promise` settles within `ms`. */
+    async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+      return Promise.race([promise.then(() => true, () => true), sleep(ms).then(() => false)]);
+    }
+
+    it('halves the rate and holds every request until the pause ends', async () => {
+      const pacer = new Pacer({ rate: 1e6, rateLimit: pause });
+
+      expect(pacer.noteFailure(tooManyRequests(), 1)).toEqual({ waitMs: 0, counts: false });
+      expect(pacer.bucket.rate).toBe(0.5e6);
+
+      const started = performance.now();
+      await pacer.waitTurn();
+      expect(performance.now() - started).toBeGreaterThanOrEqual(35);
+    });
+
+    it('lets one probe out, then everyone once the probe succeeds', async () => {
+      const pacer = new Pacer({ rate: 1e6, rateLimit: pause });
+      pacer.noteFailure(tooManyRequests(), 1);
+
+      await pacer.waitTurn(); // the probe
+      const second = pacer.waitTurn();
+      expect(await settlesWithin(second, 20)).toBe(false);
+
+      pacer.noteOk();
+      expect(await settlesWithin(second, 20)).toBe(true);
+      await pacer.waitTurn();
+    });
+
+    it('pauses again when the probe is refused', async () => {
+      const pacer = new Pacer({ rate: 1e6, rateLimit: pause });
+      pacer.noteFailure(tooManyRequests(), 1);
+      await pacer.waitTurn();
+
+      pacer.noteFailure(tooManyRequests(), 1);
+      const started = performance.now();
+      await pacer.waitTurn();
+
+      expect(performance.now() - started).toBeGreaterThanOrEqual(35);
+      expect(pacer.bucket.rate).toBe(0.5e6);
+    });
+
+    it('frees the probe slot when the probe fails some other way', async () => {
+      const pacer = new Pacer({ rate: 1e6, rateLimit: pause });
+      pacer.noteFailure(tooManyRequests(), 1);
+      await pacer.waitTurn();
+      const next = pacer.waitTurn();
+
+      expect(pacer.noteFailure(new HttpStatusError(500, 'https://example.test/'), 1)).toEqual({
+        waitMs: 0,
+        counts: true,
+      });
+      expect(await settlesWithin(next, 20)).toBe(true);
+    });
+
+    it('ignores refusals of requests sent before the pause', () => {
+      const pacer = new Pacer({ rate: 1e6, rateLimit: pause });
+      pacer.noteFailure(tooManyRequests(), 1);
+      pacer.noteFailure(tooManyRequests(), 1);
+      pacer.noteFailure(tooManyRequests(), 1);
+
+      expect(pacer.bucket.rate).toBe(0.5e6);
+      expect(pacer.rateLimited).toBe(3);
+    });
+
+    it('closes once the pauses would pass maxPausedMs, failing every waiting request', async () => {
+      const pacer = new Pacer({ rate: 1e6, service: 'Airbnb', rateLimit: { ...pause, maxPausedMs: 100 } });
+      pacer.noteFailure(tooManyRequests(), 1);
+      await pacer.waitTurn();
+      pacer.noteFailure(tooManyRequests(), 1);
+      await pacer.waitTurn();
+      const waiting = pacer.waitTurn();
+
+      expect(() => pacer.noteFailure(tooManyRequests(), 1)).toThrow(
+        /^Airbnb refused requests .* for \d+\.\d min\. Sent 2 requests .*\. Try later\.$/,
+      );
+      await expect(waiting).rejects.toBeInstanceOf(RateLimitedError);
+      await expect(pacer.waitTurn()).rejects.toBeInstanceOf(RateLimitedError);
+    });
+
+    it('counts pauses across blocks against maxPausedMs', async () => {
+      const pacer = new Pacer({ rate: 1e6, rateLimit: { ...pause, maxPausedMs: 100 } });
+      pacer.noteFailure(tooManyRequests(), 1);
+      await pacer.waitTurn();
+      pacer.noteOk();
+
+      pacer.noteFailure(tooManyRequests(), 1);
+      await pacer.waitTurn();
 
       expect(() => pacer.noteFailure(tooManyRequests(), 1)).toThrow(RateLimitedError);
-      expect(() => pacer.noteFailure(tooManyRequests(), 1)).toThrow(
-        /^Airbnb refused .* at 1\.80\/s\. Lower the rate\.$/,
-      );
-      expect(pacer.bucket.rate).toBe(1.8);
     });
   });
 
@@ -94,17 +178,17 @@ describe('Pacer', () => {
     it('asks for waitMs per attempt, or Retry-After when longer, up to maxWaitMs', () => {
       const pacer = new Pacer({ rate: 1, rateLimit: slowDown });
 
-      expect(pacer.noteFailure(tooManyRequests(), 1)).toBe(10_000);
-      expect(pacer.noteFailure(tooManyRequests(), 2)).toBe(20_000);
-      expect(pacer.noteFailure(tooManyRequests(30_000), 1)).toBe(30_000);
-      expect(pacer.noteFailure(tooManyRequests(3_600_000), 1)).toBe(60_000);
+      expect(pacer.noteFailure(tooManyRequests(), 1)).toEqual({ waitMs: 10_000, counts: true });
+      expect(pacer.noteFailure(tooManyRequests(), 2).waitMs).toBe(20_000);
+      expect(pacer.noteFailure(tooManyRequests(30_000), 1).waitMs).toBe(30_000);
+      expect(pacer.noteFailure(tooManyRequests(3_600_000), 1).waitMs).toBe(60_000);
     });
   });
 
   it('asks for no wait, and keeps its rate, on any other failure', () => {
     const pacer = new Pacer({ rate: 4 });
 
-    expect(pacer.noteFailure(new HttpStatusError(500, 'https://example.test/'), 1)).toBe(0);
+    expect(pacer.noteFailure(new HttpStatusError(500, 'https://example.test/'), 1)).toEqual({ waitMs: 0, counts: true });
     expect(pacer.bucket.rate).toBe(4);
   });
 
@@ -123,7 +207,7 @@ describe('Pacer', () => {
     pacer.noteFailure(TIMEOUT, 1);
     expect(pacer.bucket.rate).toBe(4);
 
-    expect(pacer.noteFailure(TIMEOUT, 1)).toBe(0);
+    expect(pacer.noteFailure(TIMEOUT, 1).waitMs).toBe(0);
     expect(pacer.bucket.rate).toBe(2);
     expect(pacer.timeouts).toBe(3);
   });

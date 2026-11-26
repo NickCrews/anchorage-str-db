@@ -89,7 +89,7 @@ export function liveQuoteFetcher(apiKey: string): FetchOneQuote {
       );
       return { ...window, ...response, error: null };
     } catch (err) {
-      // A rate limit is IP-wide, so it aborts the pass.
+      // The pacer gave up waiting out an IP-wide block, so the pass ends.
       if (err instanceof RateLimitedError) throw err;
       return { ...window, label: null, total: null, breakdown: [], error: describeError(rootCause(err)) };
     }

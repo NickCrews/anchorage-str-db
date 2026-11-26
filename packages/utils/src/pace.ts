@@ -10,8 +10,11 @@
  * - **Rate limit**, under `rateLimit: { action: 'slowDown' }` (the default):
  *   the rate is halved, and the retry waits `waitMs * attempt`, or the
  *   response's `Retry-After` when longer, up to `maxWaitMs`. Under
- *   `{ action: 'abort' }`: throws `RateLimitedError`, for a service whose
- *   block outlasts the run.
+ *   `{ action: 'pause' }`, for a service that blocks every request for a
+ *   while: the rate is halved and every request waits; after `pauseMs` one
+ *   request goes out as a probe. A refused probe pauses again, until the
+ *   pauses reach `maxPausedMs` in all and `RateLimitedError` is thrown. A
+ *   probe that succeeds lets every waiting request through.
  * - **Timeout:** after `timeoutBackoff` in a row, the rate is halved.
  * - **Anything else:** no change to the rate.
  *
@@ -117,10 +120,30 @@ export function classifyFailure(err: unknown): Failure {
 
 /** What a rate-limit response does. */
 export type RateLimitPolicy =
-  /** Throw `RateLimitedError`; `advice`, what the operator should do, ends its message. */
-  | { action: 'abort'; advice?: string }
   /** Halve the rate and retry after `waitMs * attempt`, or `Retry-After` when longer, up to `maxWaitMs`. */
-  | { action: 'slowDown'; waitMs: number; maxWaitMs: number };
+  | { action: 'slowDown'; waitMs: number; maxWaitMs: number }
+  /**
+   * Halve the rate and hold every request; probe once every `pauseMs` until a
+   * probe succeeds. Past `maxPausedMs` of pauses in the pacer's life, throw
+   * `RateLimitedError`, ending its message with `advice`. A rate-limited
+   * attempt is retried without counting against `withRetries`' attempts.
+   */
+  | { action: 'pause'; pauseMs: number; maxPausedMs: number; advice?: string };
+
+/** What `withRetries` does after a failed attempt. */
+export interface RetryAdvice {
+  /** The least milliseconds to wait before the next attempt. */
+  waitMs: number;
+  /** Whether the attempt counts against the caller's attempts. */
+  counts: boolean;
+}
+
+/**
+ * Whether requests may go out: `open`; `paused` until `pauseMs` passes;
+ * `probing`, one request out to test the block; or `closed` after
+ * `maxPausedMs`, when every request throws.
+ */
+type Gate = 'open' | 'paused' | 'probing' | 'closed';
 
 export const DEFAULT_RATE_LIMIT_POLICY: RateLimitPolicy = { action: 'slowDown', waitMs: 10_000, maxWaitMs: 60_000 };
 
@@ -155,6 +178,14 @@ export class Pacer {
   rateLimited = 0;
   #consecutiveTimeouts = 0;
   #consecutiveOk = 0;
+  #gate: Gate = 'open';
+  #probeOut = false;
+  /** When the current run of pauses began; null while open. */
+  #pausedSince: number | null = null;
+  /** Milliseconds paused in earlier runs of pauses. */
+  #pausedBeforeMs = 0;
+  #closedError: RateLimitedError | null = null;
+  #gateChanged = deferred();
 
   constructor(options: PacerOptions) {
     this.bucket = new TokenBucket(options.rate);
@@ -167,15 +198,44 @@ export class Pacer {
     this.service = options.service ?? 'the service';
   }
 
-  /** Resolves when this caller may send a request. */
+  /**
+   * Resolves when this caller may send a request. Under the `pause` policy,
+   * waits out a pause and throws `RateLimitedError` once the pacer is closed.
+   */
   async waitTurn(): Promise<void> {
-    await this.bucket.acquire();
+    for (;;) {
+      const isProbe = await this.#passGate();
+      await this.bucket.acquire();
+      // A pause can begin while a caller waits on the bucket.
+      if (isProbe || this.#gate === 'open') break;
+    }
     this.sent += 1;
+  }
+
+  /** Waits until the gate admits this caller; true if it goes out as the probe. */
+  async #passGate(): Promise<boolean> {
+    for (;;) {
+      if (this.#gate === 'closed') throw this.#closedError;
+      if (this.#gate === 'open') return false;
+      if (this.#gate === 'probing' && !this.#probeOut) {
+        this.#probeOut = true;
+        return true;
+      }
+      await this.#gateChanged.promise;
+    }
+  }
+
+  #setGate(gate: Gate): void {
+    this.#gate = gate;
+    const changed = this.#gateChanged;
+    this.#gateChanged = deferred();
+    changed.resolve();
   }
 
   /** A successful request. */
   noteOk(): void {
     this.#consecutiveTimeouts = 0;
+    if (this.#gate === 'probing') this.#reopen();
     if (this.recoverAfter === null) return;
     this.#consecutiveOk += 1;
     if (this.#consecutiveOk < this.recoverAfter) return;
@@ -193,29 +253,74 @@ export class Pacer {
 
   /**
    * A failed request, attempt number `attempt`. Adjusts the rate as the
-   * policy says and returns the least milliseconds the service asks to wait
-   * before the next attempt: 0 unless rate limited. Throws `RateLimitedError`
-   * under the `abort` policy.
+   * policy says and returns what the attempt loop should do next. Throws
+   * `RateLimitedError` when a `pause` policy runs out of `maxPausedMs`.
    */
-  noteFailure(err: unknown, attempt: number): number {
+  noteFailure(err: unknown, attempt: number): RetryAdvice {
     const failure = this.classify(err);
-    if (failure.kind === 'timeout') {
-      this.#noteTimeout();
-      return 0;
+    if (failure.kind !== 'rateLimited') {
+      if (failure.kind === 'timeout') this.#noteTimeout();
+      // A probe that failed some other way frees the slot for the next one.
+      if (this.#gate === 'probing') {
+        this.#probeOut = false;
+        this.#setGate('probing');
+      }
+      return { waitMs: 0, counts: true };
     }
-    if (failure.kind === 'other') return 0;
 
     this.rateLimited += 1;
     const policy = this.rateLimit;
-    if (policy.action === 'abort') {
-      throw new RateLimitedError(
-        `${this.service} refused a request for exceeding its rate limit. Sent ${this.sent} ` +
-          `requests this run at ${this.bucket.rate.toFixed(2)}/s.` +
+    if (policy.action === 'slowDown') {
+      this.#lower('a rate-limit response');
+      const waitMs = Math.min(Math.max(policy.waitMs * attempt, failure.retryAfterMs ?? 0), policy.maxWaitMs);
+      return { waitMs, counts: true };
+    }
+    // While paused, a refusal is from a request sent before the pause began.
+    if (this.#gate !== 'paused') this.#pause(policy);
+    return { waitMs: 0, counts: false };
+  }
+
+  /** Start or extend a pause, or close the pacer when the pauses are used up. */
+  #pause(policy: Extract<RateLimitPolicy, { action: 'pause' }>): void {
+    const now = performance.now();
+    const firstRefusal = this.#gate === 'open';
+    if (firstRefusal) this.#pausedSince = now;
+    const pausedMs = this.#pausedBeforeMs + (now - (this.#pausedSince ?? now));
+    if (pausedMs + policy.pauseMs > policy.maxPausedMs) {
+      this.#closedError = new RateLimitedError(
+        `${this.service} refused requests for exceeding its rate limit for ` +
+          `${formatMinutes(pausedMs)}. Sent ${this.sent} requests this run, last at ` +
+          `${this.bucket.rate.toFixed(2)}/s.` +
           (policy.advice ? ` ${policy.advice}` : ''),
       );
+      this.#setGate('closed');
+      throw this.#closedError;
     }
-    this.#lower('a rate-limit response');
-    return Math.min(Math.max(policy.waitMs * attempt, failure.retryAfterMs ?? 0), policy.maxWaitMs);
+    if (firstRefusal) {
+      this.#lower('a rate-limit response');
+      log.warn(
+        `${this.service} refused a request for exceeding its rate limit after ${this.sent} ` +
+          `requests; pausing every request, probing every ${formatMinutes(policy.pauseMs)}`,
+      );
+    } else {
+      log.warn(`${this.service} still refusing after ${formatMinutes(pausedMs)}; probing again`);
+    }
+    this.#probeOut = false;
+    this.#setGate('paused');
+    setTimeout(() => this.#setGate('probing'), policy.pauseMs);
+  }
+
+  /** A probe succeeded: let every waiting request through. */
+  #reopen(): void {
+    const pausedMs = performance.now() - (this.#pausedSince ?? performance.now());
+    this.#pausedBeforeMs += pausedMs;
+    this.#pausedSince = null;
+    this.#probeOut = false;
+    log.info(
+      `${this.service} answered again after ${formatMinutes(pausedMs)}; resuming at ` +
+        `${this.bucket.rate.toFixed(2)}/s`,
+    );
+    this.#setGate('open');
   }
 
   /** After `timeoutBackoff` in a row, halve the rate: a streak of timeouts means the limiter is stalling requests. */
@@ -240,4 +345,16 @@ export class Pacer {
       );
     }
   }
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+function formatMinutes(ms: number): string {
+  return `${(ms / 60_000).toFixed(1)} min`;
 }

@@ -782,7 +782,7 @@ export function livePageFetcher(): FetchOnePage {
         },
       );
     } catch (err) {
-      // A rate limit is IP-wide, so it aborts the pass.
+      // The pacer gave up waiting out an IP-wide block, so the pass ends.
       if (err instanceof RateLimitedError) throw err;
       return emptyListingPage(listingId, describeError(rootCause(err)));
     }

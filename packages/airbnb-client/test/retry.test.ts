@@ -6,7 +6,7 @@ import { RateLimitedError } from '@anchorage-str-db/utils/pace';
 import { RetriesExhaustedError, withRetries as pacedRetries, type RetryOptions } from '@anchorage-str-db/utils/retry';
 
 import { HttpError } from '../src/api/http.ts';
-import { pace, resetPace } from '../src/pace.ts';
+import { MAX_PAUSED_MS, pace, resetPace } from '../src/pace.ts';
 
 const FAST = { label: 'test call', attempts: 4, backoffMs: 0 };
 
@@ -46,17 +46,30 @@ it('throws RetriesExhaustedError with the last error as cause', async () => {
   ).rejects.toBe(boom);
 });
 
-it('throws RateLimitedError on the first 429 without retrying', async () => {
+it('pauses on a 429 by default', () => {
+  expect(pace().rateLimit).toMatchObject({ action: 'pause', maxPausedMs: MAX_PAUSED_MS });
+});
+
+it('waits out a 429 and retries the same request', async () => {
+  resetPace({ rate: 1e6, rateLimit: { action: 'pause', pauseMs: 5, maxPausedMs: 1_000 } });
   let attempts = 0;
 
-  await expect(
-    withRetries(async () => {
-      attempts += 1;
-      throw new HttpError(429, 'https://www.airbnb.com/rooms/1');
-    }, FAST),
-  ).rejects.toBeInstanceOf(RateLimitedError);
+  const result = await withRetries(async () => {
+    attempts += 1;
+    if (attempts === 1) throw new HttpError(429, 'https://www.airbnb.com/rooms/1');
+    return 'ok';
+  }, { ...FAST, attempts: 1 });
 
-  expect(attempts).toBe(1);
+  expect(result).toBe('ok');
+  expect(pace().rateLimited).toBe(1);
+});
+
+it('throws RateLimitedError when the block outlasts the pauses', async () => {
+  resetPace({ rate: 1e6, rateLimit: { action: 'pause', pauseMs: 5, maxPausedMs: 20 } });
+
+  await expect(
+    withRetries(async () => Promise.reject(new HttpError(429, 'https://www.airbnb.com/rooms/1')), FAST),
+  ).rejects.toBeInstanceOf(RateLimitedError);
 });
 
 it('backs the request rate off after a run of timeouts', async () => {

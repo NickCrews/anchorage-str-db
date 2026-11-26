@@ -13,7 +13,7 @@ third-party library belongs in the package that uses it.
 | `log` | leveled logging to stderr; `describeError` and `rootCause` for run logs |
 | `checks` | `CheckResult` and `report`: the data-quality checks a run ends with, logged, and whether any error-severity one failed |
 | `concurrency` | `mapWithConcurrency`: one job per item, at most N at a time |
-| `pace` | `TokenBucket` and `Pacer`: a request rate per remote service, with the service's failure policy: what counts as a rate limit and a timeout (`classify`), whether a rate limit aborts or slows down and waits (`rateLimit`), and whether a lowered rate recovers (`recoverAfter`) |
+| `pace` | `TokenBucket` and `Pacer`: a request rate per remote service, with the service's failure policy: what counts as a rate limit and a timeout (`classify`), whether a rate limit slows down and waits or pauses every request (`rateLimit`), and whether a lowered rate recovers (`recoverAfter`) |
 | `retry` | `withRetries`: the paced attempt loop; each failure goes to the pacer, which applies its policy |
 | `http` | `fetchText`: a GET with a timeout that throws `HttpStatusError` (with any `Retry-After`) on a non-2xx response; `fetchCookies`: the cookies a page sets, for a `Cookie` header |
 | `muni_geography` | `MUNICIPALITY_BOUNDARY`: the Municipality's boundary as GeoJSON, which `municipality.sql` builds; `MUNICIPALITY_BOUNDING_BOX` is its extent; `inMunicipality` tests a coordinate against it, `inRings` tests one against any rings (the community councils use it), and `boundingBox` finds any collection's extent. A folder, imported as `@anchorage-str-db/utils/muni_geography` |
@@ -29,5 +29,6 @@ policy; every call to the service passes it to `withRetries`. By default a
 429 (`HttpStatusError`) halves the rate and is retried after a wait, honouring
 `Retry-After`; the CityView portal, ArcGIS and the geocoder use that.
 `airbnb-client/src/pace.ts` is the exception: one process-wide pacer whose
-`classify` reads impit's errors and whose `abort` policy ends the run on a
-429, since Airbnb's block is IP-wide and lasts about an hour.
+`classify` reads impit's errors and whose `pause` policy holds every request
+on a 429 and probes until the block lifts, since Airbnb's block is IP-wide and
+lasts about an hour.
