@@ -58,7 +58,8 @@ def _(mo):
 
     `public/` holds three extracts, written by `extract.sql` from the
     published database (`gh release download latest-data --repo
-    NickCrews/anchorage-str-db`):
+    NickCrews/anchorage-str-db`). Run locally, the notebook reads them from
+    `public/` beside it; in the browser, from the repository on GitHub.
 
     | File | Rows | What |
     | --- | --- | --- |
@@ -71,10 +72,28 @@ def _(mo):
 
 @app.cell
 def _(mo, pd):
-    _public = mo.notebook_location() / "public"
-    listings = pd.read_csv(str(_public / "listings.csv"), dtype={"listing_id": str})
-    registrations = pd.read_csv(str(_public / "registrations.csv"))
-    flips = pd.read_csv(str(_public / "flips.csv"), dtype={"listing_id": str})
+    import io
+    import sys
+
+    DATA_URL = (
+        "https://raw.githubusercontent.com/NickCrews/anchorage-str-db/main/"
+        "docs/research/airbnb-jitter/public"
+    )
+
+    def read_csv(name, **kwargs):
+        """Read `public/<name>` beside the notebook, or from GitHub when it is not there."""
+        _dir = mo.notebook_dir()
+        if _dir is not None and (_dir / "public" / name).exists():
+            return pd.read_csv(_dir / "public" / name, **kwargs)
+        if sys.platform == "emscripten":
+            from pyodide.http import open_url
+
+            return pd.read_csv(io.StringIO(open_url(f"{DATA_URL}/{name}").read()), **kwargs)
+        return pd.read_csv(f"{DATA_URL}/{name}", **kwargs)
+
+    listings = read_csv("listings.csv", dtype={"listing_id": str})
+    registrations = read_csv("registrations.csv")
+    flips = read_csv("flips.csv", dtype={"listing_id": str})
     return flips, listings, registrations
 
 
