@@ -22,8 +22,8 @@
  *   `airbnb_listing_observations`, because it is resolved once: as a daily
  *   column it would be NULL on every row but one per listing.
  * - `airbnb_listing_photos`: each listing's photo gallery, one row per
- *   distinct set, written only when the set differs from the listing's
- *   previous one.
+ *   distinct set, written only when its photos or cover photo differ from the
+ *   listing's previous set.
  * - `airbnb_host_observations`: append-only, one row per (host, scrape date)
  *   for every host of a listing observed that day: the host card from
  *   the listing page.
@@ -177,8 +177,9 @@ export const airbnbCalendarStatus = pgTable('airbnb_calendar_status', {
 });
 
 /**
- * The first URL is the cover photo. A set is current from valid_from until
- * the listing's next row.
+ * The first URL is the cover photo. A new row means the listing's photos or
+ * its cover photo changed; the rest of the order is as first stored. A set is
+ * current from valid_from until the listing's next row.
  */
 export const airbnbListingPhotos = pgTable(
   'airbnb_listing_photos',

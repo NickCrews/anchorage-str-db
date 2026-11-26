@@ -21,8 +21,9 @@ For how the sources fit together, see [methodology.md](methodology.md).
 - `airbnb_listing_first_reviews`: one row per listing whose reviews have been read,
   with the date of its oldest review (NULL if it had none). A listing with
   no row has not been read yet.
-- `airbnb_listing_photos`: each listing's photo URLs, one row per distinct set, cover
-  photo first. `listing_photos_current` *(view)* has each listing's latest
+- `airbnb_listing_photos`: each listing's photo URLs, cover photo first, one row
+  each time the photos or the cover photo change. Reordering the other photos
+  writes no row. `listing_photos_current` *(view)* has each listing's latest
   set. Photos never open a listing version.
 - `airbnb_scrape_runs`: one row per Airbnb scrape, with counts and errors
 - `listings` *(view)*: one row per listing version, derived from the

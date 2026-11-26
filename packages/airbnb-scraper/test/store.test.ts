@@ -598,13 +598,33 @@ describe('airbnb_listing_photos', () => {
     const parsed = [makeListing(1, 'Cabin A')];
     await recordObservations(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1, 2) })]);
     await recordObservations(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(1, 2) })]);
-    await recordObservations(db, '2026-08-28', parsed, [page('1', { photoUrls: urls(2, 1) })]);
+    await recordObservations(db, '2026-08-28', parsed, [page('1', { photoUrls: urls(1, 2, 3) })]);
 
     expect(await photoRows(db)).toEqual([
       { valid_from: '2026-08-26', photo_urls: urls(1, 2) },
-      // A reorder changes the cover photo, so it is a new set.
-      { valid_from: '2026-08-28', photo_urls: urls(2, 1) },
+      { valid_from: '2026-08-28', photo_urls: urls(1, 2, 3) },
     ]);
+  });
+
+  it('stores a new set when the cover photo changes', async () => {
+    const { db } = await freshDb();
+    const parsed = [makeListing(1, 'Cabin A')];
+    await recordObservations(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1, 2, 3) })]);
+    await recordObservations(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(2, 1, 3) })]);
+
+    expect(await photoRows(db)).toEqual([
+      { valid_from: '2026-08-26', photo_urls: urls(1, 2, 3) },
+      { valid_from: '2026-08-27', photo_urls: urls(2, 1, 3) },
+    ]);
+  });
+
+  it('ignores a reorder that keeps the cover photo', async () => {
+    const { db } = await freshDb();
+    const parsed = [makeListing(1, 'Cabin A')];
+    await recordObservations(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1, 2, 3) })]);
+    await recordObservations(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(1, 3, 2) })]);
+
+    expect(await photoRows(db)).toEqual([{ valid_from: '2026-08-26', photo_urls: urls(1, 2, 3) }]);
   });
 
   it('keeps the previous set current when a page yields none', async () => {
