@@ -170,3 +170,9 @@ stored as published:
   `muni_licenses`, `property_parcels`) with the date and finish time of its
   latest successful run. Each source runs on its own schedule, so the dates
   differ.
+- `jitter_fits(pin_lat, pin_lng, lat, lng, tolerance_m := 0)` *(macro)*:
+  whether (`lat`, `lng`) can be the true location behind a jittered
+  listing coordinate (`pin_lat`, `pin_lng`): offset by 0.0002° to 0.0012°
+  on each axis, widened by `tolerance_m` on every edge. Use
+  `tolerance_m := 30` against a registration's geocoded point. See
+  [research](research/airbnb-jitter/README.md).

@@ -23,6 +23,12 @@
  * migration.
  */
 
+import {
+  JITTER_MAX_DEGREES,
+  JITTER_MIN_DEGREES,
+  METERS_PER_DEGREE_LAT,
+} from '@anchorage-str-db/utils/jitter';
+
 /**
  * Days a listing may be absent from search before `listings.is_active` goes
  * false. Search occasionally omits a listing for a day.
@@ -825,6 +831,21 @@ COMMENT ON VIEW source_freshness IS 'One row per upstream source (airbnb, muni_l
 `;
 
 /**
+ * `jitter_fits(pin_lat, pin_lng, lat, lng, tolerance_m := 0)`: whether
+ * (`lat`, `lng`) can be the true location behind the jittered coordinate
+ * (`pin_lat`, `pin_lng`). The same test as `jitterFits` in `utils/jitter.ts`.
+ */
+const MACROS_SQL = `
+CREATE OR REPLACE MACRO jitter_fits(pin_lat, pin_lng, lat, lng, tolerance_m := 0) AS (
+    abs(lat - pin_lat) BETWEEN ${JITTER_MIN_DEGREES} - tolerance_m / ${METERS_PER_DEGREE_LAT}
+        AND ${JITTER_MAX_DEGREES} + tolerance_m / ${METERS_PER_DEGREE_LAT}
+    AND abs(lng - pin_lng)
+        BETWEEN ${JITTER_MIN_DEGREES} - tolerance_m / (${METERS_PER_DEGREE_LAT} * cos(radians(pin_lat)))
+        AND ${JITTER_MAX_DEGREES} + tolerance_m / (${METERS_PER_DEGREE_LAT} * cos(radians(pin_lat)))
+);
+`;
+
+/**
  * Views under names this file no longer creates. `CREATE OR REPLACE VIEW`
  * cannot remove one, so a published database would carry a renamed view's old
  * name forever, still answering queries from a definition nothing maintains.
@@ -839,7 +860,7 @@ DROP VIEW IF EXISTS license_pages_latest;
 `;
 
 /**
- * Every view, in dependency order: `registrations` reads `licenses` and
+ * Every macro and view, in dependency order: `registrations` reads `licenses` and
  * `listings_active`.
  */
 export function viewsSql(): string {
@@ -847,5 +868,5 @@ export function viewsSql(): string {
     .replaceAll('{hosting_start}', IMPLIED_HOSTING_START_SQL)
     .replace('{page_attrs}', PAGE_ATTRS_SQL)
     .replace('{version_key}', VERSION_KEY_SQL);
-  return DROPPED_VIEWS_SQL + listingViews + REGISTRY_VIEWS_SQL + FRESHNESS_VIEWS_SQL;
+  return MACROS_SQL + DROPPED_VIEWS_SQL + listingViews + REGISTRY_VIEWS_SQL + FRESHNESS_VIEWS_SQL;
 }
