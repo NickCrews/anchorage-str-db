@@ -91,8 +91,8 @@ nearest-parcel match is usually right
 ([`policy_questions.sql`](policy_questions.sql) has one); otherwise the
 address is unknown ([research](research/airbnb-address-deanonymization.md)).
 A jittered coordinate is offset by 0.0002° to 0.0012° on each axis, so the
-macro `jitter_fits` narrows the candidates to a box around it, where each is
-equally likely ([research](research/airbnb-jitter/README.md)).
+true location is in a box around it, where every point is equally likely
+([research](research/airbnb-jitter/README.md)).
 
 An "id not in the registry" may be a typo, an id on a license whose page is
 hidden, or one issued since the license scrape last read new ids, so it is
@@ -219,8 +219,8 @@ browser, from the published tables:
   records the price of one listing's earliest bookable stay
   ([research](research/airbnb-calendar-price.md)).
 - **About two thirds of coordinates are jittered.** Filter
-  `location_is_exact` before any spatial join, or join jittered ones with
-  `jitter_fits` ([research](research/airbnb-jitter/README.md)).
+  `location_is_exact` before any spatial join, or match jittered ones within
+  the box described in [research](research/airbnb-jitter/README.md).
 - **Unregistered listings have no address** (152 of 2,270 above), and a
   registered listing's address is only as good as the id the host typed.
 - **No dwelling counts.** Listings and registrations are both many-to-many
