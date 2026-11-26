@@ -114,5 +114,4 @@ export const TABLE_COLUMNS = {
   locals: ['listing', 'type', 'community council', 'owner lives there?', 'nights closed', 'nights booked', "owner's mail goes to", 'FREHM?'],
   tax: ['listing', 'type', 'area', 'revenue', 'nights booked', 'host', 'FREHM?'],
   owners: ['listing', 'owner', 'owner type', "owner's mail goes to", 'type', 'area', 'revenue', 'FREHM?'],
-  baseline: ['listing', 'type', 'area', 'registration', 'owner lives there?', 'owner type', 'revenue', 'FREHM?'],
 } as const;

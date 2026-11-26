@@ -2,7 +2,6 @@ import { useRef, type FC } from 'react';
 import { DataStatusGate } from '../components/DataStatusGate';
 import { longDate } from '../format';
 import { ScrollRootContext } from './Chapter';
-import { Baseline } from './chapters/Baseline';
 import { HostRevenue } from './chapters/HostRevenue';
 import { Incentives } from './chapters/Incentives';
 import { ListingRevenue } from './chapters/ListingRevenue';
@@ -29,7 +28,6 @@ const CHAPTERS = [
   ['q8', 'Neighborhoods'],
   ['q9', 'Room tax'],
   ['q10', 'Who earns'],
-  ['q11', 'Baseline'],
 ] as const;
 
 /**
@@ -57,7 +55,6 @@ export const Story: FC = () => {
             <Locals />
             <MuniIncome />
             <WhoEarns />
-            <Baseline />
             <Footer />
           </main>
         </ScrollRootContext.Provider>
