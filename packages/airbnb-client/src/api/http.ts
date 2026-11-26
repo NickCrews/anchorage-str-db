@@ -33,8 +33,8 @@ export class HttpError extends Error {
 
 /**
  * Whether this failure is an HTTP 429. Checks the status code only, since
- * "429" can appear in listing ids and quoted response bodies, and a 429 aborts
- * the run.
+ * "429" can appear in listing ids and quoted response bodies, and a 429
+ * pauses the run.
  */
 export function isRateLimited(err: unknown): boolean {
   return err instanceof HttpError && err.status === 429;

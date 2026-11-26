@@ -220,8 +220,11 @@ listing.
 
 Every pass retries with `withRetries` (`utils/src/retry.ts`) and the shared
 Airbnb pacer, `pace()` in `airbnb-client/src/pace.ts`. The pacer's policy is
-Airbnb's: a 429 aborts the run, a streak of timeouts halves the request rate,
-and any other error is retried.
+Airbnb's: a 429 halves the request rate and pauses every request, with one
+probe every 10 minutes, until Airbnb answers again; a block longer than 2
+hours aborts the run. A streak of timeouts halves the request rate, and any
+other error is retried. A request refused during a pause is retried without
+counting against its attempts.
 
 ## The license scrape
 

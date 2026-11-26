@@ -10,7 +10,7 @@ import { fetchApiKey } from '@anchorage-str-db/airbnb-client/api/apiKey';
 import { fetchCalendars, liveCalendarFetcher } from '@anchorage-str-db/airbnb-client/calendars';
 import { fetchFirstReviews, liveReviewPageFetcher } from '@anchorage-str-db/airbnb-client/firstReviews';
 import { collectHostCards, fetchListingPages, livePageFetcher } from '@anchorage-str-db/airbnb-client/listingPage';
-import { pace, resetPace } from '@anchorage-str-db/airbnb-client/pace';
+import { pace, resetPace, RETRY_BACKOFF_MS } from '@anchorage-str-db/airbnb-client/pace';
 import { parseListing, type ParsedListing } from '@anchorage-str-db/airbnb-client/parse';
 import { fetchPriceQuotes, liveQuoteFetcher } from '@anchorage-str-db/airbnb-client/priceQuotes';
 import { auditCoverage, liveSearchFetcher, searchAnchorage } from '@anchorage-str-db/airbnb-client/search';
@@ -18,6 +18,7 @@ import { report } from '@anchorage-str-db/utils/checks';
 import { addDays, toSqlTimestamp, todayUtc, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log } from '@anchorage-str-db/utils/log';
 import { inMunicipality } from '@anchorage-str-db/utils/muni_geography';
+import { withRetries } from '@anchorage-str-db/utils/retry';
 
 import { runChecks } from './checks.ts';
 import {
@@ -33,6 +34,9 @@ import {
   type RunRow,
 } from './store.ts';
 
+/** Attempts at the homepage that carries the API key. */
+const API_KEY_MAX_RETRIES = 3;
+
 export interface ScrapeAirbnbOptions {
   dbPath: string;
   scrapeDate?: IsoDate;
@@ -43,8 +47,9 @@ export interface ScrapeAirbnbOptions {
  * error-severity check passed.
  *
  * All fetches happen first, then all writes in one transaction (see
- * `Database.transaction` in `@anchorage-str-db/db`). Fetches are paced by `pace.ts`; a 429 throws
- * `RateLimitedError`, which aborts the run.
+ * `Database.transaction` in `@anchorage-str-db/db`). Fetches are paced by `pace.ts`; a 429
+ * pauses every request until Airbnb answers again, and a block that outlasts
+ * `MAX_PAUSED_MS` throws `RateLimitedError`, which aborts the run.
  *
  * The page pass always runs. Skipping it would write rows with page fields
  * carried forward from earlier days, indistinguishable from fresh reads.
@@ -61,8 +66,12 @@ export async function scrapeAirbnb(options: ScrapeAirbnbOptions): Promise<boolea
     // ---- network phase ---------------------------------------------------
     // Outside the transaction: these passes take most of an hour, and a
     // failure here writes nothing.
-    await pace().waitTurn();
-    const apiKey = await fetchApiKey();
+    const apiKey = await withRetries(fetchApiKey, {
+      label: "Airbnb's API key",
+      attempts: API_KEY_MAX_RETRIES,
+      backoffMs: RETRY_BACKOFF_MS,
+      pacer: pace(),
+    });
     const fetchPage = liveSearchFetcher(apiKey);
 
     const searchResult = await searchAnchorage({ fetchPage });

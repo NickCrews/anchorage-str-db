@@ -41,17 +41,26 @@ it('throws RetriesExhaustedError with the last error as cause', async () => {
   expect((err as Error).cause).toBe(boom);
 });
 
-it("throws RateLimitedError on the first rate limit under the pacer's 'abort' policy", async () => {
-  const pacer = new Pacer({ rate: 1e6, rateLimit: { action: 'abort' } });
-  let attempts = 0;
+it("retries a rate limit after the pause without counting it under the 'pause' policy", async () => {
+  const pacer = new Pacer({ rate: 1e6, rateLimit: { action: 'pause', pauseMs: 5, maxPausedMs: 1_000 } });
+  let calls = 0;
 
-  await expect(
-    withRetries(async () => {
-      attempts += 1;
-      throw failure(429);
-    }, options(pacer)),
-  ).rejects.toBeInstanceOf(RateLimitedError);
-  expect(attempts).toBe(1);
+  const result = await withRetries(async () => {
+    calls += 1;
+    if (calls <= 3) throw failure(429);
+    return 'ok';
+  }, { ...options(pacer), attempts: 1 });
+
+  expect(result).toBe('ok');
+  expect(calls).toBe(4);
+});
+
+it("throws RateLimitedError once the 'pause' policy runs out of pauses", async () => {
+  const pacer = new Pacer({ rate: 1e6, rateLimit: { action: 'pause', pauseMs: 5, maxPausedMs: 20 } });
+
+  await expect(withRetries(async () => Promise.reject(failure(429)), options(pacer))).rejects.toBeInstanceOf(
+    RateLimitedError,
+  );
 });
 
 it("slows the pacer on a rate limit and retries under its 'slowDown' policy", async () => {
