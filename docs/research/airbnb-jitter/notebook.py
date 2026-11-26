@@ -45,8 +45,7 @@ def _(mo):
 
     Data: the published database of 2026-11-16. Each step below runs from the
     three CSVs in `public/`, which you can download at the end of the next
-    section. The project's `utils/src/jitter.ts` and the database macro
-    `jitter_fits` implement the resulting test.
+    section.
     """)
     return
 
@@ -548,16 +547,16 @@ def _(METERS_PER_DEGREE, jittered, np, pd, registrations):
 def _(mo):
     mo.md(r"""
     With a 30 m tolerance the model passes the listing's own registration
-    more often than a 150 m circle and admits fewer other registrations. That
-    tolerance is `GEOCODE_TOLERANCE_METERS` in `utils/src/jitter.ts`. In
-    SQL, against the published database:
+    more often than a 150 m circle and admits fewer other registrations. In
+    SQL, against the published database, with 30 m as 0.00027° of latitude
+    and 0.00056° of longitude at 61.2°:
 
     ```sql
     SELECT l.listing_id, r.registration_id
     FROM listings_active l
     JOIN registrations_active r
-      ON jitter_fits(l.location_lat, l.location_lng,
-                     r.geocoded_lat, r.geocoded_lng, tolerance_m := 30)
+      ON abs(r.geocoded_lat - l.location_lat) BETWEEN 0.0002 - 0.00027 AND 0.0012 + 0.00027
+     AND abs(r.geocoded_lng - l.location_lng) BETWEEN 0.0002 - 0.00056 AND 0.0012 + 0.00056
     WHERE NOT l.location_is_exact;
     ```
 

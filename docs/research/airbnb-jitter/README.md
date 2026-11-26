@@ -36,11 +36,20 @@ duckdb anchorage_str.duckdb -c ".read docs/research/airbnb-jitter/extract.sql"
 uvx marimo edit --sandbox docs/research/airbnb-jitter/notebook.py
 ```
 
-## How the project uses this
+## Matching a jittered coordinate
 
-`packages/utils/src/jitter.ts` holds the bounds and `jitterFits`, and the
-database has the same test as the macro
-`jitter_fits(pin_lat, pin_lng, lat, lng, tolerance_m := 0)`. Against a
-registration's geocoded point, a 30 m tolerance (`GEOCODE_TOLERANCE_METERS`)
-passes a jittered listing's own registration 97.4% of the time with a mean
-of 7.0 candidates, where a 150 m circle passes 94.5% with 7.4.
+A point can be the true location behind a jittered pin when its offset from
+the pin is between 0.0002° and 0.0012° on both axes. Against a
+registration's geocoded point, widen each edge by 30 m for geocoder error
+(0.00027° of latitude, 0.00056° of longitude at 61.2°). That passes a
+jittered listing's own registration 97.4% of the time with a mean of 7.0
+candidates, where a 150 m circle passes 94.5% with 7.4.
+
+```sql
+SELECT l.listing_id, r.registration_id
+FROM listings_active l
+JOIN registrations_active r
+  ON abs(r.geocoded_lat - l.location_lat) BETWEEN 0.0002 - 0.00027 AND 0.0012 + 0.00027
+ AND abs(r.geocoded_lng - l.location_lng) BETWEEN 0.0002 - 0.00056 AND 0.0012 + 0.00056
+WHERE NOT l.location_is_exact;
+```
