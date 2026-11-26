@@ -132,9 +132,10 @@ export async function recordObservations(
 }
 
 /**
- * Write each listing's photo set if it differs from the listing's previous
- * one, including a change of order. A page read without photos writes
- * nothing, so the previous set stays current.
+ * Write each listing's photo set if its photos or its cover photo differ from
+ * the listing's previous set. Any other change of order writes nothing, so a
+ * set keeps the order it was first stored in. A page read without photos
+ * writes nothing, so the previous set stays current.
  *
  * Idempotent per scrape date: re-running a day replaces its rows.
  */
@@ -163,7 +164,8 @@ async function recordPhotos(
         WHERE valid_from < CAST(? AS DATE)
         QUALIFY row_number() OVER (PARTITION BY listing_id ORDER BY valid_from DESC) = 1
     ) prev USING (listing_id)
-    WHERE prev.photo_urls IS DISTINCT FROM s.photo_urls
+    WHERE prev.photo_urls[1] IS DISTINCT FROM s.photo_urls[1]
+       OR list_sort(prev.photo_urls) IS DISTINCT FROM list_sort(s.photo_urls)
     `,
     [scrapeDate],
   );
