@@ -388,14 +388,14 @@ ORDER BY
 -- Q: What share of listings are whole homes, and how has it changed?
 -- A whole home rented as an STR is off the long-term market; a private or
 -- shared room usually is not. Counts each day's observed listings at the
--- listing type of the version covering that day. `listing_type` is Airbnb's text
--- ('Entire home/apt', 'Private room', 'Shared room', 'Hotel room'), NULL for
+-- listing type of the version covering that day. `listing_type` is one of
+-- 'entire_home', 'private_room', 'shared_room', 'hotel_room', NULL for
 -- listings whose page was never read.
 -- ============================================================
 SELECT
     o.scrape_date,
     count(l.listing_type) AS listings_with_listing_type,
-    count(*) FILTER (WHERE l.listing_type = 'Entire home/apt') AS entire_homes,
+    count(*) FILTER (WHERE l.listing_type = 'entire_home') AS entire_homes,
     round(entire_homes / listings_with_listing_type, 3) AS entire_home_share
 FROM
     airbnb_listing_observations o
@@ -456,7 +456,7 @@ FROM
     LEFT JOIN latest_quote q USING (listing_id)
 WHERE
     l.is_active
-    AND l.listing_type = 'Entire home/apt'
+    AND l.listing_type = 'entire_home'
 GROUP BY
     l.bedrooms
 ORDER BY

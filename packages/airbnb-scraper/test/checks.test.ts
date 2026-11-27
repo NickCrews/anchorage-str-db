@@ -6,25 +6,40 @@ import { afterEach, expect, it } from 'vitest';
 
 import { connect } from '@anchorage-str-db/db/connect';
 import type { Database } from '@anchorage-str-db/db/database';
-import { collectHostCards, emptyListingPage, type ListingPage } from '@anchorage-str-db/airbnb-client/listingPage';
-import type { ParsedListing } from '@anchorage-str-db/airbnb-client/parse';
-import { emptyAudit, PriceBand, type CoverageAudit, type SearchResult } from '@anchorage-str-db/airbnb-client/search';
+import type { SearchListing } from 'airbnb-dlp';
 import { report, type CheckResult } from '@anchorage-str-db/utils/checks';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 
+import { collectHostCards } from '../src/airbnb.ts';
 import { PLAUSIBLE_LISTING_COUNT, runChecks } from '../src/checks.ts';
 import {
-  emptyPageStats,
+  type PageFetchStats,
   type QuoteStats,
   logRun,
   mergeCalendar,
   recordHostObservations,
   recordObservations,
 } from '../src/store.ts';
-import { makeListing } from './fixtures.ts';
-import { calendarResultFor } from './helpers.ts';
+import { calendar, calendarMap, makeListing, night, pageMap, quoteMap, type TestPage } from './fixtures.ts';
 
 const DAY: IsoDate = '2026-08-18';
+
+function emptyPageStats(): PageFetchStats {
+  return {
+    attempted: 0,
+    failed: 0,
+    exactLocated: 0,
+    registered: 0,
+    withHostId: 0,
+    withListingType: 0,
+    withGuestCapacity: 0,
+    withBeds: 0,
+    withBedrooms: 0,
+    withBathrooms: 0,
+    withPhotos: 0,
+    withExactFlag: 0,
+  };
+}
 
 const temporary: string[] = [];
 const open: Database[] = [];
@@ -39,9 +54,9 @@ afterEach(async () => {
  * pass, plus any `extra` listings.
  */
 async function seedMinimal(
-  pages: readonly ListingPage[] = [],
+  pages: readonly TestPage[] = [],
   firstReviews: { attempted: number; failed: number } = { attempted: 0, failed: 0 },
-  extra: readonly ParsedListing[] = [],
+  extra: readonly SearchListing[] = [],
 ): Promise<Database> {
   const dir = await mkdtemp(join(tmpdir(), 'anchorage-str-'));
   temporary.push(dir);
@@ -50,8 +65,8 @@ async function seedMinimal(
 
   const [floor] = PLAUSIBLE_LISTING_COUNT;
   const listings = [...[...Array(floor).keys()].map((i) => makeListing(i, `Cabin ${i}`)), ...extra];
-  await recordObservations(db, DAY, listings, pages);
-  const hostStats = await recordHostObservations(db, DAY, collectHostCards(pages));
+  await recordObservations(db, DAY, listings, pageMap(pages), quoteMap([]));
+  const hostStats = await recordHostObservations(db, DAY, collectHostCards(pageMap(pages)));
   await logRun(db, {
     scrapeDate: DAY,
     runStartedAt: `${DAY} 00:00:00`,
@@ -79,20 +94,19 @@ async function seedMinimal(
 /** Run the checks with healthy in-memory pass stats unless overridden. */
 async function check(
   db: Database,
-  overrides: { searchResult?: SearchResult; coverage?: CoverageAudit; quoteStats?: QuoteStats } = {},
+  overrides: { searchIncomplete?: number; quoteStats?: QuoteStats } = {},
 ): Promise<{ byName: Record<string, CheckResult>; all: CheckResult[] }> {
   const all = await runChecks(db, DAY, {
     pageStats: emptyPageStats(),
     quoteStats: overrides.quoteStats ?? { attempted: 0, failed: 0, priced: 0 },
-    searchResult: overrides.searchResult ?? { listings: [], queries: 9, unresolved: [] },
-    coverage: overrides.coverage ?? { boxes: 6, seen: 100, missedIds: [] },
+    searchIncomplete: overrides.searchIncomplete ?? 0,
   });
   return { byName: Object.fromEntries(all.map((result) => [result.name, result])), all };
 }
 
 it('passes no_backdated_calendar_rows on clean data', async () => {
   const db = await seedMinimal();
-  await mergeCalendar(db, DAY, [calendarResultFor('0', '2026-08-18', true, 1)]);
+  await mergeCalendar(db, DAY, 1, calendarMap([calendar('0', [night('2026-08-18', true, 1)])]));
 
   const { byName } = await check(db);
   expect(byName['no_backdated_calendar_rows']!.passed).toBe(true);
@@ -100,8 +114,10 @@ it('passes no_backdated_calendar_rows on clean data', async () => {
 
 it('fails no_backdated_calendar_rows for a night before its valid_from', async () => {
   const db = await seedMinimal();
-  // Bypasses `toNights`, which normally drops such nights.
-  await mergeCalendar(db, DAY, [calendarResultFor('0', '2026-08-01', false, 1)]);
+  await db.run(
+    "INSERT INTO airbnb_calendar_status VALUES (0, DATE '2026-08-01', false, 1, 'x', CAST(? AS DATE), NULL, true)",
+    [DAY],
+  );
 
   const { byName, all } = await check(db);
   expect(byName['no_backdated_calendar_rows']!.passed).toBe(false);
@@ -109,60 +125,18 @@ it('fails no_backdated_calendar_rows for a night before its valid_from', async (
   expect(report(all)).toBe(false);
 });
 
-it('passes search_coverage when the audit found nothing missing', async () => {
+it('passes search_complete when search covered the whole area', async () => {
   const db = await seedMinimal();
   const { byName } = await check(db);
-  expect(byName['search_coverage']!.passed).toBe(true);
+  expect(byName['search_complete']!.passed).toBe(true);
 });
 
-it('fails search_coverage when another query shape finds listings we missed', async () => {
-  const db = await seedMinimal();
-  const coverage: CoverageAudit = {
-    boxes: 6,
-    seen: 100,
-    missedIds: [...Array(20).keys()].map((i) => BigInt(900_000 + i)),
-  };
-
-  const { byName, all } = await check(db, { coverage });
-  expect(byName['search_coverage']!.passed).toBe(false);
-  expect(byName['search_coverage']!.severity).toBe('error');
-  expect(byName['search_coverage']!.detail).toContain('20/100');
-  expect(report(all)).toBe(false);
-});
-
-it('passes search_coverage for a miss rate under the threshold', async () => {
-  const db = await seedMinimal();
-  const coverage: CoverageAudit = { boxes: 6, seen: 100, missedIds: [900_000n, 900_001n, 900_002n] };
-
-  const { byName } = await check(db, { coverage });
-  expect(byName['search_coverage']!.passed).toBe(true);
-});
-
-it('warns when the audit did not run', async () => {
+it('fails search_complete when part of the area was not covered', async () => {
   const db = await seedMinimal();
 
-  const { byName, all } = await check(db, { coverage: emptyAudit() });
-  expect(byName['search_coverage']!.passed).toBe(false);
-  expect(byName['search_coverage']!.severity).toBe('warn');
-  expect(report(all)).toBe(true);
-});
-
-it('passes search_single_page when every band fit one page', async () => {
-  const db = await seedMinimal();
-  const { byName } = await check(db);
-  expect(byName['search_single_page']!.passed).toBe(true);
-});
-
-it('fails search_single_page when a band needed more than one page', async () => {
-  const db = await seedMinimal();
-  const stuck = new PriceBand(150, 151);
-
-  const { byName, all } = await check(db, {
-    searchResult: { listings: [], queries: 40, unresolved: [stuck] },
-  });
-  expect(byName['search_single_page']!.passed).toBe(false);
-  expect(byName['search_single_page']!.severity).toBe('error');
-  expect(byName['search_single_page']!.detail).toContain(String(stuck));
+  const { byName, all } = await check(db, { searchIncomplete: 1 });
+  expect(byName['search_complete']!.passed).toBe(false);
+  expect(byName['search_complete']!.severity).toBe('error');
   expect(report(all)).toBe(false);
 });
 
@@ -185,11 +159,11 @@ it('warns coords_within_municipality for an active listing outside the Municipal
 });
 
 /** A complete page read for each of the first `count` seeded listings. */
-function pagesRead(count: number, fields: (i: number) => Partial<ListingPage> = () => ({})): ListingPage[] {
+function pagesRead(count: number, fields: (i: number) => Partial<TestPage> = () => ({})): TestPage[] {
   return [...Array(count).keys()].map((i) => ({
-    ...emptyListingPage(String(i)),
+    listingId: String(i),
     hostId: String(1000 + i),
-    listingType: 'Entire home/apt',
+    listingType: 'entire_home',
     guestCapacity: 4,
     beds: 2,
     bedrooms: '1 bedroom',
@@ -262,8 +236,7 @@ it('fails photo_coverage when this run’s pages yield no photos', async () => {
   const all = await runChecks(db, DAY, {
     pageStats,
     quoteStats: { attempted: 0, failed: 0, priced: 0 },
-    searchResult: { listings: [], queries: 9, unresolved: [] },
-    coverage: { boxes: 6, seen: 100, missedIds: [] },
+    searchIncomplete: 0,
   });
   const photos = all.find((result) => result.name === 'photo_coverage')!;
   expect(photos.passed).toBe(false);
@@ -328,14 +301,11 @@ it('skips first_review_failure_rate on a run with nothing to resolve', async () 
 });
 
 /** Every seeded listing's page read, each under its own host, `withCard` of them with a card. */
-function pagesWithCards(withCard: number): ListingPage[] {
+function pagesWithCards(withCard: number): TestPage[] {
   const [floor] = PLAUSIBLE_LISTING_COUNT;
   return pagesRead(floor).map((page, i) => ({
     ...page,
-    hostCard:
-      i < withCard
-        ? { hostId: page.hostId, name: 'Rachel', about: null, timeAsHostYears: 9, timeAsHostMonths: 7 }
-        : null,
+    hostCard: i < withCard ? { name: 'Rachel', about: null, timeAsHostYears: 9, timeAsHostMonths: 7 } : null,
   }));
 }
 

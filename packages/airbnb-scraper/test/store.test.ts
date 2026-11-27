@@ -7,15 +7,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { connect } from '@anchorage-str-db/db/connect';
 import type { Database } from '@anchorage-str-db/db/database';
 import { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views';
-import type { CalendarNight, CalendarResult } from '@anchorage-str-db/airbnb-client/calendars';
-import {
-  collectHostCards,
-  emptyListingPage,
-  type HostCard,
-  type ListingPage,
-} from '@anchorage-str-db/airbnb-client/listingPage';
-import type { PriceQuote } from '@anchorage-str-db/airbnb-client/priceQuotes';
+import type { Calendar, SearchListing } from 'airbnb-dlp';
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
+
+import { collectHostCards, type HostCard } from '../src/airbnb.ts';
 
 import {
   logRun,
@@ -26,7 +21,18 @@ import {
   recordObservations,
   type RunRow,
 } from '../src/store.ts';
-import { makeListing } from './fixtures.ts';
+import {
+  calendar,
+  calendarMap,
+  makeListing,
+  night,
+  page,
+  pageMap,
+  quote,
+  quoteMap,
+  type TestPage,
+  type TestQuote,
+} from './fixtures.ts';
 
 const temporary: string[] = [];
 const open: Database[] = [];
@@ -46,8 +52,20 @@ async function freshDb(name = 't.duckdb'): Promise<{ db: Database; path: string 
   return { db, path };
 }
 
-function page(listingId: string, fields: Partial<ListingPage> = {}): ListingPage {
-  return { ...emptyListingPage(listingId), ...fields };
+function observe(
+  db: Database,
+  scrapeDate: IsoDate,
+  listings: readonly SearchListing[],
+  pages: readonly TestPage[] = [],
+  quotes: readonly TestQuote[] = [],
+) {
+  return recordObservations(db, scrapeDate, listings, pageMap(pages), quoteMap(quotes));
+}
+
+/** `'failed'` is a calendar that was not read. */
+function merge(db: Database, scrapeDate: IsoDate, calendars: ReadonlyArray<Calendar | 'failed'>) {
+  const read = calendars.filter((c): c is Calendar => c !== 'failed');
+  return mergeCalendar(db, scrapeDate, calendars.length, calendarMap(read));
 }
 
 function runRow(scrapeDate: IsoDate, overrides: Partial<RunRow> = {}): RunRow {
@@ -75,21 +93,6 @@ function runRow(scrapeDate: IsoDate, overrides: Partial<RunRow> = {}): RunRow {
   };
 }
 
-function night(nightDate: IsoDate, available: boolean, minNights: number | null): CalendarNight {
-  return {
-    nightDate,
-    available,
-    minNights,
-    availableForCheckin: available,
-    availableForCheckout: true,
-    maxNights: null,
-  };
-}
-
-function calendar(listingId: string, nights: CalendarNight[], error: string | null = null): CalendarResult {
-  return { listingId, nights, error };
-}
-
 // --------------------------------------------------------------------------
 // listings
 
@@ -98,7 +101,7 @@ describe('recordObservations', () => {
     const { db } = await freshDb();
     const dayOne = [makeListing(1, 'Cabin A'), makeListing(2, 'Cabin B')];
 
-    expect(await recordObservations(db, '2026-08-01', dayOne)).toEqual({
+    expect(await observe(db, '2026-08-01', dayOne)).toEqual({
       seen: 2,
       new: 2,
       changed: 2,
@@ -106,7 +109,7 @@ describe('recordObservations', () => {
     });
 
     // Same attributes the next day: new rows, no new versions.
-    const second = await recordObservations(db, '2026-08-02', dayOne);
+    const second = await observe(db, '2026-08-02', dayOne);
     expect(second.new).toBe(0);
     expect(second.changed).toBe(0);
     expect(await db.count('SELECT count(*) FROM airbnb_listing_observations')).toBe(4);
@@ -115,8 +118,8 @@ describe('recordObservations', () => {
 
   it('detects an attribute change', async () => {
     const { db } = await freshDb();
-    await recordObservations(db, '2026-08-01', [makeListing(1, 'Cabin A')]);
-    const stats = await recordObservations(db, '2026-08-02', [makeListing(1, 'Cabin A Renamed')]);
+    await observe(db, '2026-08-01', [makeListing(1, 'Cabin A')]);
+    const stats = await observe(db, '2026-08-02', [makeListing(1, 'Cabin A Renamed')]);
 
     expect(stats.changed).toBe(1);
     expect(stats.new).toBe(0);
@@ -133,10 +136,10 @@ describe('recordObservations', () => {
 
   it('does not open a new version for a new review', async () => {
     const { db } = await freshDb();
-    await recordObservations(db, '2026-08-01', [makeListing(1, 'Cabin A')]);
+    await observe(db, '2026-08-01', [makeListing(1, 'Cabin A')]);
 
     const busier = { ...makeListing(1, 'Cabin A'), reviewCount: 99, ratingValue: 4.5, priceHintPerNight: 999 };
-    const stats = await recordObservations(db, '2026-08-02', [busier]);
+    const stats = await observe(db, '2026-08-02', [busier]);
 
     expect(stats.changed).toBe(0);
     expect(await db.count('SELECT count(*) FROM listings')).toBe(1);
@@ -149,8 +152,8 @@ describe('recordObservations', () => {
   it('is idempotent per day', async () => {
     const { db } = await freshDb();
     const listings = [makeListing(1, 'A'), makeListing(2, 'B')];
-    const first = await recordObservations(db, '2026-08-01', listings);
-    const again = await recordObservations(db, '2026-08-01', listings);
+    const first = await observe(db, '2026-08-01', listings);
+    const again = await observe(db, '2026-08-01', listings);
 
     expect(await db.count('SELECT count(*) FROM airbnb_listing_observations')).toBe(2);
     // Including new=2 on the re-run.
@@ -165,14 +168,14 @@ describe('retirement', () => {
     const grace = 5;
 
     for (let i = 0; i < 3; i++) {
-      await recordObservations(db, addDays(start, i), [makeListing(1, 'A'), makeListing(2, 'B')]);
+      await observe(db, addDays(start, i), [makeListing(1, 'A'), makeListing(2, 'B')]);
     }
 
     // Listing 2 stops appearing from day 3 onward.
     let retiredOn: IsoDate | null = null;
     for (let i = 3; i < 3 + grace + 3; i++) {
       const day = addDays(start, i);
-      const stats = await recordObservations(db, day, [makeListing(1, 'A')]);
+      const stats = await observe(db, day, [makeListing(1, 'A')]);
       if (stats.retired && retiredOn === null) retiredOn = day;
     }
 
@@ -189,12 +192,12 @@ describe('retirement', () => {
   it('advances the clock even on a run that sees nothing', async () => {
     const { db } = await freshDb();
     const start = '2026-08-01';
-    await recordObservations(db, start, [makeListing(1, 'A')]);
+    await observe(db, start, [makeListing(1, 'A')]);
     await logRun(db, runRow(start));
 
     for (let i = 1; i < 10; i++) {
       const day = addDays(start, i);
-      await recordObservations(db, day, []);
+      await observe(db, day, []);
       await logRun(db, runRow(day, { listingsSeen: 0 }));
     }
 
@@ -203,7 +206,7 @@ describe('retirement', () => {
 
   it('is not advanced by a failed run', async () => {
     const { db } = await freshDb();
-    await recordObservations(db, '2026-08-01', [makeListing(1, 'A')]);
+    await observe(db, '2026-08-01', [makeListing(1, 'A')]);
     await logRun(
       db,
       runRow('2026-12-01', {
@@ -220,18 +223,18 @@ describe('retirement', () => {
 
   it('keeps a listing’s history when it comes back', async () => {
     const { db } = await freshDb();
-    const read = page('1', { locationIsExact: true, registrationId: 'STR20260001' });
-    await recordObservations(db, '2026-08-01', [makeListing(1, 'Cabin A')], [read]);
+    const read = page('1', { locationIsExact: true, registration: 'STR20260001' });
+    await observe(db, '2026-08-01', [makeListing(1, 'Cabin A')], [read]);
 
     for (let i = 2; i < 12; i++) {
       // gone long enough to retire
       const day = `2026-08-${String(i).padStart(2, '0')}`;
-      await recordObservations(db, day, []);
+      await observe(db, day, []);
       await logRun(db, runRow(day, { listingsSeen: 0 }));
     }
     expect(await db.count('SELECT count(*) FROM listings WHERE is_active')).toBe(0);
 
-    await recordObservations(db, '2026-08-20', [makeListing(1, 'Cabin A')], [read]);
+    await observe(db, '2026-08-20', [makeListing(1, 'Cabin A')], [read]);
 
     expect(
       await db.rows(
@@ -255,17 +258,16 @@ describe('retirement', () => {
 describe('listing-page fields', () => {
   it('land on the listing row', async () => {
     const { db } = await freshDb();
-    await recordObservations(
+    await observe(
       db,
       '2026-08-26',
       [makeListing(1, 'Cabin A'), makeListing(2, 'Cabin B')],
       [
         page('1', {
           locationIsExact: true,
-          registrationId: 'STR20260001',
-          locationSource: 'json-ld+state',
+          registration: 'STR20260001',
         }),
-        page('2', { locationIsExact: false, locationSource: 'json-ld+state' }),
+        page('2', { locationIsExact: false }),
       ],
     );
 
@@ -293,11 +295,11 @@ describe('listing-page fields', () => {
   it('carry forward rather than blanking on a run without pages', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [
-      page('1', { locationIsExact: true, registrationId: 'STR20260001' }),
+    await observe(db, '2026-08-26', parsed, [
+      page('1', { locationIsExact: true, registration: 'STR20260001' }),
     ]);
 
-    const stats = await recordObservations(db, '2026-08-27', parsed);
+    const stats = await observe(db, '2026-08-27', parsed);
 
     expect(stats.changed).toBe(0);
     expect(await db.count('SELECT count(*) FROM listings')).toBe(1);
@@ -311,9 +313,9 @@ describe('listing-page fields', () => {
   it('carry forward past a failed page fetch too', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [page('1', { locationIsExact: true })]);
+    await observe(db, '2026-08-26', parsed, [page('1', { locationIsExact: true })]);
 
-    const stats = await recordObservations(db, '2026-08-27', parsed, [
+    const stats = await observe(db, '2026-08-27', parsed, [
       page('1', { error: 'HttpError: HTTP 429' }),
     ]);
 
@@ -335,13 +337,13 @@ describe('listing-page fields', () => {
     // last non-null number.
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [
-      page('1', { locationIsExact: true, registrationId: 'STR20260001' }),
+    await observe(db, '2026-08-26', parsed, [
+      page('1', { locationIsExact: true, registration: 'STR20260001' }),
     ]);
     // Read the page; the host has taken the number down.
-    await recordObservations(db, '2026-08-27', parsed, [page('1', { locationIsExact: true })]);
+    await observe(db, '2026-08-27', parsed, [page('1', { locationIsExact: true })]);
     // Now a failed fetch.
-    await recordObservations(db, '2026-08-28', parsed, [
+    await observe(db, '2026-08-28', parsed, [
       page('1', { error: 'HttpError: HTTP 429' }),
     ]);
 
@@ -357,9 +359,9 @@ describe('listing-page fields', () => {
   it('do not open a version a day just for being re-read', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    const read = page('1', { locationIsExact: true, locationSource: 'json-ld+state' });
+    const read = page('1', { locationIsExact: true });
     for (const day of ['2026-08-26', '2026-08-27', '2026-08-28']) {
-      await recordObservations(db, day, parsed, [read]);
+      await observe(db, day, parsed, [read]);
     }
 
     expect(await db.count('SELECT count(*) FROM listings')).toBe(1);
@@ -372,10 +374,10 @@ describe('listing-page fields', () => {
   it('open a new version when a host publishes their registration id', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [page('1', { locationIsExact: true })]);
+    await observe(db, '2026-08-26', parsed, [page('1', { locationIsExact: true })]);
 
-    const stats = await recordObservations(db, '2026-08-27', parsed, [
-      page('1', { locationIsExact: true, registrationId: 'STR20260001' }),
+    const stats = await observe(db, '2026-08-27', parsed, [
+      page('1', { locationIsExact: true, registration: 'STR20260001' }),
     ]);
 
     expect(stats.changed).toBe(1);
@@ -402,7 +404,7 @@ describe('listing-page fields', () => {
 
   it('store a 19-digit host id exactly', async () => {
     const { db } = await freshDb();
-    await recordObservations(
+    await observe(
       db,
       '2026-08-26',
       [makeListing(1, 'Cabin A')],
@@ -417,9 +419,9 @@ describe('listing-page fields', () => {
   it('carry the host id forward past a failed page fetch', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [page('1', { hostId: '3682901' })]);
+    await observe(db, '2026-08-26', parsed, [page('1', { hostId: '3682901' })]);
 
-    const stats = await recordObservations(db, '2026-08-27', parsed, [
+    const stats = await observe(db, '2026-08-27', parsed, [
       page('1', { error: 'HttpError: HTTP 503' }),
     ]);
 
@@ -432,9 +434,9 @@ describe('listing-page fields', () => {
   it('open a new version when the listing changes hosts', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [page('1', { hostId: '3682901' })]);
+    await observe(db, '2026-08-26', parsed, [page('1', { hostId: '3682901' })]);
 
-    const stats = await recordObservations(db, '2026-08-27', parsed, [
+    const stats = await observe(db, '2026-08-27', parsed, [
       page('1', { hostId: '42437515' }),
     ]);
 
@@ -450,7 +452,7 @@ describe('listing-page fields', () => {
 
 describe('listing type and counts', () => {
   const entireHome = {
-    listingType: 'Entire home/apt',
+    listingType: 'entire_home',
     guestCapacity: 6,
     beds: 3,
     bedrooms: '2 bedrooms',
@@ -459,7 +461,7 @@ describe('listing type and counts', () => {
 
   it('land on the listing row', async () => {
     const { db } = await freshDb();
-    await recordObservations(db, '2026-08-26', [makeListing(1, 'Cabin A')], [page('1', entireHome)]);
+    await observe(db, '2026-08-26', [makeListing(1, 'Cabin A')], [page('1', entireHome)]);
 
     expect(
       await db.rows(
@@ -467,7 +469,7 @@ describe('listing type and counts', () => {
       ),
     ).toEqual([
       {
-        listing_type: 'Entire home/apt',
+        listing_type: 'entire_home',
         guest_capacity: 6,
         beds: 3,
         bedrooms: '2 bedrooms',
@@ -479,20 +481,20 @@ describe('listing type and counts', () => {
   it('carry forward past a failed page fetch', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [page('1', entireHome)]);
+    await observe(db, '2026-08-26', parsed, [page('1', entireHome)]);
 
-    const stats = await recordObservations(db, '2026-08-27', parsed, [
+    const stats = await observe(db, '2026-08-27', parsed, [
       page('1', { error: 'HttpError: HTTP 503' }),
     ]);
 
     expect(stats.changed).toBe(0);
     expect(
       await db.rows('SELECT listing_type, beds, bathrooms FROM listings WHERE is_active'),
-    ).toEqual([{ listing_type: 'Entire home/apt', beds: 3, bathrooms: '1.5 baths' }]);
+    ).toEqual([{ listing_type: 'entire_home', beds: 3, bathrooms: '1.5 baths' }]);
   });
 
   it.each([
-    ['a whole home converting to a rented room', { listingType: 'Private room' }],
+    ['a whole home converting to a rented room', { listingType: 'private_room' }],
     ['a change of guest capacity', { guestCapacity: 8 }],
     ['a change of bed count', { beds: 4 }],
     ['a change of bedrooms', { bedrooms: '3 bedrooms' }],
@@ -500,9 +502,9 @@ describe('listing type and counts', () => {
   ] as const)('open a new version for %s', async (_, change) => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [page('1', entireHome)]);
+    await observe(db, '2026-08-26', parsed, [page('1', entireHome)]);
 
-    const stats = await recordObservations(db, '2026-08-27', parsed, [
+    const stats = await observe(db, '2026-08-27', parsed, [
       page('1', { ...entireHome, ...change }),
     ]);
 
@@ -517,26 +519,13 @@ describe('listing type and counts', () => {
 });
 
 describe('price quotes', () => {
-  function quote(listingId: string, fields: Partial<PriceQuote> = {}): PriceQuote {
-    return {
-      listingId,
-      checkIn: '2026-09-01',
-      nights: 2,
-      label: '$241 for 2 nights, originally $269',
-      total: 241,
-      breakdown: ['2 nights x $120.50: $241.00'],
-      error: null,
-      ...fields,
-    };
-  }
-
   it('land on the observation row', async () => {
     const { db } = await freshDb();
-    await recordObservations(db, '2026-08-26', [makeListing(1, 'Cabin A')], [], [quote('1')]);
+    await observe(db, '2026-08-26', [makeListing(1, 'Cabin A')], [], [quote('1')]);
 
     expect(
       await db.rows(
-        'SELECT quote_check_in, quote_nights, quote_total, quote_label, quote_breakdown ' +
+        'SELECT quote_check_in, quote_nights, quote_total, quote_breakdown ' +
           'FROM airbnb_listing_observations',
       ),
     ).toEqual([
@@ -544,28 +533,23 @@ describe('price quotes', () => {
         quote_check_in: '2026-09-01',
         quote_nights: 2,
         quote_total: 241,
-        quote_label: '$241 for 2 nights, originally $269',
         quote_breakdown: ['2 nights x $120.50: $241.00'],
       },
     ]);
   });
 
-  it('keep Airbnb’s reason when a stay has no price', async () => {
+  it('keep the stay when Airbnb will not quote it', async () => {
     const { db } = await freshDb();
-    await recordObservations(db, '2026-08-26', [makeListing(1, 'Cabin A')], [], [
-      quote('1', { total: null, label: 'Those dates are not available', breakdown: [] }),
-    ]);
+    await observe(db, '2026-08-26', [makeListing(1, 'Cabin A')], [], [quote('1', { quote: null })]);
 
-    expect(await db.rows('SELECT quote_total, quote_label FROM airbnb_listing_observations')).toEqual([
-      { quote_total: null, quote_label: 'Those dates are not available' },
-    ]);
+    expect(
+      await db.rows('SELECT quote_check_in, quote_nights, quote_total FROM airbnb_listing_observations'),
+    ).toEqual([{ quote_check_in: '2026-09-01', quote_nights: 2, quote_total: null }]);
   });
 
-  it('are NULL for a failed quote', async () => {
+  it('are NULL for a listing not quoted', async () => {
     const { db } = await freshDb();
-    await recordObservations(db, '2026-08-26', [makeListing(1, 'Cabin A')], [], [
-      quote('1', { total: null, label: null, breakdown: [], error: 'HttpError: HTTP 503' }),
-    ]);
+    await observe(db, '2026-08-26', [makeListing(1, 'Cabin A')]);
 
     expect(await db.rows('SELECT quote_check_in, quote_total FROM airbnb_listing_observations')).toEqual([
       { quote_check_in: null, quote_total: null },
@@ -575,9 +559,11 @@ describe('price quotes', () => {
   it('never open a listing version', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [], [quote('1')]);
+    await observe(db, '2026-08-26', parsed, [], [quote('1')]);
 
-    const stats = await recordObservations(db, '2026-08-27', parsed, [], [quote('1', { total: 999 })]);
+    const stats = await observe(db, '2026-08-27', parsed, [], [
+      quote('1', { quote: { total: { amount: 999, currency: 'USD' }, breakdown: [] } }),
+    ]);
 
     expect(stats.changed).toBe(0);
   });
@@ -596,9 +582,9 @@ describe('airbnb_listing_photos', () => {
   it('stores a set only when it differs from the listing’s previous one', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1, 2) })]);
-    await recordObservations(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(1, 2) })]);
-    await recordObservations(db, '2026-08-28', parsed, [page('1', { photoUrls: urls(1, 2, 3) })]);
+    await observe(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1, 2) })]);
+    await observe(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(1, 2) })]);
+    await observe(db, '2026-08-28', parsed, [page('1', { photoUrls: urls(1, 2, 3) })]);
 
     expect(await photoRows(db)).toEqual([
       { valid_from: '2026-08-26', photo_urls: urls(1, 2) },
@@ -609,8 +595,8 @@ describe('airbnb_listing_photos', () => {
   it('stores a new set when the cover photo changes', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1, 2, 3) })]);
-    await recordObservations(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(2, 1, 3) })]);
+    await observe(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1, 2, 3) })]);
+    await observe(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(2, 1, 3) })]);
 
     expect(await photoRows(db)).toEqual([
       { valid_from: '2026-08-26', photo_urls: urls(1, 2, 3) },
@@ -621,8 +607,8 @@ describe('airbnb_listing_photos', () => {
   it('ignores a reorder that keeps the cover photo', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1, 2, 3) })]);
-    await recordObservations(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(1, 3, 2) })]);
+    await observe(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1, 2, 3) })]);
+    await observe(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(1, 3, 2) })]);
 
     expect(await photoRows(db)).toEqual([{ valid_from: '2026-08-26', photo_urls: urls(1, 2, 3) }]);
   });
@@ -630,9 +616,9 @@ describe('airbnb_listing_photos', () => {
   it('keeps the previous set current when a page yields none', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1, 2) })]);
-    await recordObservations(db, '2026-08-27', parsed, [page('1')]);
-    await recordObservations(db, '2026-08-28', parsed, [page('1', { error: 'timeout' })]);
+    await observe(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1, 2) })]);
+    await observe(db, '2026-08-27', parsed, [page('1')]);
+    await observe(db, '2026-08-28', parsed, [page('1', { error: 'timeout' })]);
 
     expect(
       await db.rows('SELECT photo_urls, photo_count, photos_valid_from FROM listing_photos_current'),
@@ -642,9 +628,9 @@ describe('airbnb_listing_photos', () => {
   it('never opens a listing version', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1) })]);
+    await observe(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1) })]);
 
-    const stats = await recordObservations(db, '2026-08-27', parsed, [
+    const stats = await observe(db, '2026-08-27', parsed, [
       page('1', { photoUrls: urls(3, 4, 5) }),
     ]);
 
@@ -655,10 +641,10 @@ describe('airbnb_listing_photos', () => {
   it('is idempotent per day', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];
-    await recordObservations(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1) })]);
-    await recordObservations(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(2) })]);
+    await observe(db, '2026-08-26', parsed, [page('1', { photoUrls: urls(1) })]);
+    await observe(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(2) })]);
     // Re-running the second day with the first day's set writes nothing new.
-    await recordObservations(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(1) })]);
+    await observe(db, '2026-08-27', parsed, [page('1', { photoUrls: urls(1) })]);
 
     expect(await photoRows(db)).toEqual([{ valid_from: '2026-08-26', photo_urls: urls(1) }]);
   });
@@ -667,9 +653,8 @@ describe('airbnb_listing_photos', () => {
 // --------------------------------------------------------------------------
 // hosts
 
-function card(hostId: string, overrides: Partial<HostCard> = {}): HostCard {
+function card(overrides: Partial<HostCard> = {}): HostCard {
   return {
-    hostId,
     name: 'Rachel',
     about: 'Born and raised in Girdwood.',
     timeAsHostYears: 9,
@@ -694,13 +679,13 @@ async function recordDay(db: Database, day: IsoDate, held: readonly Held[]): Pro
       ? page(String(listingId), { error: 'HttpError: HTTP 503' })
       : page(String(listingId), { hostId, hostCard: outcome === 'no-card' ? null : outcome }),
   );
-  await recordObservations(
+  await observe(
     db,
     day,
     held.map(({ listingId }) => makeListing(listingId, `Cabin ${listingId}`)),
     pages,
   );
-  await recordHostObservations(db, day, collectHostCards(pages));
+  await recordHostObservations(db, day, collectHostCards(pageMap(pages)));
   await logRun(db, runRow(day, { listingsSeen: held.length }));
 }
 
@@ -708,9 +693,9 @@ describe('hosts', () => {
   it('stores one row per host per day, however many listings they hold', async () => {
     const { db } = await freshDb();
     await recordDay(db, '2026-08-01', [
-      { listingId: 1, hostId: '100', page: card('100') },
-      { listingId: 2, hostId: '100', page: card('100') },
-      { listingId: 3, hostId: '200', page: card('200', { name: 'Alyeska Cabins LLC', about: null }) },
+      { listingId: 1, hostId: '100', page: card() },
+      { listingId: 2, hostId: '100', page: card() },
+      { listingId: 3, hostId: '200', page: card({ name: 'Alyeska Cabins LLC', about: null }) },
     ]);
 
     expect(
@@ -725,7 +710,7 @@ describe('hosts', () => {
 
   it('derives the hosting start date and years hosting', async () => {
     const { db } = await freshDb();
-    await recordDay(db, '2026-09-12', [{ listingId: 1, hostId: '100', page: card('100') }]);
+    await recordDay(db, '2026-09-12', [{ listingId: 1, hostId: '100', page: card() }]);
 
     expect(
       await db.rows(
@@ -746,9 +731,9 @@ describe('hosts', () => {
     const { db } = await freshDb();
     // A host who started 2017-02-05 reads 9y7m on 09-12 and 9y8m on 10-05,
     // implying 2017-02-12 and 2017-02-05.
-    await recordDay(db, '2026-09-12', [{ listingId: 1, hostId: '100', page: card('100') }]);
+    await recordDay(db, '2026-09-12', [{ listingId: 1, hostId: '100', page: card() }]);
     await recordDay(db, '2026-10-05', [
-      { listingId: 1, hostId: '100', page: card('100', { timeAsHostMonths: 8 }) },
+      { listingId: 1, hostId: '100', page: card({ timeAsHostMonths: 8 }) },
     ]);
 
     expect(await db.rows('SELECT hosting_started_on, hosting_start_spread_days FROM hosts')).toEqual([
@@ -758,12 +743,12 @@ describe('hosts', () => {
 
   it('opens a version when the name or bio changes, not when tenure grows', async () => {
     const { db } = await freshDb();
-    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card('100') }]);
+    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card() }]);
     await recordDay(db, '2026-09-01', [
-      { listingId: 1, hostId: '100', page: card('100', { timeAsHostMonths: 8 }) },
+      { listingId: 1, hostId: '100', page: card({ timeAsHostMonths: 8 }) },
     ]);
     await recordDay(db, '2026-09-02', [
-      { listingId: 1, hostId: '100', page: card('100', { timeAsHostMonths: 8, about: 'New bio.' }) },
+      { listingId: 1, hostId: '100', page: card({ timeAsHostMonths: 8, about: 'New bio.' }) },
     ]);
 
     expect(
@@ -781,7 +766,7 @@ describe('hosts', () => {
 
   it('carries the profile forward past a failed page fetch', async () => {
     const { db } = await freshDb();
-    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card('100') }]);
+    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card() }]);
     await recordDay(db, '2026-08-02', [{ listingId: 1, hostId: '100', page: 'failed' }]);
 
     // The owner is known from the listing's carried-forward host_id, so the
@@ -809,9 +794,9 @@ describe('hosts', () => {
 
   it('does not resurrect a removed bio after a later failure', async () => {
     const { db } = await freshDb();
-    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card('100') }]);
+    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card() }]);
     await recordDay(db, '2026-08-02', [
-      { listingId: 1, hostId: '100', page: card('100', { about: null }) },
+      { listingId: 1, hostId: '100', page: card({ about: null }) },
     ]);
     await recordDay(db, '2026-08-03', [{ listingId: 1, hostId: '100', page: 'failed' }]);
 
@@ -822,26 +807,26 @@ describe('hosts', () => {
 
   it('reports attempted, failed, new and changed', async () => {
     const { db } = await freshDb();
-    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card('100') }]);
+    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card() }]);
 
     const pages = [
       page('1', { error: 'HttpError: HTTP 503' }),
-      page('2', { hostId: '200', hostCard: card('200') }),
+      page('2', { hostId: '200', hostCard: card() }),
     ];
-    await recordObservations(db, '2026-08-02', [makeListing(1, 'Cabin 1'), makeListing(2, 'Cabin 2')], pages);
-    const stats = await recordHostObservations(db, '2026-08-02', collectHostCards(pages));
+    await observe(db, '2026-08-02', [makeListing(1, 'Cabin 1'), makeListing(2, 'Cabin 2')], pages);
+    const stats = await recordHostObservations(db, '2026-08-02', collectHostCards(pageMap(pages)));
 
     expect(stats).toEqual({ attempted: 2, failed: 1, new: 1, changed: 1 });
     // Idempotent per day.
-    expect(await recordHostObservations(db, '2026-08-02', collectHostCards(pages))).toEqual(stats);
+    expect(await recordHostObservations(db, '2026-08-02', collectHostCards(pageMap(pages)))).toEqual(stats);
     expect(await db.count('SELECT count(*) FROM airbnb_host_observations')).toBe(3);
   });
 
   it('keeps the lowest listing id’s card when a host’s pages disagree', () => {
-    const cards = collectHostCards([
-      page('20', { hostId: '100', hostCard: card('100', { name: 'Later' }) }),
-      page('3', { hostId: '100', hostCard: card('100', { name: 'Earlier' }) }),
-    ]);
+    const cards = collectHostCards(pageMap([
+      page('20', { hostId: '100', hostCard: card({ name: 'Later' }) }),
+      page('3', { hostId: '100', hostCard: card({ name: 'Earlier' }) }),
+    ]));
 
     expect(cards.get('100')?.name).toBe('Earlier');
   });
@@ -854,10 +839,10 @@ describe('host_listing_portfolios', () => {
   it('counts a multi-listing host', async () => {
     const { db } = await freshDb();
     await recordDay(db, '2026-08-01', [
-      { listingId: 1, hostId: '100', page: card('100') },
-      { listingId: 2, hostId: '100', page: card('100') },
+      { listingId: 1, hostId: '100', page: card() },
+      { listingId: 2, hostId: '100', page: card() },
       { listingId: 3, hostId: '100', page: 'no-card' },
-      { listingId: 4, hostId: '200', page: card('200') },
+      { listingId: 4, hostId: '200', page: card() },
     ]);
 
     expect(
@@ -885,8 +870,8 @@ describe('host_listing_portfolios', () => {
     const { db } = await freshDb();
     const start = '2026-08-01';
     const both: Held[] = [
-      { listingId: 1, hostId: '100', page: card('100') },
-      { listingId: 2, hostId: '100', page: card('100') },
+      { listingId: 1, hostId: '100', page: card() },
+      { listingId: 2, hostId: '100', page: card() },
     ];
     await recordDay(db, start, both);
     // Listing 2 disappears; it goes inactive after the grace period.
@@ -912,7 +897,7 @@ describe('host_listing_portfolios', () => {
   it('tracks a host who gains listings over time', async () => {
     const { db } = await freshDb();
     const holding = (n: number): Held[] =>
-      [...Array(n).keys()].map((i) => ({ listingId: i + 1, hostId: '100', page: card('100') }));
+      [...Array(n).keys()].map((i) => ({ listingId: i + 1, hostId: '100', page: card() }));
     await recordDay(db, '2026-08-01', holding(1));
     await recordDay(db, '2026-08-02', holding(3));
     await recordDay(db, '2026-08-03', holding(14));
@@ -930,7 +915,7 @@ describe('host_listing_portfolios', () => {
 
   it('keeps a listing in its host’s portfolio past a failed page fetch', async () => {
     const { db } = await freshDb();
-    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card('100') }]);
+    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card() }]);
     await recordDay(db, '2026-08-02', [{ listingId: 1, hostId: '100', page: 'failed' }]);
 
     expect(
@@ -940,8 +925,8 @@ describe('host_listing_portfolios', () => {
 
   it('moves a listing that changes hands', async () => {
     const { db } = await freshDb();
-    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card('100') }]);
-    await recordDay(db, '2026-08-02', [{ listingId: 1, hostId: '200', page: card('200') }]);
+    await recordDay(db, '2026-08-01', [{ listingId: 1, hostId: '100', page: card() }]);
+    await recordDay(db, '2026-08-02', [{ listingId: 1, hostId: '200', page: card() }]);
 
     expect(
       await db.rows(
@@ -982,14 +967,14 @@ describe('mergeCalendar', () => {
     const { db } = await freshDb();
 
     const open = [calendar('1', [night('2026-09-01', true, 2)])];
-    expect((await mergeCalendar(db, '2026-08-01', open)).nightsChanged).toBe(1);
+    expect((await merge(db, '2026-08-01', open)).nightsChanged).toBe(1);
 
     // Same value again: no new version.
-    expect((await mergeCalendar(db, '2026-08-02', open)).nightsChanged).toBe(0);
+    expect((await merge(db, '2026-08-02', open)).nightsChanged).toBe(0);
 
     // Flips to not available: new version, old one closed.
     const taken = [calendar('1', [night('2026-09-01', false, 2)])];
-    expect((await mergeCalendar(db, '2026-08-03', taken)).nightsChanged).toBe(1);
+    expect((await merge(db, '2026-08-03', taken)).nightsChanged).toBe(1);
 
     expect(
       await db.rows(
@@ -1004,7 +989,7 @@ describe('mergeCalendar', () => {
 
   it('hashes a night as available|min_nights|, the format of every stored row', async () => {
     const { db } = await freshDb();
-    await mergeCalendar(db, '2026-08-01', [calendar('1', [night('2026-09-01', true, 2)])]);
+    await merge(db, '2026-08-01', [calendar('1', [night('2026-09-01', true, 2)])]);
 
     expect(await db.value('SELECT status_hash FROM airbnb_calendar_status')).toBe(
       await db.value("SELECT md5('true|2|')"),
@@ -1013,9 +998,9 @@ describe('mergeCalendar', () => {
 
   it('excludes a failed fetch', async () => {
     const { db } = await freshDb();
-    const stats = await mergeCalendar(db, '2026-08-01', [
+    const stats = await merge(db, '2026-08-01', [
       calendar('1', [night('2026-09-01', true, 1)]),
-      calendar('2', [], 'timeout'),
+      'failed',
     ]);
 
     expect(stats.attempted).toBe(2);
@@ -1030,14 +1015,14 @@ describe('calendar_current', () => {
   it('drops an inactive listing’s unconfirmed future', async () => {
     const { db } = await freshDb();
     const start = '2026-08-01';
-    await recordObservations(db, start, [makeListing(1, 'A'), makeListing(2, 'B')]);
-    await mergeCalendar(db, start, [calendar('1', nights), calendar('2', nights)]);
+    await observe(db, start, [makeListing(1, 'A'), makeListing(2, 'B')]);
+    await merge(db, start, [calendar('1', nights), calendar('2', nights)]);
 
     // Listing 2 vanishes; listing 1 keeps being seen and keeps reporting.
     for (let i = 1; i < 10; i++) {
       const day = addDays(start, i);
-      await recordObservations(db, day, [makeListing(1, 'A')]);
-      await mergeCalendar(db, day, [calendar('1', nights)]);
+      await observe(db, day, [makeListing(1, 'A')]);
+      await merge(db, day, [calendar('1', nights)]);
     }
 
     const withCalendar = (view: string): Promise<number> =>
@@ -1054,10 +1039,10 @@ describe('calendar_current', () => {
     const { db } = await freshDb();
     const start = '2026-08-01';
     const past = [night('2026-08-01', false, 2)];
-    await recordObservations(db, start, [makeListing(1, 'A'), makeListing(2, 'B')]);
-    await mergeCalendar(db, start, [calendar('1', past), calendar('2', past)]);
+    await observe(db, start, [makeListing(1, 'A'), makeListing(2, 'B')]);
+    await merge(db, start, [calendar('1', past), calendar('2', past)]);
     for (let i = 1; i < 10; i++) {
-      await recordObservations(db, addDays(start, i), [makeListing(1, 'A')]);
+      await observe(db, addDays(start, i), [makeListing(1, 'A')]);
     }
 
     expect(await db.value('SELECT is_active FROM listings WHERE listing_id = 2')).toBe(false);
@@ -1074,20 +1059,18 @@ describe('first reviews', () => {
   it('stay pending until resolved, then are never pending again', async () => {
     const { db } = await freshDb();
     const listings = [makeListing(3, 'C'), makeListing(1, 'A'), makeListing(2, 'B')];
-    await recordObservations(db, '2026-09-01', listings);
+    await observe(db, '2026-09-01', listings);
 
-    expect((await pendingFirstReviews(db, listings)).map((c) => c.listingId)).toEqual(['1', '2', '3']);
+    expect(await pendingFirstReviews(db, listings)).toEqual(['1', '2', '3']);
 
+    // Listing 3's fetch failed or was not reached, so it is not recorded.
     await recordFirstReviews(db, '2026-09-01', [
-      { listingId: '1', firstReviewDate: '2021-05-04', error: null },
-      { listingId: '2', firstReviewDate: null, error: null },
-      { listingId: '3', firstReviewDate: null, error: 'HTTP 500' },
+      { listingId: '1', firstReviewDate: '2021-05-04' },
+      { listingId: '2', firstReviewDate: null },
     ]);
 
-    // A listing with no reviews is resolved; a failed fetch is retried.
-    expect(await pendingFirstReviews(db, listings)).toEqual([
-      { listingId: '3', reviewCountHint: 10 },
-    ]);
+    // A listing with no reviews is resolved; the rest wait for a later run.
+    expect(await pendingFirstReviews(db, listings)).toEqual(['3']);
     expect(
       await db.rows('SELECT * FROM airbnb_listing_first_reviews ORDER BY listing_id'),
     ).toEqual([
@@ -1098,7 +1081,7 @@ describe('first reviews', () => {
 
   it('refuse to resolve a listing twice', async () => {
     const { db } = await freshDb();
-    const result = { listingId: '1', firstReviewDate: '2021-05-04', error: null };
+    const result = { listingId: '1', firstReviewDate: '2021-05-04' };
     await recordFirstReviews(db, '2026-09-01', [result]);
 
     await expect(recordFirstReviews(db, '2026-09-02', [result])).rejects.toThrow();
@@ -1107,12 +1090,12 @@ describe('first reviews', () => {
   it('give listings a first_available_date_est no later than first_seen_date', async () => {
     const { db } = await freshDb();
     const listings = [1, 2, 3, 4].map((id) => makeListing(id, `Cabin ${id}`));
-    await recordObservations(db, '2026-09-01', listings);
+    await observe(db, '2026-09-01', listings);
     await recordFirstReviews(db, '2026-09-01', [
-      { listingId: '1', firstReviewDate: '2021-05-04', error: null },
-      { listingId: '2', firstReviewDate: null, error: null },
+      { listingId: '1', firstReviewDate: '2021-05-04' },
+      { listingId: '2', firstReviewDate: null },
       // A review dated after first sighting, e.g. from a timezone edge.
-      { listingId: '3', firstReviewDate: '2026-09-02', error: null },
+      { listingId: '3', firstReviewDate: '2026-09-02' },
     ]);
 
     expect(
@@ -1149,7 +1132,7 @@ describe('transactions', () => {
 
     await expect(
       db.transaction(async () => {
-        await recordObservations(db, '2026-08-26', [makeListing(1, 'Cabin A')]);
+        await observe(db, '2026-08-26', [makeListing(1, 'Cabin A')]);
         throw new Error('calendar merge blew up');
       }),
     ).rejects.toThrow('calendar merge blew up');
@@ -1160,11 +1143,11 @@ describe('transactions', () => {
 
   it('keep the previous day intact on rollback', async () => {
     const { db } = await freshDb();
-    await db.transaction(() => recordObservations(db, '2026-08-26', [makeListing(1, 'Cabin A')]));
+    await db.transaction(() => observe(db, '2026-08-26', [makeListing(1, 'Cabin A')]));
 
     await expect(
       db.transaction(async () => {
-        await recordObservations(db, '2026-08-27', [makeListing(1, 'Cabin A Renamed')]);
+        await observe(db, '2026-08-27', [makeListing(1, 'Cabin A Renamed')]);
         throw new Error('died after writing the new day');
       }),
     ).rejects.toThrow();
@@ -1176,7 +1159,7 @@ describe('transactions', () => {
 
   it('commit on success, durably', async () => {
     const { db, path } = await freshDb();
-    await db.transaction(() => recordObservations(db, '2026-08-26', [makeListing(1, 'Cabin A')]));
+    await db.transaction(() => observe(db, '2026-08-26', [makeListing(1, 'Cabin A')]));
     db.close();
     open.length = 0;
 
@@ -1190,7 +1173,7 @@ describe('transactions', () => {
     const { db } = await freshDb();
     await expect(
       db.transaction(async () => {
-        await recordObservations(db, '2026-08-26', [makeListing(1, 'Cabin A')]);
+        await observe(db, '2026-08-26', [makeListing(1, 'Cabin A')]);
         throw new Error('boom');
       }),
     ).rejects.toThrow();

@@ -13,10 +13,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { connect } from '@anchorage-str-db/db/connect';
 import type { Database } from '@anchorage-str-db/db/database';
 import { muniLicensePageReads } from '@anchorage-str-db/db/schema';
-import { emptyListingPage } from '@anchorage-str-db/airbnb-client/listingPage';
 
 import { recordObservations } from '../src/store.ts';
-import { makeListing } from './fixtures.ts';
+import { makeListing, page, pageMap } from './fixtures.ts';
 
 type PageRead = Omit<typeof muniLicensePageReads.$inferInsert, 'scrapeDate'>;
 
@@ -77,11 +76,11 @@ describe('listings_active_with_registration', () => {
       db,
       '2026-09-10',
       [makeListing(1, 'Echo Ridge'), makeListing(2, 'Echo Ridge loft'), makeListing(3, 'Unregistered')],
-      [
-        { ...emptyListingPage('1'), registrationId: 'STR20260309' },
-        { ...emptyListingPage('2'), registrationId: 'STR20260309' },
-        { ...emptyListingPage('3'), registrationId: 'STR20269999' },
-      ],
+      pageMap([
+        page('1', { registration: 'STR20260309' }),
+        page('2', { registration: 'STR 20260309' }),
+        page('3', { registration: 'STR20269999' }),
+      ]),
     );
     await db.appendRows(muniLicensePageReads, [{ ...licensePage(13923), scrapeDate: '2026-09-10' }]);
 

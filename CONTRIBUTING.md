@@ -17,23 +17,24 @@ The workspace packages share the compiler options in `tsconfig.base.json`:
 | package | does | runtime dependencies |
 | --- | --- | --- |
 | `packages/cli` | the one command line, `anchorage-str-db scrape <airbnb\|licenses\|parcels>` | `airbnb-scraper`, `licenses-scraper`, `parcels-scraper`, `utils` |
-| `packages/airbnb-scraper` | the Airbnb scrape over `airbnb-client`: decides what is stored, writes, checks | `db`, `airbnb-client`, `utils` |
+| `packages/airbnb-scraper` | the Airbnb scrape over [airbnb-dlp](https://github.com/NickCrews/airbnb-dlp): decides what is fetched and stored, writes, checks | `db`, `airbnb-dlp`, `utils` |
 | `packages/licenses-scraper` | the license scrape over `licenses-client` and `muni-gis-client`: chooses which license ids to read, geocodes, writes, checks | `db`, `licenses-client`, `muni-gis-client`, `utils` |
 | `packages/parcels-scraper` | the parcel scrape from anchorage-property's published database: reads it, checks it, replaces `property_parcels` | `db`, `utils` |
 | `packages/db` | the DuckDB schema (Drizzle), its migrations, the views, and the connection | `utils`, `@duckdb/node-api`, `drizzle-orm`, `@duckdbfan/drizzle-duckdb` |
-| `packages/airbnb-client` | searches Airbnb and fetches listing pages, calendars, price quotes and reviews | `utils`, `impit` |
 | `packages/licenses-client` | fetches and parses the Muni's CityView license pages, and finds the newest license id | `utils` |
 | `packages/muni-gis-client` | queries the Muni's ArcGIS services: feature layers, the address geocoder, community councils | `utils` |
 | `packages/utils` | dates, logging, check results, concurrency, request pacing and retries, `fetch`, the Municipality boundary | none |
 | `packages/ui` | the browser story and its estimates | |
 
-Each source is split in two. A `*-client` package (`airbnb-client`,
-`licenses-client`, `muni-gis-client`) works in memory: it returns typed
+Each source is split in two. A client works in memory: it returns typed
 records and never touches DuckDB, so it can be tested and debugged without a
-database. A `*-scraper` package (`airbnb-scraper`, `licenses-scraper`,
-`parcels-scraper`) decides what is stored, writes it and checks it; none
-imports another. `parcels-scraper` has no client: DuckDB attaches
-anchorage-property's published file and copies its rows directly.
+database. Airbnb's client is the airbnb-dlp package, maintained in its own
+repository with its own tests and live checks against airbnb.com; the Muni's
+are `licenses-client` and `muni-gis-client`. A `*-scraper` package
+(`airbnb-scraper`, `licenses-scraper`, `parcels-scraper`) decides what is
+stored, writes it and checks it; none imports another. `parcels-scraper` has
+no client: DuckDB attaches anchorage-property's published file and copies its
+rows directly.
 `packages/cli` is the only entry point and holds no logic of its own.
 
 Nothing is compiled. Each package exports its sources
@@ -106,23 +107,19 @@ answering queries under the old name from a definition nothing maintains.
 
 ### Dependencies
 
-The only third-party runtime dependencies are `impit`, `@duckdb/node-api`,
-`drizzle-orm` and `@duckdbfan/drizzle-duckdb`, which adapts Drizzle's
-Postgres support to DuckDB.
+The only third-party runtime dependencies are `airbnb-dlp`,
+`@duckdb/node-api`, `drizzle-orm` and `@duckdbfan/drizzle-duckdb`, which
+adapts Drizzle's Postgres support to DuckDB.
 
-Airbnb sits behind Akamai, which fingerprints the TLS ClientHello and refuses
-Node's built-in `fetch` regardless of `User-Agent`. `impit` replays a Chrome
-handshake (`chrome124`, set in `airbnb-client/src/api/http.ts`). If every
-request starts failing with 403, try a newer browser profile. ArcGIS Online,
+airbnb-dlp is depended on as `^1`: each repair of an airbnb.com change is a
+patch release, so keep the lockfile current to pick repairs up. When Airbnb
+changes something, upgrading it is the first fix to try; report what remains
+[upstream](https://github.com/NickCrews/airbnb-dlp/issues). ArcGIS Online,
 the Muni's geocoder on `www.ancgis.com` and the CityView portal accept
 Node's `fetch` (the geocoder refuses Python's default `User-Agent`).
 
-Arguments are parsed with `node:util.parseArgs`. The listing-page parser only
-needs the JSON in `<script>` tags, which `airbnb-client/src/html.ts` extracts
-with a regex; the license page parser reads server-rendered HTML the same way.
-
-`packages/airbnb-client/src/api/` has one file per Airbnb endpoint and its
-own README.
+Arguments are parsed with `node:util.parseArgs`. The license page parser
+reads server-rendered HTML with regexes.
 
 ### Fetch everything, then write everything
 
@@ -145,12 +142,19 @@ aggregate.
 ### Listing-page pass
 
 Every run fetches each listing's own page for fields the search response
-lacks or reports unreliably: Airbnb's `isExactLocation` flag (whether
-`location_lat`/`location_lng` is the real position or jittered), the
-municipal STR registration id, the primary host's user id, listing type,
-guest, bed, bedroom and bathroom counts, and photos. All but photos are
-stored on the same `airbnb_listing_observations` row as the search fields. When a
-page fetch fails, the `listings` view carries the previous values forward.
+lacks or reports unreliably: whether `location_lat`/`location_lng` is the
+real position or jittered, the municipal STR registration id, the primary
+host's user id, listing type, guest, bed, bedroom and bathroom counts, and
+photos. All but photos are stored on the same `airbnb_listing_observations`
+row as the search fields. When a page fetch fails, the `listings` view
+carries the previous values forward.
+
+The registration id is Anchorage's: `registrationId` in `airbnb.ts` reads
+`STR` and its digits out of the host's "Registration Details" text, which
+airbnb-dlp returns as written. airbnb-dlp does not yet return the location
+subtitle or the location-verified flag
+([NickCrews/airbnb-dlp#44](https://github.com/NickCrews/airbnb-dlp/issues/44)),
+so `location_subtitle` and `location_verified` are written NULL.
 
 The pass has no flag to skip it. A skipped pass would write rows whose page
 fields are carried forward from an earlier day, and nothing in the database
@@ -161,12 +165,13 @@ and [`docs/research/airbnb-pdp-listing-attributes.md`](docs/research/airbnb-pdp-
 
 ### Price-quote pass
 
-After the calendar pass, each run asks `StaysPdpBookItQuery` for the price of
-one stay per listing: the earliest stay the calendar says is bookable,
-checking in tomorrow or later, for the listing's minimum number of nights
-(`priceQuotes.ts`). A fully booked listing gets no quote. The response is
-stored as Airbnb displays it, on the day's `airbnb_listing_observations` row;
-nightly rates are left to analysis. See
+After the calendar pass, each run asks for the price of one stay per
+listing: the first of airbnb-dlp's `bookableStays` checking in tomorrow or
+later, which is the earliest bookable stay of the listing's minimum number
+of nights (`fetchPriceQuotes` in `airbnb.ts`). A fully booked listing gets no
+quote. The total and its breakdown are stored on the day's
+`airbnb_listing_observations` row; a stay Airbnb will not quote keeps its
+check-in and nights with a NULL total. Nightly rates are left to analysis. See
 [`docs/research/airbnb-calendar-price.md`](docs/research/airbnb-calendar-price.md).
 
 ### First-review pass
@@ -181,50 +186,42 @@ fetched again, since a later first review would fall after its
 `first_seen_date` and couldn't change the estimate. A failed fetch writes no
 row, so the listing is retried next run.
 
-Airbnb's reviews endpoint sorts newest first and has no oldest-first option,
-so `firstReviews.ts` requests the tail of the list at an offset taken from
-search's review count, and requests again at Airbnb's own total when that
-count was stale. Search omits the count for listings with very few reviews.
-Only each review's `createdAt` is read; no review text or reviewer data is
+Airbnb's reviews sort newest first, so the pass reads every review of each
+listing (`fetchFirstReviews` in `airbnb.ts`), one request per page of
+reviews. A cheaper way to reach the oldest review is
+[NickCrews/airbnb-dlp#43](https://github.com/NickCrews/airbnb-dlp/issues/43).
+Only each review's `createdAt` is used; no review text or reviewer data is
 kept.
 
-The pass is time-budgeted, so the ~2600-listing backfill spans several runs and
-adds at most 15 minutes to one. In a sample of 200 listings it made 206
-requests. Its `first_review_failure_rate` check is a warning: a failure is
+The pass is time-budgeted, so a backfill spans several runs and adds at most
+15 minutes to one. Its `first_review_failure_rate` check is a warning: a failure is
 retried next run, and failing the run would withhold that day's calendar and
 listings, which can't be scraped after the fact.
 
 ### Host pass
 
 Every listing page carries its primary host's profile card (name, bio,
-`timeAsHost`), so the host pass makes no requests. `collectHostCards` reduces
+`timeAsHost`), so the host pass makes no requests. airbnb-dlp drops a card
+that names another account than the page's host. `collectHostCards` reduces
 the run's pages to one card per distinct host (about 2 listings per host),
-and `recordHostObservations` writes a row for every host with a listing
-observed that day, including hosts whose only page failed.
+taking the lowest listing id's reading when they differ, so a re-run records
+the same thing. `recordHostObservations` writes a row for every host with a
+listing observed that day, including hosts whose only page failed.
 
 ### Request budget
 
-A run makes about `3N + 200` requests for N listings: a page, a calendar and
-a price quote per listing (the host pass adds none), plus one `StaysSearch`
-request per price band (see
-[`docs/research/airbnb-search-pagination.md`](docs/research/airbnb-search-pagination.md)
-for why the search never paginates). At ~2600 listings that is ~8000 requests
-and about 75 minutes. The first-review pass adds about one request per
-unresolved listing, up to its 15-minute budget while backfilling and a handful
-once caught up. The per-listing passes dominate.
+A run makes about `3N` requests for N listings, a page, a calendar and a
+price quote each (the host pass adds none), plus search's, which airbnb-dlp
+splits by price and area until no query hits Airbnb's result cap. At ~2600
+listings that is ~8000 requests. The first-review pass adds a request per
+page of reviews of each unresolved listing, up to its 15-minute budget.
 
-The Airbnb API key is fetched once per run in `scrape.ts` and passed to
-every search and calendar request. It is a long-lived public value, and
-fetching it per request would re-download the ~600 KB homepage for each
-listing.
-
-Every pass retries with `withRetries` (`utils/src/retry.ts`) and the shared
-Airbnb pacer, `pace()` in `airbnb-client/src/pace.ts`. The pacer's policy is
-Airbnb's: a 429 halves the request rate and pauses every request, with one
-probe every 10 minutes, until Airbnb answers again; a block longer than 2
-hours aborts the run. A streak of timeouts halves the request rate, and any
-other error is retried. A request refused during a pause is retried without
-counting against its attempts.
+One airbnb-dlp client paces every request of a run. Its pace adapts to
+Airbnb: it speeds up while requests are served normally, and a 429 halves it
+and pauses every request for as long as Airbnb asks. If Airbnb keeps
+rate-limiting or refuses the client, airbnb-dlp ends the call as `Blocked`
+and the run aborts. A single listing's failure is counted, and the
+failure-rate checks judge them in aggregate.
 
 ## The license scrape
 
@@ -438,39 +435,30 @@ Every run fails with `LegacySchemaError` until someone:
   listing's calendar is no longer fetched, so its future nights stay
   `is_current` in the raw table for up to twelve months. `calendar_current` drops nights after
   the listing's last sighting and keeps the ones before it.
-- **Undated search.** `searchAnchorage` sends no check-in/check-out, so
+- **Undated search.** `searchMunicipality` sends no check-in/check-out, so
   Airbnb returns every listing in the area rather than only those free on
   given nights. Availability comes from the calendar.
 - **Calendar days before the scrape date are dropped.** Airbnb's calendar
   starts on the 1st of the current month and marks elapsed days
-  `available: false`. `toNights(days, minDate)` filters them so they don't
-  read as bookings. The unit test covers the filter, not Airbnb's response
-  shape, so check live output after changing calendar parsing.
+  `available: false`. `nightsFrom(calendar, minDate)` filters them so they
+  don't read as bookings.
 - **A listing's address comes from its registration, not its coordinate.**
   A listing showing a registration id gets the registration's address and
   parcel in `listings_active_with_registration`; nothing matches the rest by
   location. Before adding that, read
   [`docs/research/airbnb-address-deanonymization.md`](docs/research/airbnb-address-deanonymization.md).
-- **The listing-page parse has three layers.** `listingPage.ts` extracts the
-  same fields from schema.org JSON-LD, a shape search over the embedded
-  GraphQL state, and regexes over the raw HTML, because none of it is a
-  documented API. Each page records which layers contributed
-  (`ListingPage.locationSource`, in memory only), and the
-  `extraction_layer_*_alive` checks fail when a layer stops producing values.
-  JSON-LD has only the coordinate, rounded to 4 decimal places, so the
-  coordinate comes from `state` when it has one, the other fields from `state`
-  and `raw-html`, and photos from `state` alone (JSON-LD lists at most 8). The
-  `*_coverage` and `photo_coverage` checks fail the run when a field stops
-  being produced.
 - **Bed, bedroom and bathroom counts, and listing type, come from the listing
   page, not search.** Search cards show them only as free text, carry no
   guest line, and drop the bath line on some days, which would open a
   spurious version each time.
-- **Text is stored as Airbnb writes it.** Listing type, bedrooms and bathrooms
-  exist only as display text (`Entire home/apt`, `Studio`, `Shared
-  bathroom`), so they are stored verbatim rather than mapped to categories or
-  numbers: a new wording can't be misread, and analysis can re-derive
-  anything from the original. The parser only picks out which line is which.
+- **Bedrooms and bathrooms are stored as Airbnb writes them.** They exist
+  only as display text (`Studio`, `Shared bathroom`), so they are stored
+  verbatim rather than as counts: a new wording can't be misread, and
+  analysis can re-derive anything from the original. Listing type is
+  airbnb-dlp's `roomType` (`entire_home`, `private_room`, `shared_room`,
+  `hotel_room`), a closed set that is NULL for a value airbnb-dlp does not
+  know; `listing_type_coverage` fails the run when that happens often
+  ([NickCrews/airbnb-dlp#45](https://github.com/NickCrews/airbnb-dlp/issues/45)).
   Guest capacity and beds are integers in Airbnb's data and are stored as
   such.
 - **The Municipality boundary is generated from the Muni's community council
@@ -484,9 +472,9 @@ Every run fails with `LegacySchemaError` until someone:
 Not implemented. Vrbo's anti-scraping measures are stronger than Airbnb's,
 so start by investigating what is reachable. Then:
 
-- Add `packages/vrbo-client/`, in memory like `airbnb-client`, with one
-  file per endpoint; a `packages/vrbo-scraper/` that stores it; and a `vrbo`
-  source in `packages/cli`.
+- Add a Vrbo client that works in memory, like airbnb-dlp; a
+  `packages/vrbo-scraper/` that stores it; and a `vrbo` source in
+  `packages/cli`.
 - Add a `source` column (default `'airbnb'`) to `airbnb_listing_observations` and
   `airbnb_calendar_status`, and change the views' `PARTITION BY listing_id` to
   `PARTITION BY source, listing_id`, since listing ids are unique only per
@@ -501,9 +489,10 @@ pnpm test        # vitest, every package
 pnpm typecheck
 ```
 
-- `airbnb-client/test/listingPage.test.ts` and `standardize.test.ts` parse
-  synthetic Airbnb responses. They catch parser regressions but not changes
-  on Airbnb's side.
+- Parsing Airbnb is airbnb-dlp's, and tested there.
+  `airbnb-scraper/test/e2e/scrape.test.ts` replays a recorded live scrape of
+  a few Midtown blocks through the whole pipeline, checks included;
+  `test/e2e/record.ts` re-records it.
 - `licenses-client/test/licensePage.test.ts` reads real license pages from the
   Muni's portal, one per markup case the parser handles (listed in that
   package's README), so it fails when the portal's markup changes.
@@ -523,14 +512,12 @@ pnpm typecheck
   converts values; `sourceFreshness.test.ts` covers `source_freshness`.
 
 Only `licenses-client/test/licensePage.test.ts` and the live tests in
-`muni-gis-client` need the network. Fetching is injected: `searchAnchorage` takes a
-`fetchPage`, `fetchCalendars` takes a `fetchOne`, `fetchFirstReviews` takes a
-`fetchPage`, `fetchLayer` and `fetchCommunityCouncils` take a `fetchJson`,
+`muni-gis-client` need the network. Fetching is injected: `scrapeAirbnb`
+takes an airbnb-dlp `client`, `fetchLayer` and `fetchCommunityCouncils` take a `fetchJson`,
 `fetchLicensePages` takes a `fetchOne`, `geocodeAddresses` takes a
 `geocodeOne`, and `scrapeLicenses` takes all of the license scrape's. The `live*`
 functions are the only places real requests are made.
 
-When Airbnb changes something, `airbnb-client/src/api/` and `parse.ts` break
-without failing a test. To debug a production failure, run `searchAnchorage` over a
-small box and `livePageFetcher` against a few known listing ids, and check the
-`extraction_layer_*_alive` results from the last run.
+When Airbnb changes something, the failure-rate and `*_coverage` checks fail
+the run. Upgrade airbnb-dlp first; to debug further, run `test/e2e/record.ts`,
+which scrapes a small box live.

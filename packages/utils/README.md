@@ -28,7 +28,4 @@ Each service gets its own `Pacer`, made once with that service's limits and
 policy; every call to the service passes it to `withRetries`. By default a
 429 (`HttpStatusError`) halves the rate and is retried after a wait, honouring
 `Retry-After`; the CityView portal, ArcGIS and the geocoder use that.
-`airbnb-client/src/pace.ts` is the exception: one process-wide pacer whose
-`classify` reads impit's errors and whose `pause` policy holds every request
-on a 429 and probes until the block lifts, since Airbnb's block is IP-wide and
-lasts about an hour.
+Airbnb's requests are paced by airbnb-dlp instead.

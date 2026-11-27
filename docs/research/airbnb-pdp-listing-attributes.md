@@ -2,8 +2,8 @@
 
 Measured 2026-09-12 on 44 listings from three Anchorage-area search pages,
 chosen to cover every property kind the searches returned (homes, rooms,
-shared rooms, hostels, tents, RVs, domes, apartments, …). Explains those
-fields' extraction in `packages/airbnb-client/src/listingPage.ts`. See
+shared rooms, hostels, tents, RVs, domes, apartments, …). Written for those
+fields' extraction in the former `packages/airbnb-client/src/listingPage.ts`. Airbnb's requests and parsing now live in [airbnb-dlp](https://github.com/NickCrews/airbnb-dlp). See
 [`airbnb-pdp-location-payload.md`](airbnb-pdp-location-payload.md) for the
 page's structure and the three parser layers.
 

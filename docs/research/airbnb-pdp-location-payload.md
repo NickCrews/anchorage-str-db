@@ -1,7 +1,7 @@
 # Location data on Airbnb's listing page
 
-Measured 2026-08-26 on Girdwood listings. Explains
-`packages/airbnb-client/src/listingPage.ts`. See also
+Measured 2026-08-26 on Girdwood listings. Written for the former
+`packages/airbnb-client/src/listingPage.ts`. Airbnb's requests and parsing now live in [airbnb-dlp](https://github.com/NickCrews/airbnb-dlp). See also
 [`airbnb-address-deanonymization.md`](airbnb-address-deanonymization.md).
 
 **Summary:** The listing page (PDP) says whether each listing's coordinate is

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Runs the Airbnb scrape over airbnb-client and writes it to the database",
+  "description": "Runs the Airbnb scrape over airbnb-dlp and writes it to the database",
   "license": "MIT",
   "exports": {
     "./*": "./src/*.ts"
@@ -14,12 +14,13 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@anchorage-str-db/airbnb-client": "workspace:*",
     "@anchorage-str-db/db": "workspace:*",
-    "@anchorage-str-db/utils": "workspace:*"
+    "@anchorage-str-db/utils": "workspace:*",
+    "airbnb-dlp": "^1.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "impit": "0.14.9",
     "typescript": "5.9.2",
     "vitest": "^4.1.11"
   }

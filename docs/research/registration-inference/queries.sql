@@ -131,7 +131,7 @@ SELECT listing_id, 'sibling', name_c[1]
 FROM per_listing WHERE len(name_c) = 1 AND name_n[1] = 0 AND NOT host_cites_nearby
 UNION ALL
 SELECT listing_id, 'room_sibling', exact_c[1]
-FROM per_listing WHERE is_exact AND listing_type IN ('Private room', 'Shared room')
+FROM per_listing WHERE is_exact AND listing_type IN ('private_room', 'shared_room')
   AND len(exact_c) = 1 AND exact_host[1];
 
 -- ---------------------------------------------------------------------------
@@ -168,14 +168,14 @@ agreed AS (
     HAVING count(DISTINCT registration_id) = 1
 ),
 -- a registration suggested to several listings stands only when they share a
--- host and at most one of them is an Entire home/apt
+-- host and at most one of them is an entire_home
 shared AS (
     SELECT a.registration_id
     FROM agreed a JOIN ri_listings l USING (listing_id)
     GROUP BY 1
     HAVING count(*) > 1
        AND (count(DISTINCT l.host_id) > 1
-            OR count(*) FILTER (WHERE l.listing_type = 'Entire home/apt') > 1)
+            OR count(*) FILTER (WHERE l.listing_type = 'entire_home') > 1)
 )
 SELECT a.listing_id, a.registration_id, a.rule,
        CASE WHEN a.rule IN ('title', 'exact_coordinate') THEN 'high' ELSE 'medium' END AS confidence,

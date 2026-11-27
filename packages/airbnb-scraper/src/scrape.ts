@@ -5,21 +5,20 @@
  * checks.
  */
 
+import { createClient, type BBox, type Client } from 'airbnb-dlp';
 import { connect } from '@anchorage-str-db/db/connect';
-import { fetchApiKey } from '@anchorage-str-db/airbnb-client/api/apiKey';
-import { fetchCalendars, liveCalendarFetcher } from '@anchorage-str-db/airbnb-client/calendars';
-import { fetchFirstReviews, liveReviewPageFetcher } from '@anchorage-str-db/airbnb-client/firstReviews';
-import { collectHostCards, fetchListingPages, livePageFetcher } from '@anchorage-str-db/airbnb-client/listingPage';
-import { pace, resetPace, RETRY_BACKOFF_MS } from '@anchorage-str-db/airbnb-client/pace';
-import { parseListing, type ParsedListing } from '@anchorage-str-db/airbnb-client/parse';
-import { fetchPriceQuotes, liveQuoteFetcher } from '@anchorage-str-db/airbnb-client/priceQuotes';
-import { auditCoverage, liveSearchFetcher, searchAnchorage } from '@anchorage-str-db/airbnb-client/search';
-import { report } from '@anchorage-str-db/utils/checks';
+import { report, type CheckResult } from '@anchorage-str-db/utils/checks';
 import { addDays, toSqlTimestamp, todayUtc, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { describeError, log } from '@anchorage-str-db/utils/log';
-import { inMunicipality } from '@anchorage-str-db/utils/muni_geography';
-import { withRetries } from '@anchorage-str-db/utils/retry';
 
+import {
+  collectHostCards,
+  fetchCalendars,
+  fetchFirstReviews,
+  fetchListingPages,
+  fetchPriceQuotes,
+  searchMunicipality,
+} from './airbnb.ts';
 import { runChecks } from './checks.ts';
 import {
   logRun,
@@ -28,78 +27,62 @@ import {
   recordFirstReviews,
   recordHostObservations,
   recordObservations,
-  summarizeFirstReviews,
   summarizePages,
   summarizeQuotes,
   type RunRow,
 } from './store.ts';
 
-/** Attempts at the homepage that carries the API key. */
-const API_KEY_MAX_RETRIES = 3;
-
 export interface ScrapeAirbnbOptions {
   dbPath: string;
   scrapeDate?: IsoDate;
+  /** Default: airbnb-dlp's live client. */
+  client?: Client;
+  /** Default: the Municipality's bounding box. */
+  searchBox?: BBox;
 }
 
 /**
  * Run one Airbnb scrape, write, and quality check. Resolves to true iff every
  * error-severity check passed.
+ */
+export async function scrapeAirbnb(options: ScrapeAirbnbOptions): Promise<boolean> {
+  const scrapeDate = options.scrapeDate ?? todayUtc();
+  const ok = report(await scrapeAndCheck({ ...options, scrapeDate }));
+  log.info(`=== run ${scrapeDate}: ${ok ? 'PASSED' : 'FAILED'} ===`);
+  return ok;
+}
+
+/**
+ * Run one Airbnb scrape and write it, then resolve to the quality checks'
+ * results.
  *
  * All fetches happen first, then all writes in one transaction (see
- * `Database.transaction` in `@anchorage-str-db/db`). Fetches are paced by `pace.ts`; a 429
- * pauses every request until Airbnb answers again, and a block that outlasts
- * `MAX_PAUSED_MS` throws `RateLimitedError`, which aborts the run.
+ * `Database.transaction` in `@anchorage-str-db/db`). One airbnb-dlp client
+ * paces every request; if Airbnb blocks it, the run aborts.
  *
  * The page pass always runs. Skipping it would write rows with page fields
  * carried forward from earlier days, indistinguishable from fresh reads.
  */
-export async function scrapeAirbnb(options: ScrapeAirbnbOptions): Promise<boolean> {
+export async function scrapeAndCheck(options: ScrapeAirbnbOptions): Promise<CheckResult[]> {
   const scrapeDate = options.scrapeDate ?? todayUtc();
   const startedAt = toSqlTimestamp(new Date());
   log.info(`=== anchorage-str-db Airbnb scrape: ${scrapeDate} ===`);
 
-  resetPace();
-
+  const client = options.client ?? createClient();
   const db = await connect(options.dbPath);
   try {
     // ---- network phase ---------------------------------------------------
     // Outside the transaction: these passes take most of an hour, and a
     // failure here writes nothing.
-    const apiKey = await withRetries(fetchApiKey, {
-      label: "Airbnb's API key",
-      attempts: API_KEY_MAX_RETRIES,
-      backoffMs: RETRY_BACKOFF_MS,
-      pacer: pace(),
-    });
-    const fetchPage = liveSearchFetcher(apiKey);
-
-    const searchResult = await searchAnchorage({ fetchPage });
-    // De-dupe by listing id, keeping the last occurrence.
-    const parsedById = new Map<bigint, ParsedListing>();
-    for (const raw of searchResult.listings) {
-      const listing = parseListing(raw);
-      parsedById.set(listing.listingId, listing);
-    }
-    // The search box also covers Hope, Palmer and Wasilla. A listing with no
-    // coordinates is kept, and `coords_within_municipality` reports it.
-    const parsed = [...parsedById.values()].filter(
-      ({ lat, lng }) => lat === null || lng === null || inMunicipality(lat, lng),
-    );
+    const search = await searchMunicipality(client, options.searchBox);
     log.info(
-      `parsed ${parsedById.size} distinct listings (from ${searchResult.listings.length} raw ` +
-        `results across ${searchResult.queries} search queries), dropped ` +
-        `${parsedById.size - parsed.length} outside the Municipality`,
+      `search: ${search.found} distinct listings in ${search.requests} requests, dropped ` +
+        `${search.found - search.listings.length} outside the Municipality`,
     );
+    const listingIds = search.listings.map((listing) => listing.id);
 
-    // Audits every search result, inside the Municipality or not: it measures
-    // whether the price bands missed listings, not the boundary.
-    const coverage = await auditCoverage(searchResult.listings, scrapeDate, { fetchPage });
-
-    const listingIds = parsed.map((listing) => String(listing.listingId));
-
-    const pages = await fetchListingPages(listingIds, { fetchOne: livePageFetcher() });
-    const pageStats = summarizePages(pages);
+    const pagePass = await fetchListingPages(client, listingIds);
+    const pageStats = summarizePages(pagePass.attempted, pagePass.pages);
     log.info(
       `listing pages: ${pageStats.attempted} fetched, ${pageStats.failed} failed, ` +
         `${pageStats.exactLocated} with an exact location, ${pageStats.registered} with an ` +
@@ -109,50 +92,47 @@ export async function scrapeAirbnb(options: ScrapeAirbnbOptions): Promise<boolea
         `bedrooms, ${pageStats.withBathrooms} with bathrooms, ${pageStats.withPhotos} with photos`,
     );
 
-    // The host pass makes no requests: every listing page carries its
-    // owner's card, so this collapses the cards already fetched to one per
-    // distinct host.
-    const hostCards = collectHostCards(pages);
-    log.info(
-      `host profiles: ${hostCards.size} distinct hosts read from ` +
-        `${pageStats.attempted - pageStats.failed} listing pages`,
-    );
+    // Every listing page carries its owner's card, so this collapses the
+    // cards already fetched to one per distinct host.
+    const hostCards = collectHostCards(pagePass.pages);
+    log.info(`host profiles: ${hostCards.size} distinct hosts read from ${pagePass.pages.size} listing pages`);
 
-    const calendarResults = await fetchCalendars(listingIds, {
-      minDate: scrapeDate,
-      fetchOne: liveCalendarFetcher(apiKey),
-    });
+    const calendarPass = await fetchCalendars(client, listingIds);
 
     // Needs the calendars, to choose a stay that can be booked.
-    const quotes = await fetchPriceQuotes(calendarResults, {
-      firstCheckIn: addDays(scrapeDate, 1),
-      fetchOne: liveQuoteFetcher(apiKey),
-    });
-    const quoteStats = summarizeQuotes(quotes);
+    const quotePass = await fetchPriceQuotes(client, calendarPass.calendars, addDays(scrapeDate, 1));
+    const quoteStats = summarizeQuotes(quotePass.attempted, quotePass.quotes);
     log.info(
       `price quotes: ${quoteStats.attempted} listings with a bookable stay, ` +
         `${quoteStats.failed} failed, ${quoteStats.priced} priced`,
     );
 
-    // Time-budgeted per run by FIRST_REVIEW_BUDGET_MS; the rest wait for later runs.
-    const pendingReviews = await pendingFirstReviews(db, parsed);
-    const firstReviews = await fetchFirstReviews(pendingReviews, {
-      fetchPage: liveReviewPageFetcher(apiKey),
-    });
-    const firstReviewStats = summarizeFirstReviews(firstReviews);
+    const pendingReviews = await pendingFirstReviews(db, search.listings);
+    const firstReviews = await fetchFirstReviews(client, pendingReviews);
     log.info(
-      `first reviews: ${firstReviewStats.attempted} of ${pendingReviews.length} unresolved ` +
-        `listings fetched, ${firstReviewStats.failed} failed, ` +
-        `${firstReviewStats.withReviews} with at least one review`,
+      `first reviews: ${firstReviews.attempted} of ${pendingReviews.length} unresolved ` +
+        `listings fetched, ${firstReviews.failed} failed, ` +
+        `${firstReviews.resolved.filter((r) => r.firstReviewDate !== null).length} with at least one review`,
     );
 
     // ---- write phase -----------------------------------------------------
     const stats = await db.transaction(async () => {
-      const listingStats = await recordObservations(db, scrapeDate, parsed, pages, quotes);
+      const listingStats = await recordObservations(
+        db,
+        scrapeDate,
+        search.listings,
+        pagePass.pages,
+        quotePass.quotes,
+      );
       // After the listings: it reads today's owners back from them.
       const hostStats = await recordHostObservations(db, scrapeDate, hostCards);
-      const calendarStats = await mergeCalendar(db, scrapeDate, calendarResults);
-      await recordFirstReviews(db, scrapeDate, firstReviews);
+      const calendarStats = await mergeCalendar(
+        db,
+        scrapeDate,
+        calendarPass.attempted,
+        calendarPass.calendars,
+      );
+      await recordFirstReviews(db, scrapeDate, firstReviews.resolved);
       await logRun(db, {
         scrapeDate,
         runStartedAt: startedAt,
@@ -166,22 +146,19 @@ export async function scrapeAirbnb(options: ScrapeAirbnbOptions): Promise<boolea
         calendarNightsChanged: calendarStats.nightsChanged,
         pageFetchAttempted: pageStats.attempted,
         pageFetchFailed: pageStats.failed,
-        firstReviewFetchAttempted: firstReviewStats.attempted,
-        firstReviewFetchFailed: firstReviewStats.failed,
+        firstReviewFetchAttempted: firstReviews.attempted,
+        firstReviewFetchFailed: firstReviews.failed,
         quoteFetchAttempted: quoteStats.attempted,
         quoteFetchFailed: quoteStats.failed,
         hostProfileAttempted: hostStats.attempted,
         hostProfileFailed: hostStats.failed,
         errorSummary: null,
       });
-      return { pageStats, quoteStats, searchResult, coverage };
+      return { pageStats, quoteStats, searchIncomplete: search.incomplete };
     });
 
     // After commit, so the checks see what later queries will see.
-    const results = await runChecks(db, scrapeDate, stats);
-    const ok = report(results);
-    log.info(`=== run ${scrapeDate}: ${ok ? 'PASSED' : 'FAILED'} ===`);
-    return ok;
+    return await runChecks(db, scrapeDate, stats);
   } catch (err) {
     log.error(`Airbnb scrape failed: ${describeError(err)}`);
     // After the rollback, so this row is kept. NULL counts: nothing was

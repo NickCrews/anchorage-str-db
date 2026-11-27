@@ -128,8 +128,10 @@ export const airbnbListingObservations = pgTable(
     // These change most days, so they are not part of the version key.
     ratingValue: doublePrecision('rating_value'),
     reviewCount: integer('review_count'),
+    // The nightly rate of the stay search priced, else its total; and that
+    // stay's nights, usually 5 when the search has no dates.
     priceHintPerNight: doublePrecision('price_hint_per_night'),
-    priceQualifier: varchar('price_qualifier'),
+    priceNights: integer('price_nights'),
 
     // From the listing's own page, a separate request. `page_fetch_ok`
     // distinguishes "read the page, no registration id" from "page not read";
@@ -142,7 +144,8 @@ export const airbnbListingObservations = pgTable(
     registrationId: varchar('registration_id'),
     // The primary host's Airbnb user id (airbnb.com/users/show/<host_id>).
     hostId: id('host_id'),
-    // Airbnb's text, verbatim: 'Entire home/apt', 'Private room', ...
+    // airbnb-dlp's `roomType`: 'entire_home', 'private_room', 'shared_room',
+    // 'hotel_room'.
     listingType: varchar('listing_type'),
     guestCapacity: integer('guest_capacity'),
     // Airbnb's bedCount; a bunk bed counts as 2.
@@ -153,13 +156,15 @@ export const airbnbListingObservations = pgTable(
     bathrooms: varchar('bathrooms'),
 
     // The price of one bookable stay: quote_total for quote_nights nights
-    // from quote_check_in. NULL when no stay was quoted. quote_label is
-    // Airbnb's text ('$241 for 2 nights, originally $269', or why there is no
-    // price); quote_breakdown its price-detail lines.
+    // from quote_check_in, and quote_breakdown its price-detail lines, which
+    // show discounts and fees. All four are NULL when the calendar had no
+    // bookable stay or the quote failed; the total and breakdown alone are
+    // NULL when Airbnb would not quote the stay. quote_total is the sum of the breakdown's
+    // items, in dollars and cents; the oldest rows hold the displayed total,
+    // rounded to the dollar.
     quoteCheckIn: day('quote_check_in'),
     quoteNights: integer('quote_nights'),
     quoteTotal: doublePrecision('quote_total'),
-    quoteLabel: varchar('quote_label'),
     quoteBreakdown: varcharList('quote_breakdown'),
   },
   (t) => [primaryKey({ columns: [t.listingId, t.scrapeDate] })],
