@@ -1,8 +1,8 @@
 # Airbnb's rate limit
 
 Measured 2026-09-09/10 from one residential IP against live Airbnb, cycling
-through 79 room ids from two Anchorage price-band queries. Explains
-`packages/airbnb-client/src/pace.ts` and its `REQUESTS_PER_SECOND`.
+through 79 room ids from two Anchorage price-band queries. Written for the former
+`packages/airbnb-client/src/pace.ts` and its `REQUESTS_PER_SECOND`. Airbnb's requests and parsing now live in [airbnb-dlp](https://github.com/NickCrews/airbnb-dlp).
 
 **Summary:** Airbnb allows about 130 requests per IP in a rolling window of
 roughly a minute, regardless of burst rate, so the sustainable rate is about

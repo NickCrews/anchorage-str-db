@@ -40,10 +40,7 @@ export function addDays(date: IsoDate, days: number): IsoDate {
   return toIsoDate(shifted);
 }
 
-/**
- * Days since 1970-01-01: DuckDB's `DATE` representation, and the coverage
- * audit's random seed.
- */
+/** Days since 1970-01-01: DuckDB's `DATE` representation. */
 export function epochDays(date: IsoDate): number {
   return Math.floor(new Date(`${date}T00:00:00Z`).getTime() / 86_400_000);
 }

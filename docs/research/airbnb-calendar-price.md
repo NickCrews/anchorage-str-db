@@ -1,7 +1,7 @@
 # Prices: the calendar has none, a stay quote does
 
-Measured 2026-09-12 and 2026-09-13. Explains `priceQuotes.ts` and
-`packages/airbnb-client/src/api/priceQuote.ts`.
+Measured 2026-09-12 and 2026-09-13. Written for the former
+`packages/airbnb-client/src/api/priceQuote.ts`. Airbnb's requests and parsing now live in [airbnb-dlp](https://github.com/NickCrews/airbnb-dlp).
 
 **Summary:** Airbnb gives an unauthenticated caller no nightly price, only the
 price of a specific stay. Each run prices one bookable stay per listing, for

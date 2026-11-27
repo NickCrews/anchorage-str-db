@@ -1,8 +1,7 @@
 # Why the search never paginates
 
-Measured 2026-09-09. Explains the design of `searchAnchorage` in
-`packages/airbnb-client/src/search.ts`. Read it before changing how the search is
-partitioned.
+Measured 2026-09-09. Written for `searchAnchorage` in the former
+`packages/airbnb-client/src/search.ts`. Airbnb's requests and parsing now live in [airbnb-dlp](https://github.com/NickCrews/airbnb-dlp).
 
 **Summary:** Airbnb's paginated search is unreliable in two ways, both caused
 by pagination. A query whose results fit on one page has neither problem, so

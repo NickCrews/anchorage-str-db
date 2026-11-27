@@ -7,7 +7,7 @@
 
 /**
  * FREH, a Frequently Rented Entire-Home listing: over 365 nights, an
- * `Entire home/apt` listing open or booked at least `FREH_OFFERED_NIGHTS`
+ * entire-home (`entire_home`) listing open or booked at least `FREH_OFFERED_NIGHTS`
  * of them and booked at least `FREH_BOOKED_NIGHTS`.
  */
 export const FREH_WINDOW_NIGHTS = 365;
@@ -76,7 +76,7 @@ export const FREHM_STATEMENT: [table: string, sql: string] = [
        nights_available + nights_booked AS nights_offered,
        CAST(ceil(${FREH_OFFERED_NIGHTS} * nights / ${FREH_WINDOW_NIGHTS}) AS INTEGER) AS nights_offered_needed,
        CAST(ceil(${FREH_BOOKED_NIGHTS} * nights / ${FREH_WINDOW_NIGHTS}) AS INTEGER) AS nights_booked_needed,
-       listing_type = 'Entire home/apt' AS is_entire_home,
+       listing_type = 'entire_home' AS is_entire_home,
        nights >= ${FREHM_MIN_NIGHTS} AS has_enough_nights
      FROM counted
    ),
@@ -100,7 +100,7 @@ export const FREHM_STATEMENT: [table: string, sql: string] = [
        WHEN listing_type IS NULL THEN
          'Unknown: Airbnb does not say whether this is an entire home.'
        WHEN NOT is_entire_home THEN
-         'Not FREHM: a ' || lower(listing_type) || ', not an entire home.'
+         'Not FREHM: a ' || replace(listing_type, '_', ' ') || ', not an entire home.'
        WHEN nights = 0 THEN
          'Unknown: no past nights on record.'
        WHEN NOT has_enough_nights THEN

@@ -22,10 +22,9 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
     # A run takes about an hour, and its first-review pass at most 15 minutes
-    # more (see "Request budget" in CONTRIBUTING.md). A 429 adds up to
-    # MAX_PAUSED_MS (2 hours, airbnb-client/src/pace.ts) of pauses, and the
-    # rest of the run at half the rate.
-    timeout-minutes: 330
+    # more (see "Request budget" in CONTRIBUTING.md). A 429 pauses requests
+    # for at most a minute and halves the rate; a longer block ends the run.
+    timeout-minutes: 150
     permissions:
       contents: write # to upload the updated database as a release asset
       issues: write # to open an issue when a run fails

@@ -4,7 +4,6 @@
  */
 
 import type { Database } from '@anchorage-str-db/db/database';
-import { missRate, type CoverageAudit, type SearchResult } from '@anchorage-str-db/airbnb-client/search';
 import { percent, type CheckResult, type Severity } from '@anchorage-str-db/utils/checks';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
 import { inMunicipality } from '@anchorage-str-db/utils/muni_geography';
@@ -17,14 +16,6 @@ import type { PageFetchStats, QuoteStats } from './store.ts';
  * well above the 280 a single unsplit query returns.
  */
 export const PLAUSIBLE_LISTING_COUNT: readonly [number, number] = [1000, 8000];
-
-/**
- * Fraction of audit-box listings the price bands may miss before the run
- * fails. The measured rate is 0% (68 listings in 4 usable boxes); a
- * paginating search misses ~8%. Non-zero to allow minor inconsistency between
- * the two query shapes.
- */
-const MAX_COVERAGE_MISS_RATE = 0.05;
 
 /** A calendar-fetch failure rate above this fails the run. */
 const MAX_CALENDAR_FAILURE_RATE = 0.25;
@@ -93,8 +84,8 @@ export interface CheckInputs {
   /** In-memory stats from this run's passes, which are not stored in the database. */
   pageStats: PageFetchStats;
   quoteStats: QuoteStats;
-  searchResult: SearchResult;
-  coverage: CoverageAudit;
+  /** Parts of the search area airbnb-dlp could not cover completely. */
+  searchIncomplete: number;
 }
 
 export async function runChecks(
@@ -107,36 +98,14 @@ export async function runChecks(
     results.push({ name, severity, passed, detail });
   };
 
-  // A band still needing multiple pages may have been truncated or
-  // reshuffled (see `searchAnchorage`).
-  const unresolved = inputs.searchResult.unresolved;
+  // A part search could not split below Airbnb's result cap may be missing
+  // listings, which would read as retirements.
   check(
-    'search_single_page',
+    'search_complete',
     'error',
-    unresolved.length === 0,
-    `${unresolved.length} price bands still needed more than one page at the narrowest ` +
-      'price width in the smallest box' +
-      (unresolved.length ? `: ${unresolved.slice(0, 5).map(String).join(', ')}` : ''),
+    inputs.searchIncomplete === 0,
+    `${inputs.searchIncomplete} parts of the search area were not covered completely`,
   );
-
-  // Catches listings the price bands miss entirely, e.g. ones with no
-  // filterable price (see `auditCoverage`).
-  const coverage = inputs.coverage;
-  if (coverage.boxes) {
-    const rate = missRate(coverage);
-    check(
-      'search_coverage',
-      'error',
-      rate <= MAX_COVERAGE_MISS_RATE,
-      `${coverage.missedIds.length}/${coverage.seen} listings in ${coverage.boxes} audit ` +
-        `boxes were missed by the price bands (${percent(rate)}, max ` +
-        `${percent(MAX_COVERAGE_MISS_RATE)})` +
-        (coverage.missedIds.length ? `; e.g. ${coverage.missedIds.slice(0, 5).join(', ')}` : ''),
-    );
-  } else {
-    // No usable audit boxes; report it rather than passing silently.
-    check('search_coverage', 'warn', false, 'coverage audit did not run: no usable audit boxes');
-  }
 
   const currentCount = await db.count('SELECT count(*) FROM listings WHERE is_active');
   const [lo, hi] = PLAUSIBLE_LISTING_COUNT;
@@ -256,8 +225,6 @@ export async function runChecks(
 
   const fetched = pageStats.attempted - pageStats.failed;
   if (fetched) {
-    // Only the `state` layer yields `isExactLocation`, so none present means
-    // that layer broke.
     check(
       'exact_location_flag_present',
       'error',
@@ -276,17 +243,6 @@ export async function runChecks(
       `${pageStats.withPhotos}/${fetched} pages read this run had photos ` +
         `(${percent(photoShare)}, min ${percent(MIN_PAGE_FIELD_SHARE)})`,
     );
-
-    // Warn when an extraction layer contributed to no pages. See listingPage.ts.
-    for (const layer of ['json-ld', 'state'] as const) {
-      const live = pageStats.layerUsed[layer];
-      check(
-        `extraction_layer_${layer.replace('-', '_')}_alive`,
-        'warn',
-        live > 0,
-        `${live}/${fetched} pages read this run used the ${layer} layer`,
-      );
-    }
   }
 
   // Errors, not warnings: these fields are in the version key, so a parse that
@@ -435,7 +391,7 @@ export async function runChecks(
     );
   }
 
-  // A night before its own valid_from is an elapsed day that `toNights`
+  // A night before its own valid_from is an elapsed day that `nightsFrom`
   // should have dropped.
   const backdated = await db.count(
     'SELECT count(*) FROM airbnb_calendar_status WHERE night_date < valid_from',

@@ -1,7 +1,7 @@
 # The host id on Airbnb's listing page
 
-Measured 2026-09-12 on 41 Girdwood listings. Explains the `hostId` extraction
-in `packages/airbnb-client/src/listingPage.ts`. See also
+Measured 2026-09-12 on 41 Girdwood listings. Written for the `hostId` extraction
+in the former `packages/airbnb-client/src/listingPage.ts`. Airbnb's requests and parsing now live in [airbnb-dlp](https://github.com/NickCrews/airbnb-dlp). See also
 [`airbnb-pdp-location-payload.md`](airbnb-pdp-location-payload.md) for the
 page's structure and the three parser layers.
 

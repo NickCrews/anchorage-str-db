@@ -12,10 +12,13 @@ For how the sources fit together, see [methodology.md](methodology.md).
 - `airbnb_listing_observations`: one row per listing per scrape date, including
   whether its page was read (`page_fetch_ok`) and a price quote: Airbnb's
   price (`quote_total`) for a stay of `quote_nights` nights from
-  `quote_check_in`, the listing's earliest bookable stay that day.
-  `quote_label` is Airbnb's text (`$241 for 2 nights, originally $269`, or
-  why there is no price) and `quote_breakdown` its price-detail lines, which
-  show cents, discounts and fees. `quote_total` is the rounded displayed total.
+  `quote_check_in`, the listing's earliest bookable stay that day, and
+  `quote_breakdown` its price-detail lines, which show discounts and fees.
+  `quote_total` is the sum of the breakdown's items; the oldest rows hold the
+  displayed total, rounded to the dollar. A stay Airbnb would not quote has
+  its check-in and nights with a NULL total. `price_hint_per_night` and
+  `price_nights` are search's price: the nightly rate of a stay of
+  `price_nights` nights that Airbnb picks.
 - `airbnb_calendar_status`: nightly availability and minimum stay, stored
   change-only with `valid_from`/`valid_to`. The calendar has no prices.
 - `airbnb_listing_first_reviews`: one row per listing whose reviews have been read,
@@ -34,10 +37,10 @@ For how the sources fit together, see [methodology.md](methodology.md).
   `first_review_date` and `first_seen_date`: the listing existed on or before
   it. It is an estimate that can only be late: a listing with no reviews from
   before `first_seen_date` looks as new as the day it was first scraped.
-  - `listing_type`: how much of a dwelling the listing covers, in Airbnb's text
-    as written: `Entire home/apt`, `Private room`, `Shared room`,
-    `Hotel room`. `property_title` (`Cabin in Palmer`) describes the
-    building instead.
+  - `listing_type`: how much of a dwelling the listing covers: `entire_home`,
+    `private_room`, `shared_room`, `hotel_room` (Airbnb's `Entire home/apt`,
+    `Private room`, `Shared room`, `Hotel room`). `property_title`
+    (`Cabin in Palmer`) describes the building instead.
   - `guest_capacity` and `beds`: Airbnb's integers. A bunk bed counts as 2.
   - `bedrooms` and `bathrooms`: the listing page's text, as written:
     `2 bedrooms`, `Studio`; `1.5 baths`, `Shared bathroom`, `Half-bath`.

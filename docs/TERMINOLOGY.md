@@ -86,13 +86,14 @@ and is undecided.
 _Avoid_: parent/child listing, bundle, package, divisible
 
 **Listing type**:
-How much of a dwelling a listing covers, `listing_type`. The values are
-Airbnb's display text, stored verbatim: `Entire home/apt`, `Private room`,
-`Shared room`, `Hotel room`. Airbnb's own key is `roomType`, which is why the
-parser reads that word and nothing else does — the concept belongs to the
-listing, and it is Airbnb's alone. It is not the dwelling-or-room split: an
-`Entire home/apt` listing can be a combo over several dwellings, and Airbnb
-labels some apartments `Private room`.
+How much of a dwelling a listing covers, `listing_type`: `entire_home`,
+`private_room`, `shared_room` or `hotel_room`, airbnb-dlp's names for
+Airbnb's `Entire home/apt`, `Private room`, `Shared room` and `Hotel room`.
+Airbnb's own key is `roomType`, and airbnb-dlp's field keeps that name; ours
+does not, because the concept belongs to the listing, and it is Airbnb's
+alone. It is not the dwelling-or-room split: an `entire_home` listing can be
+a combo over several dwellings, and Airbnb labels some apartments
+`Private room`.
 _Avoid_: room type, property type, rental type
 
 **Night**:
@@ -453,7 +454,7 @@ probably being used mainly as a short-term rental, as opposed to someone's
 home or long-term rental that is only rented out now and then. A FREH
 listing is housing stock that is an opportunity for conversion to long-term
 housing. Over 365 past nights, an
-`Entire home/apt` listing open or booked at least 183 of them and booked at
+`entire_home` listing open or booked at least 183 of them and booked at
 least 90. Only the industry-standard definition, at the full 365 nights;
 anything scaled or shortened is FREHM. "Booked" is an interpretation of not
 available (above), so FREH is an estimate. A test of listings, not

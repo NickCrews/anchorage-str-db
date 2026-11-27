@@ -199,10 +199,10 @@ export const ESTIMATE_STATEMENTS: [table: string, sql: string][] = [
        coalesce(geocoded_lng, location_lng) AS lng,
        ${COUNCIL_AREA} AS area,
        CASE
-         WHEN listing_type = 'Entire home/apt' THEN 'Entire home'
-         WHEN listing_type IN ('Private room', 'Shared room') THEN 'Room'
-         WHEN listing_type IS NULL THEN 'Unknown'
-         ELSE 'Hotel room'
+         WHEN listing_type = 'entire_home' THEN 'Entire home'
+         WHEN listing_type IN ('private_room', 'shared_room') THEN 'Room'
+         WHEN listing_type = 'hotel_room' THEN 'Hotel room'
+         ELSE 'Unknown'
        END AS listing_kind,
        try_cast(regexp_extract(bedrooms, '^(\\d+)', 1) AS INTEGER) AS bedroom_count,
        CASE

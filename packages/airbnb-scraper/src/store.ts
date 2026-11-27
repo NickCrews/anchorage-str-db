@@ -14,13 +14,17 @@ import {
   airbnbScrapeRuns,
 } from '@anchorage-str-db/db/schema';
 import { RETIREMENT_GRACE_DAYS } from '@anchorage-str-db/db/views';
-import type { CalendarResult } from '@anchorage-str-db/airbnb-client/calendars';
-import type { FirstReviewCandidate, FirstReviewResult } from '@anchorage-str-db/airbnb-client/firstReviews';
-import type { HostCard, Layer, ListingPage } from '@anchorage-str-db/airbnb-client/listingPage';
-import { LAYERS } from '@anchorage-str-db/airbnb-client/listingPage';
-import type { ParsedListing } from '@anchorage-str-db/airbnb-client/parse';
-import type { PriceQuote } from '@anchorage-str-db/airbnb-client/priceQuotes';
+import { listingUrl, type Calendar, type Listing, type ListingId, type SearchListing } from 'airbnb-dlp';
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
+
+import {
+  nightsFrom,
+  registrationId,
+  stayNights,
+  type FirstReview,
+  type HostCard,
+  type StayQuote,
+} from './airbnb.ts';
 
 // --------------------------------------------------------------------------
 // observations
@@ -37,9 +41,8 @@ export interface ObservationStats {
  *
  * Idempotent per scrape date: re-running a day replaces its rows.
  *
- * A listing with no successful entry in `pages` records `page_fetch_ok =
- * false` and NULL page columns. One with no successful entry in `quotes`
- * records NULL quote columns.
+ * A listing with no entry in `pages` records `page_fetch_ok = false` and NULL
+ * page columns. One with no entry in `quotes` records NULL quote columns.
  *
  * `changed` and `retired` are read from the views so the run log matches
  * what later queries see.
@@ -47,18 +50,10 @@ export interface ObservationStats {
 export async function recordObservations(
   db: Database,
   scrapeDate: IsoDate,
-  parsed: readonly ParsedListing[],
-  pages: readonly ListingPage[] = [],
-  quotes: readonly PriceQuote[] = [],
+  listings: readonly SearchListing[],
+  pages: ReadonlyMap<ListingId, Listing> = new Map(),
+  quotes: ReadonlyMap<ListingId, StayQuote> = new Map(),
 ): Promise<ObservationStats> {
-  const byListing = new Map<bigint, ListingPage>();
-  for (const page of pages) {
-    if (!page.error) byListing.set(BigInt(page.listingId), page);
-  }
-  const quoteByListing = new Map<bigint, PriceQuote>();
-  for (const quote of quotes) {
-    if (!quote.error) quoteByListing.set(BigInt(quote.listingId), quote);
-  }
 
   await db.run('DELETE FROM airbnb_listing_observations WHERE scrape_date = CAST(? AS DATE)', [scrapeDate]);
   // After the delete, so a re-run doesn't count its own earlier rows as
@@ -74,39 +69,38 @@ export async function recordObservations(
 
   await db.appendRows(
     airbnbListingObservations,
-    parsed.map((listing) => {
-      const page = byListing.get(listing.listingId);
-      const quote = quoteByListing.get(listing.listingId);
+    listings.map((listing) => {
+      const page = pages.get(listing.id);
+      const quoted = quotes.get(listing.id);
       return {
-        listingId: listing.listingId,
+        listingId: BigInt(listing.id),
         scrapeDate,
         name: listing.name,
-        propertyTitle: listing.propertyTitle,
-        locationLat: listing.lat,
-        locationLng: listing.lng,
-        url: listing.url,
+        propertyTitle: listing.title,
+        locationLat: listing.location?.lat ?? null,
+        locationLng: listing.location?.lng ?? null,
+        url: listingUrl(listing.id),
         badges: [...listing.badges],
-        ratingValue: listing.ratingValue,
+        ratingValue: listing.rating,
         reviewCount: listing.reviewCount,
-        priceHintPerNight: listing.priceHintPerNight,
-        priceQualifier: listing.priceQualifier,
+        priceHintPerNight: listing.price?.nightly?.amount ?? listing.price?.total?.amount ?? null,
+        priceNights: listing.price?.nights ?? null,
         pageFetchOk: page !== undefined,
-        locationIsExact: page?.locationIsExact ?? null,
-        locationExactAddress: page?.locationExactAddress ?? null,
-        locationSubtitle: page?.locationSubtitle ?? null,
-        locationVerified: page?.locationVerified ?? null,
-        registrationId: page?.registrationId ?? null,
-        hostId: page?.hostId == null ? null : BigInt(page.hostId),
-        listingType: page?.listingType ?? null,
+        locationIsExact: page?.location?.exact ?? null,
+        locationExactAddress: page?.address ?? null,
+        locationSubtitle: null,
+        locationVerified: null,
+        registrationId: page ? registrationId(page.registration) : null,
+        hostId: page?.host ? BigInt(page.host.id) : null,
+        listingType: page?.roomType ?? null,
         guestCapacity: page?.guestCapacity ?? null,
         beds: page?.beds ?? null,
-        bedrooms: page?.bedrooms ?? null,
-        bathrooms: page?.bathrooms ?? null,
-        quoteCheckIn: quote?.checkIn ?? null,
-        quoteNights: quote?.nights ?? null,
-        quoteTotal: quote?.total ?? null,
-        quoteLabel: quote?.label ?? null,
-        quoteBreakdown: quote ? [...quote.breakdown] : null,
+        bedrooms: page?.bedrooms?.text ?? null,
+        bathrooms: page?.bathrooms?.text ?? null,
+        quoteCheckIn: quoted?.stay.checkIn ?? null,
+        quoteNights: quoted ? stayNights(quoted.stay) : null,
+        quoteTotal: quoted?.quote?.total.amount ?? null,
+        quoteBreakdown: quoted?.quote ? [...quoted.quote.breakdown] : null,
       };
     }),
   );
@@ -114,15 +108,15 @@ export async function recordObservations(
   await recordPhotos(
     db,
     scrapeDate,
-    parsed.flatMap((listing) => {
-      const urls = byListing.get(listing.listingId)?.photoUrls;
-      return urls ? [{ listingId: listing.listingId, urls }] : [];
+    listings.flatMap((listing) => {
+      const urls = pages.get(listing.id)?.photoUrls;
+      return urls?.length ? [{ listingId: BigInt(listing.id), urls }] : [];
     }),
   );
 
   return {
-    seen: parsed.length,
-    new: parsed.filter((listing) => !previouslySeen.has(listing.listingId)).length,
+    seen: listings.length,
+    new: listings.filter((listing) => !previouslySeen.has(BigInt(listing.id))).length,
     changed: await db.count(
       'SELECT count(*) FROM listing_versions WHERE valid_from = CAST(? AS DATE)',
       [scrapeDate],
@@ -194,11 +188,7 @@ export async function countNewlyRetired(
 // --------------------------------------------------------------------------
 // listing-page pass statistics
 
-/**
- * One run's listing-page pass, summarized for logging and the quality
- * checks. Which extraction layer produced a value is not stored in the
- * database.
- */
+/** One run's listing-page pass, summarized for logging and the quality checks. */
 export interface PageFetchStats {
   attempted: number;
   failed: number;
@@ -211,55 +201,26 @@ export interface PageFetchStats {
   withBedrooms: number;
   withBathrooms: number;
   withPhotos: number;
-  /**
-   * How many fetched pages yielded the exact-location flag, and how many
-   * each extraction layer contributed to. The checks use these to detect a
-   * layer that stopped working.
-   */
+  /** Pages that said whether their location is exact. */
   withExactFlag: number;
-  layerUsed: Record<Layer, number>;
 }
 
-export function emptyPageStats(): PageFetchStats {
+export function summarizePages(attempted: number, pages: ReadonlyMap<ListingId, Listing>): PageFetchStats {
+  const ok = [...pages.values()];
+  const count = (test: (page: Listing) => boolean) => ok.filter(test).length;
   return {
-    attempted: 0,
-    failed: 0,
-    exactLocated: 0,
-    registered: 0,
-    withHostId: 0,
-    withListingType: 0,
-    withGuestCapacity: 0,
-    withBeds: 0,
-    withBedrooms: 0,
-    withBathrooms: 0,
-    withPhotos: 0,
-    withExactFlag: 0,
-    layerUsed: { 'json-ld': 0, state: 0, 'raw-html': 0 },
-  };
-}
-
-export function summarizePages(pages: readonly ListingPage[]): PageFetchStats {
-  const ok = pages.filter((page) => !page.error);
-  const layerUsed = { 'json-ld': 0, state: 0, 'raw-html': 0 } satisfies Record<Layer, number>;
-  for (const layer of LAYERS) {
-    layerUsed[layer] = ok.filter((page) =>
-      (page.locationSource ?? '').split('+').includes(layer),
-    ).length;
-  }
-  return {
-    attempted: pages.length,
-    failed: pages.length - ok.length,
-    exactLocated: ok.filter((page) => page.locationIsExact === true).length,
-    registered: ok.filter((page) => page.registrationId !== null).length,
-    withHostId: ok.filter((page) => page.hostId !== null).length,
-    withListingType: ok.filter((page) => page.listingType !== null).length,
-    withGuestCapacity: ok.filter((page) => page.guestCapacity !== null).length,
-    withBeds: ok.filter((page) => page.beds !== null).length,
-    withBedrooms: ok.filter((page) => page.bedrooms !== null).length,
-    withBathrooms: ok.filter((page) => page.bathrooms !== null).length,
-    withPhotos: ok.filter((page) => page.photoUrls !== null).length,
-    withExactFlag: ok.filter((page) => page.locationIsExact !== null).length,
-    layerUsed,
+    attempted,
+    failed: attempted - ok.length,
+    exactLocated: count((page) => page.location?.exact === true),
+    registered: count((page) => registrationId(page.registration) !== null),
+    withHostId: count((page) => page.host !== null),
+    withListingType: count((page) => page.roomType !== null),
+    withGuestCapacity: count((page) => page.guestCapacity !== null),
+    withBeds: count((page) => page.beds !== null),
+    withBedrooms: count((page) => page.bedrooms !== null),
+    withBathrooms: count((page) => page.bathrooms !== null),
+    withPhotos: count((page) => page.photoUrls.length > 0),
+    withExactFlag: count((page) => page.location !== null && page.location.exact !== null),
   };
 }
 
@@ -274,12 +235,12 @@ export interface QuoteStats {
   priced: number;
 }
 
-export function summarizeQuotes(quotes: readonly PriceQuote[]): QuoteStats {
-  const ok = quotes.filter((quote) => !quote.error);
+export function summarizeQuotes(attempted: number, quotes: ReadonlyMap<ListingId, StayQuote>): QuoteStats {
+  const read = [...quotes.values()];
   return {
-    attempted: quotes.length,
-    failed: quotes.length - ok.length,
-    priced: ok.filter((quote) => quote.total !== null).length,
+    attempted,
+    failed: attempted - read.length,
+    priced: read.filter((quoted) => quoted.quote !== null).length,
   };
 }
 
@@ -303,7 +264,8 @@ export interface HostProfileStats {
  * today's owners are read back from `listings`, so a listing whose page failed
  * today still names its owner through the carried-forward `host_id`.
  *
- * `cards` is `collectHostCards`' output. Idempotent per scrape date.
+ * `cards` is `collectHostCards`' output, keyed by host id. Idempotent per
+ * scrape date.
  */
 export async function recordHostObservations(
   db: Database,
@@ -365,14 +327,18 @@ export interface CalendarMergeStats {
 export async function mergeCalendar(
   db: Database,
   scrapeDate: IsoDate,
-  results: readonly CalendarResult[],
+  attempted: number,
+  calendars: ReadonlyMap<ListingId, Calendar>,
 ): Promise<CalendarMergeStats> {
   const stats: CalendarMergeStats = {
-    attempted: results.length,
-    failed: results.filter((result) => result.error).length,
+    attempted,
+    failed: attempted - calendars.size,
     nightsChanged: 0,
   };
-  const usable = results.filter((result) => !result.error);
+  const usable = [...calendars].map(([listingId, calendar]) => ({
+    listingId,
+    nights: nightsFrom(calendar, scrapeDate),
+  }));
   if (!usable.some((result) => result.nights.length > 0)) return stats;
 
   await db.run(
@@ -441,57 +407,37 @@ export async function mergeCalendar(
 /**
  * This run's listings whose earliest review has not been resolved, in
  * ascending `listing_id` order (older listings first). `fetchFirstReviews`
- * caps how many are attempted.
+ * resolves as many as its time budget allows.
  */
 export async function pendingFirstReviews(
   db: Database,
-  listings: readonly ParsedListing[],
-): Promise<FirstReviewCandidate[]> {
+  listings: readonly SearchListing[],
+): Promise<ListingId[]> {
   const resolved = new Set(
     (
       await db.rows<{ listing_id: string }>('SELECT listing_id FROM airbnb_listing_first_reviews')
     ).map((row) => BigInt(row.listing_id)),
   );
   return listings
-    .filter((listing) => !resolved.has(listing.listingId))
-    .sort((a, b) => (a.listingId < b.listingId ? -1 : a.listingId > b.listingId ? 1 : 0))
-    .map((listing) => ({
-      listingId: String(listing.listingId),
-      reviewCountHint: listing.reviewCount,
-    }));
-}
-
-export interface FirstReviewStats {
-  attempted: number;
-  failed: number;
-  /** Resolved listings that have at least one review. */
-  withReviews: number;
-}
-
-export function summarizeFirstReviews(results: readonly FirstReviewResult[]): FirstReviewStats {
-  const ok = results.filter((result) => !result.error);
-  return {
-    attempted: results.length,
-    failed: results.length - ok.length,
-    withReviews: ok.filter((result) => result.firstReviewDate !== null).length,
-  };
+    .map((listing) => BigInt(listing.id))
+    .filter((id) => !resolved.has(id))
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(String);
 }
 
 /**
- * Store each successful resolution. Failed results write nothing, so the
- * listing stays pending. Throws on a listing that is already resolved, which
+ * Store each resolution. Throws on a listing that is already resolved, which
  * `pendingFirstReviews` never returns.
  */
 export async function recordFirstReviews(
   db: Database,
   scrapeDate: IsoDate,
-  results: readonly FirstReviewResult[],
+  resolved: readonly FirstReview[],
 ): Promise<void> {
-  const ok = results.filter((result) => !result.error);
-  if (ok.length === 0) return;
+  if (resolved.length === 0) return;
   await db.appendRows(
     airbnbListingFirstReviews,
-    ok.map((result) => ({
+    resolved.map((result) => ({
       listingId: BigInt(result.listingId),
       firstReviewDate: result.firstReviewDate,
       resolvedDate: scrapeDate,

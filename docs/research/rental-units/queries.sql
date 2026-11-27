@@ -26,14 +26,14 @@ SELECT
     count(DISTINCT (host_id, coalesce(registration_id, '-'))) AS host_registration_pairs,
     count(DISTINCT registration_id) AS registrations
 FROM listings_active
-WHERE listing_type <> 'Entire home/apt';
+WHERE listing_type <> 'entire_home';
 
 -- §2: entire-home listings that share a host and a registration id with
 -- another entire-home listing. Combo listings are found among these.
 WITH g AS (
     SELECT registration_id, host_id, count(*) AS n
     FROM listings_active
-    WHERE listing_type = 'Entire home/apt' AND registration_id IS NOT NULL
+    WHERE listing_type = 'entire_home' AND registration_id IS NOT NULL
     GROUP BY ALL
     HAVING n > 1
 )
@@ -79,8 +79,8 @@ SELECT 'listings, by Airbnb place name' AS grain,
     count(*) FILTER (WHERE location_subtitle ILIKE '%girdwood%') AS girdwood, count(*) AS total
 FROM listings_active
 UNION ALL SELECT 'listings, by coordinate', count(*) FILTER (WHERE gw), count(*) FROM l_gw
-UNION ALL SELECT 'entire-home listings', count(*) FILTER (WHERE gw), count(*) FROM l_gw WHERE listing_type = 'Entire home/apt'
-UNION ALL SELECT 'other listings', count(*) FILTER (WHERE gw), count(*) FROM l_gw WHERE listing_type <> 'Entire home/apt'
+UNION ALL SELECT 'entire-home listings', count(*) FILTER (WHERE gw), count(*) FROM l_gw WHERE listing_type = 'entire_home'
+UNION ALL SELECT 'other listings', count(*) FILTER (WHERE gw), count(*) FROM l_gw WHERE listing_type <> 'entire_home'
 UNION ALL SELECT 'hosts', count(DISTINCT host_id) FILTER (WHERE gw), count(DISTINCT host_id) FROM l_gw
 UNION ALL SELECT 'registrations', count(*) FILTER (WHERE gw), count(*) FROM r_gw
 UNION ALL SELECT 'registrations cited by a listing', count(*) FILTER (WHERE gw), count(*) FROM r_gw WHERE airbnb_listings_active > 0;
@@ -97,8 +97,8 @@ FROM registrations_active;
 WITH c AS (
     SELECT
         registration_id,
-        bool_or(listing_type = 'Entire home/apt') AS cited_by_entire_home,
-        bool_or(listing_type <> 'Entire home/apt') AS cited_by_other
+        bool_or(listing_type = 'entire_home') AS cited_by_entire_home,
+        bool_or(listing_type <> 'entire_home') AS cited_by_other
     FROM listings_active
     WHERE registration_id IN (SELECT registration_id FROM registrations_active)
     GROUP BY 1
