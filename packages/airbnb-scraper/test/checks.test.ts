@@ -247,6 +247,25 @@ it('fails photo_coverage when this run’s pages yield no photos', async () => {
   expect(photos.detail).toContain('10/100');
 });
 
+it('passes the closed-set checks on values the scraper wrote', async () => {
+  const [floor] = PLAUSIBLE_LISTING_COUNT;
+  const db = await seedMinimal(pagesRead(floor));
+
+  const { byName } = await check(db);
+  expect(byName['listing_type_known']!.passed).toBe(true);
+  expect(byName['building_type_known']!.passed).toBe(true);
+});
+
+it('fails building_type_known for a value written outside the set', async () => {
+  const db = await seedMinimal();
+  await db.run("UPDATE airbnb_listing_observations SET building_type = 'CASTLE' WHERE listing_id = 0");
+
+  const { byName, all } = await check(db);
+  expect(byName['building_type_known']!.passed).toBe(false);
+  expect(byName['building_type_known']!.detail).toContain('CASTLE (1)');
+  expect(report(all)).toBe(false);
+});
+
 it('passes the price quote checks when quotes are priced', async () => {
   const db = await seedMinimal();
 

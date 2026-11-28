@@ -487,6 +487,17 @@ describe('listing type and counts', () => {
     ]);
   });
 
+  it('store a building type outside BUILDING_TYPES as NULL', async () => {
+    const { db } = await freshDb();
+    await observe(db, '2026-08-26', [makeListing(1, 'Cabin A')], [
+      page('1', { ...entireHome, buildingType: 'CASTLE' }),
+    ]);
+
+    expect(await db.rows('SELECT building_type FROM listings WHERE is_active')).toEqual([
+      { building_type: null },
+    ]);
+  });
+
   it('carry forward past a failed page fetch', async () => {
     const { db } = await freshDb();
     const parsed = [makeListing(1, 'Cabin A')];

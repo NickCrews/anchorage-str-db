@@ -45,7 +45,7 @@ export interface TestPage {
   /** Null: the page names its host but shows no card. */
   hostCard?: HostCard | null;
   listingType?: RoomType | null;
-  /** Airbnb's propertyType. */
+  /** Airbnb's propertyType; any string, so a test can send one outside BUILDING_TYPES. */
   buildingType?: string | null;
   guestCapacity?: number | null;
   beds?: number | null;

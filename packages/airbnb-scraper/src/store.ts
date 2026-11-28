@@ -18,6 +18,7 @@ import { listingUrl, type Calendar, type Listing, type ListingId, type SearchLis
 import { addDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 
 import {
+  buildingType,
   nightsFrom,
   registrationId,
   stayNights,
@@ -100,7 +101,7 @@ export async function recordObservations(
         quoteNights: quoted ? stayNights(quoted.stay) : null,
         quoteTotal: quoted?.quote?.total.amount ?? null,
         quoteBreakdown: quoted?.quote ? [...quoted.quote.breakdown] : null,
-        buildingType: page?.propertyType ?? null,
+        buildingType: page ? buildingType(page) : null,
       };
     }),
   );
