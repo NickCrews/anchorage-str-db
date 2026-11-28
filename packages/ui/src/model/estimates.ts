@@ -1,4 +1,5 @@
-import { sqlList, sqlLiteral } from '@anchorage-str-db/utils/airbnbValues';
+import type { ListingType } from '@anchorage-str-db/utils/airbnbValues';
+import { sqlList, sqlLiteral } from '@anchorage-str-db/utils/sql';
 
 import { FREHM_STATEMENT } from './freh';
 
@@ -201,9 +202,9 @@ export const ESTIMATE_STATEMENTS: [table: string, sql: string][] = [
        coalesce(geocoded_lng, location_lng) AS lng,
        ${COUNCIL_AREA} AS area,
        CASE
-         WHEN listing_type = ${sqlLiteral('entire_home')} THEN 'Entire home'
-         WHEN listing_type IN ${sqlList(['private_room', 'shared_room'])} THEN 'Room'
-         WHEN listing_type = ${sqlLiteral('hotel_room')} THEN 'Hotel room'
+         WHEN listing_type = ${sqlLiteral('entire_home' satisfies ListingType)} THEN 'Entire home'
+         WHEN listing_type IN ${sqlList(['private_room', 'shared_room'] satisfies ListingType[])} THEN 'Room'
+         WHEN listing_type = ${sqlLiteral('hotel_room' satisfies ListingType)} THEN 'Hotel room'
          ELSE 'Unknown'
        END AS listing_kind,
        try_cast(regexp_extract(bedrooms, '^(\\d+)', 1) AS INTEGER) AS bedroom_count,
@@ -215,7 +216,7 @@ export const ESTIMATE_STATEMENTS: [table: string, sql: string][] = [
        END AS owner_kind,
        CASE
          WHEN owner_name IS NULL THEN 'Unknown'
-         WHEN upper(trim(owner_state)) = 'AK' AND upper(trim(owner_city)) IN (${MUNI_CITIES.map((c) => `'${c}'`).join(', ')}) THEN 'In the Muni'
+         WHEN upper(trim(owner_state)) = 'AK' AND upper(trim(owner_city)) IN ${sqlList(MUNI_CITIES)} THEN 'In the Muni'
          WHEN upper(trim(owner_state)) = 'AK' THEN 'Elsewhere in Alaska'
          ELSE 'Outside Alaska'
        END AS owner_mailing,

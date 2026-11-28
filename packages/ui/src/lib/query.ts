@@ -35,6 +35,3 @@ export function useRow<Row extends Record<string, unknown>>(query: string, optio
   const { rows, ...rest } = useRows<Row>(query, options);
   return { row: rows[0] as Row | undefined, ...rest };
 }
-
-/** A SQL string literal. */
-export const lit = (value: string) => `'${value.replaceAll("'", "''")}'`;

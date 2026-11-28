@@ -461,8 +461,9 @@ Every run fails with `LegacySchemaError` until someone:
   such.
 - **Closed sets live in one place.** `packages/utils/src/airbnbValues.ts` holds
   `LISTING_TYPES` and `BUILDING_TYPES`. The schema types the columns from
-  them, the scraper and the UI take their values and SQL literals from them
-  (`sqlLiteral`, `sqlList`), and the `listing_type_known` and
+  them, the scraper and the UI take their values from them, SQL built as a
+  string checks its literals against them
+  (`sqlLiteral('entire_home' satisfies ListingType)`, with `utils/src/sql.ts`), and the `listing_type_known` and
   `building_type_known` checks fail a run that stored anything else.
   `airbnb.ts` fails to compile if airbnb-dlp's room types and
   `LISTING_TYPES` differ. A building type outside the set is stored as NULL

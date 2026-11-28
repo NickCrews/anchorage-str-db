@@ -3,10 +3,11 @@
  * check makes the run exit non-zero, which blocks publishing.
  */
 
-import { BUILDING_TYPES, LISTING_TYPES, sqlList } from '@anchorage-str-db/utils/airbnbValues';
+import { BUILDING_TYPES, LISTING_TYPES } from '@anchorage-str-db/utils/airbnbValues';
 import type { Database } from '@anchorage-str-db/db/database';
 import { percent, type CheckResult, type Severity } from '@anchorage-str-db/utils/checks';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
+import { sqlList } from '@anchorage-str-db/utils/sql';
 import { inMunicipality } from '@anchorage-str-db/utils/muni_geography';
 
 import type { PageFetchStats, QuoteStats } from './store.ts';
