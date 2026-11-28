@@ -1,8 +1,8 @@
 /**
  * The closed sets of values Airbnb columns hold. Code that writes or filters
  * on these columns takes its values from here, in TypeScript and in the SQL
- * it builds (`sqlLiteral`, `sqlList`). This module imports nothing, so the
- * browser UI can use it too.
+ * it builds (see `sql.ts`). This module imports nothing, so the browser UI
+ * can use it too.
  */
 
 /**
@@ -53,17 +53,4 @@ export type BuildingType = (typeof BUILDING_TYPES)[number];
 
 export function isBuildingType(value: string): value is BuildingType {
   return (BUILDING_TYPES as readonly string[]).includes(value);
-}
-
-/** A value of one of the closed sets above. */
-export type AirbnbValue = ListingType | BuildingType;
-
-/** A SQL string literal: `sqlLiteral('entire_home')` is `'entire_home'`. Only a known value compiles. */
-export function sqlLiteral(value: AirbnbValue): string {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
-/** A parenthesized SQL list of string literals, for `IN`: `('private_room', 'shared_room')`. */
-export function sqlList(values: readonly AirbnbValue[]): string {
-  return `(${values.map(sqlLiteral).join(', ')})`;
 }

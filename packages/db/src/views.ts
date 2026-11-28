@@ -23,6 +23,8 @@
  * migration.
  */
 
+import { sqlList } from '@anchorage-str-db/utils/sql';
+
 /**
  * Days a listing may be absent from search before `listings.is_active` goes
  * false. Search occasionally omits a listing for a day.
@@ -563,7 +565,7 @@ SELECT
     l.* EXCLUDE (scrape_date),
     d.first_read_date,
     d.last_read_date,
-    coalesce(i.issuance_status IN (${ACTIVE_ISSUANCE_STATUSES.map((s) => `'${s}'`).join(', ')}), false) AS is_active,
+    coalesce(i.issuance_status IN ${sqlList(ACTIVE_ISSUANCE_STATUSES)}, false) AS is_active,
     p.address,
     p.parcel_id,
     pp.property_type AS parcel__property_type,

@@ -5,7 +5,8 @@
  * database loads. `docs/TERMINOLOGY.md` defines both terms.
  */
 
-import { sqlLiteral } from '@anchorage-str-db/utils/airbnbValues';
+import type { ListingType } from '@anchorage-str-db/utils/airbnbValues';
+import { sqlLiteral } from '@anchorage-str-db/utils/sql';
 
 /**
  * FREH, a Frequently Rented Entire-Home listing: over 365 nights, an
@@ -78,7 +79,7 @@ export const FREHM_STATEMENT: [table: string, sql: string] = [
        nights_available + nights_booked AS nights_offered,
        CAST(ceil(${FREH_OFFERED_NIGHTS} * nights / ${FREH_WINDOW_NIGHTS}) AS INTEGER) AS nights_offered_needed,
        CAST(ceil(${FREH_BOOKED_NIGHTS} * nights / ${FREH_WINDOW_NIGHTS}) AS INTEGER) AS nights_booked_needed,
-       listing_type = ${sqlLiteral('entire_home')} AS is_entire_home,
+       listing_type = ${sqlLiteral('entire_home' satisfies ListingType)} AS is_entire_home,
        nights >= ${FREHM_MIN_NIGHTS} AS has_enough_nights
      FROM counted
    ),
