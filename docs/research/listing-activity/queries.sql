@@ -1,4 +1,4 @@
--- Dormant listings: the queries behind README.md.
+-- Listing activity: the queries behind README.md.
 --
 -- Run against the published database after building the viewer's estimate
 -- tables (ESTIMATE_STATEMENTS in packages/ui/src/model/estimates.ts), which
@@ -61,8 +61,8 @@ SELECT
     WHEN f.future_nights_available = 0 THEN 'closed'
     WHEN f.next_90_nights_available = 0 THEN 'closed for the season'
     WHEN coalesce(s.nights_seen_closing, 0) = 0 AND coalesce(r.reviews_last, 0) - coalesce(r.reviews_first, 0) = 0
-      THEN 'open, no activity'
-    ELSE 'with activity'
+      THEN 'unbooked'
+    ELSE 'rented'
   END AS pattern
 FROM active a
 LEFT JOIN future f USING (listing_id)
@@ -112,10 +112,80 @@ SELECT 'every listing' AS rule, CAST(quantile_cont(revenue, 0.5) AS INTEGER) AS 
 FROM est_listing_months JOIN dormancy_signals USING (listing_id)
 WHERE month = DATE '2026-10-01' AND revenue IS NOT NULL
 UNION ALL
-SELECT 'without closed and open, no activity', CAST(quantile_cont(revenue, 0.5) AS INTEGER), count(*)
+SELECT 'without closed and unbooked', CAST(quantile_cont(revenue, 0.5) AS INTEGER), count(*)
 FROM est_listing_months JOIN dormancy_signals USING (listing_id)
-WHERE month = DATE '2026-10-01' AND revenue IS NOT NULL AND pattern NOT IN ('closed', 'open, no activity')
+WHERE month = DATE '2026-10-01' AND revenue IS NOT NULL AND pattern NOT IN ('closed', 'unbooked')
 UNION ALL
-SELECT 'with activity only (circular)', CAST(quantile_cont(revenue, 0.5) AS INTEGER), count(*)
+SELECT 'rented only (circular)', CAST(quantile_cont(revenue, 0.5) AS INTEGER), count(*)
 FROM est_listing_months JOIN dormancy_signals USING (listing_id)
-WHERE month = DATE '2026-10-01' AND revenue IS NOT NULL AND pattern = 'with activity';
+WHERE month = DATE '2026-10-01' AND revenue IS NOT NULL AND pattern = 'rented';
+
+-- Table 5: listings that left search under the 5-day rule on some run, and
+-- those later seen again under the same listing_id.
+WITH runs AS (SELECT DISTINCT scrape_date FROM airbnb_scrape_runs WHERE listings_seen IS NOT NULL),
+seen AS (SELECT DISTINCT listing_id, scrape_date FROM airbnb_listing_observations),
+grid AS (
+  SELECT l.listing_id, r.scrape_date, max(s.scrape_date) AS last_seen_by_then
+  FROM (SELECT DISTINCT listing_id FROM seen) l
+  CROSS JOIN runs r
+  JOIN seen s ON s.listing_id = l.listing_id AND s.scrape_date <= r.scrape_date
+  GROUP BY ALL
+),
+out AS (
+  SELECT g.listing_id, g.scrape_date
+  FROM grid g
+  WHERE g.scrape_date - g.last_seen_by_then > 5
+)
+SELECT
+  (SELECT count(DISTINCT listing_id) FROM seen) AS listings_ever_seen,
+  count(DISTINCT o.listing_id) AS left_search,
+  count(DISTINCT o.listing_id) FILTER (
+    WHERE EXISTS (SELECT 1 FROM seen s WHERE s.listing_id = o.listing_id AND s.scrape_date > o.scrape_date)
+  ) AS returned_to_search
+FROM out o;
+
+-- Table 6: the listings that left search between the 2026-09-30 and
+-- 2026-10-01 runs, against those that stayed.
+WITH a AS (SELECT DISTINCT listing_id FROM airbnb_listing_observations WHERE scrape_date = DATE '2026-09-30'),
+b AS (SELECT DISTINCT listing_id FROM airbnb_listing_observations WHERE scrape_date = DATE '2026-10-01'),
+gone AS (SELECT listing_id FROM a ANTI JOIN b USING (listing_id))
+SELECT
+  listing_id IN (SELECT listing_id FROM gone) AS left_on_oct_1,
+  count(*) AS listings,
+  round(100 * avg((registration_id IS NOT NULL)::INT), 1) AS pct_showing_a_registration_id
+FROM airbnb_listing_observations
+WHERE scrape_date = DATE '2026-09-30'
+GROUP BY ALL;
+
+-- Table 7: what became of the 2026-10-01 leavers.
+WITH a AS (SELECT DISTINCT listing_id FROM airbnb_listing_observations WHERE scrape_date = DATE '2026-09-30'),
+b AS (SELECT DISTINCT listing_id FROM airbnb_listing_observations WHERE scrape_date = DATE '2026-10-01'),
+gone AS (
+  SELECT o.listing_id, o.host_id, o.listing_type, o.bedrooms
+  FROM airbnb_listing_observations o
+  WHERE o.scrape_date = DATE '2026-09-30' AND o.listing_id IN (SELECT listing_id FROM a ANTI JOIN b USING (listing_id))
+),
+summer AS (
+  SELECT DISTINCT c.listing_id
+  FROM airbnb_calendar_status c
+  JOIN gone USING (listing_id)
+  WHERE c.available AND c.night_date BETWEEN DATE '2027-05-01' AND DATE '2027-08-31'
+    AND c.valid_from <= DATE '2026-09-30' AND (c.valid_to IS NULL OR c.valid_to > DATE '2026-09-30')
+),
+returned AS (
+  SELECT DISTINCT listing_id FROM airbnb_listing_observations JOIN gone USING (listing_id)
+  WHERE scrape_date > DATE '2026-10-01'
+),
+lookalike AS (
+  SELECT DISTINCT g.listing_id
+  FROM gone g
+  JOIN listings n
+    ON n.valid_to IS NULL AND n.first_seen_date > DATE '2026-10-01'
+    AND n.host_id = g.host_id AND n.listing_type = g.listing_type AND n.bedrooms = g.bedrooms
+)
+SELECT
+  count(*) AS left_on_oct_1,
+  count(*) FILTER (WHERE listing_id IN (SELECT listing_id FROM summer)) AS had_summer_2027_nights_open,
+  count(*) FILTER (WHERE listing_id IN (SELECT listing_id FROM returned)) AS returned_same_id,
+  count(*) FILTER (WHERE listing_id IN (SELECT listing_id FROM lookalike)) AS host_has_new_lookalike_listing
+FROM gone;
