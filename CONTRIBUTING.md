@@ -157,9 +157,9 @@ airbnb-dlp returns as written.
 The pass has no flag to skip it. A skipped pass would write rows whose page
 fields are carried forward from an earlier day, and nothing in the database
 could tell those rows from freshly read ones. See
-[`docs/research/airbnb-pdp-location-payload.md`](docs/research/airbnb-pdp-location-payload.md),
-[`docs/research/airbnb-pdp-host-id.md`](docs/research/airbnb-pdp-host-id.md)
-and [`docs/research/airbnb-pdp-listing-attributes.md`](docs/research/airbnb-pdp-listing-attributes.md).
+[`docs/research/airbnb/pdp-location-payload.md`](docs/research/airbnb/pdp-location-payload.md),
+[`docs/research/airbnb/pdp-host-id.md`](docs/research/airbnb/pdp-host-id.md)
+and [`docs/research/airbnb/pdp-listing-attributes.md`](docs/research/airbnb/pdp-listing-attributes.md).
 
 ### Price-quote pass
 
@@ -170,7 +170,7 @@ of nights (`fetchPriceQuotes` in `airbnb.ts`). A fully booked listing gets no
 quote. The total and its breakdown are stored on the day's
 `airbnb_listing_observations` row; a stay Airbnb will not quote keeps its
 check-in and nights with a NULL total. Nightly rates are left to analysis. See
-[`docs/research/airbnb-calendar-price.md`](docs/research/airbnb-calendar-price.md).
+[`docs/research/airbnb/calendar-price.md`](docs/research/airbnb/calendar-price.md).
 
 ### First-review pass
 
@@ -444,7 +444,7 @@ Every run fails with `LegacySchemaError` until someone:
   A listing showing a registration id gets the registration's address and
   parcel in `listings_active_with_registration`; nothing matches the rest by
   location. Before adding that, read
-  [`docs/research/airbnb-address-deanonymization.md`](docs/research/airbnb-address-deanonymization.md).
+  [`docs/research/airbnb/address-deanonymization.md`](docs/research/airbnb/address-deanonymization.md).
 - **Bed, bedroom and bathroom counts, and listing type, come from the listing
   page, not search.** Search cards show them only as free text, carry no
   guest line, and drop the bath line on some days, which would open a

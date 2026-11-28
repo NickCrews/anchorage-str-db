@@ -391,7 +391,7 @@ export async function runChecks(
   );
 
   // Airbnb emits exact coordinates at 4 decimal places and jittered ones at
-  // 5+ (41/41 measured; see docs/research/airbnb-pdp-location-payload.md).
+  // 5+ (41/41 measured; see docs/research/airbnb/pdp-location-payload.md).
   // This is undocumented, so a mismatch warns rather than fails.
   const mismatched = await db.count(`
     SELECT count(*) FROM listings

@@ -236,7 +236,7 @@ of effort:
 5. **Don't prioritize cross-platform fingerprinting.** It targets cross-listing
    and would require scraping a second platform.
 6. **Scrape the municipal STR number from listings.** Now implemented; see
-   [`airbnb-pdp-location-payload.md`](airbnb-pdp-location-payload.md).
+   [`pdp-location-payload.md`](pdp-location-payload.md).
 
 ## Sources
 

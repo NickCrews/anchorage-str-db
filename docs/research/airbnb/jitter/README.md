@@ -14,7 +14,7 @@ that region is equally likely.
 [notebook.py](notebook.py) is a [marimo](https://marimo.io) notebook with
 the method, every figure and table, and download buttons for the data. It
 runs in the browser, with nothing to install, at
-<https://marimo.app/?src=https://github.com/NickCrews/anchorage-str-db/blob/main/docs/research/airbnb-jitter/notebook.py>.
+<https://marimo.app/?src=https://github.com/NickCrews/anchorage-str-db/blob/main/docs/research/airbnb/jitter/notebook.py>.
 Run locally, it reads `public/` beside it; in the browser it fetches
 `public/` from the `main` branch on GitHub.
 
@@ -32,8 +32,8 @@ Run locally, it reads `public/` beside it; in the browser it fetches
 
 ```sh
 gh release download latest-data --repo NickCrews/anchorage-str-db -O anchorage_str.duckdb
-duckdb anchorage_str.duckdb -c ".read docs/research/airbnb-jitter/extract.sql"
-uvx marimo edit --sandbox docs/research/airbnb-jitter/notebook.py
+duckdb anchorage_str.duckdb -c ".read docs/research/airbnb/jitter/extract.sql"
+uvx marimo edit --sandbox docs/research/airbnb/jitter/notebook.py
 ```
 
 ## Matching a jittered coordinate

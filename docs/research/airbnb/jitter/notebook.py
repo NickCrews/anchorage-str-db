@@ -76,7 +76,7 @@ def _(mo, pd):
 
     DATA_URL = (
         "https://raw.githubusercontent.com/NickCrews/anchorage-str-db/main/"
-        "docs/research/airbnb-jitter/public"
+        "docs/research/airbnb/jitter/public"
     )
 
     def read_csv(name, **kwargs):
@@ -126,7 +126,7 @@ def _(mo):
     the registration's geocoded point to Airbnb's pin, in degrees and in
     meters (east `dx`, north `dy`). Pairs more than 500 m apart are dropped:
     those are listings printing another rental's id
-    ([registration-location-mismatch](../registration-location-mismatch/README.md)),
+    ([registration-location-mismatch](../../registration-location-mismatch/README.md)),
     and nothing falls between 500 m and 1 km.
 
     The geocoded point is not the host's pin, so each offset is the jitter
@@ -470,7 +470,7 @@ def _(mo):
 
     Jittered coordinates come in two encodings: 5 decimal places, or full
     float precision. Exact coordinates are mostly at 4 decimal places
-    ([airbnb-pdp-location-payload](../airbnb-pdp-location-payload.md)). Both
+    ([pdp-location-payload](../pdp-location-payload.md)). Both
     jittered encodings fit the same bounds. A jittered coordinate stays the
     same from one daily scrape to the next and changes only when the listing
     changes, so the offset is stored, not redrawn per request. Listings at the
@@ -579,8 +579,8 @@ def _(mo):
 
     ```sh
     gh release download latest-data --repo NickCrews/anchorage-str-db -O anchorage_str.duckdb
-    duckdb anchorage_str.duckdb -c ".read docs/research/airbnb-jitter/extract.sql"
-    uvx marimo edit --sandbox docs/research/airbnb-jitter/notebook.py
+    duckdb anchorage_str.duckdb -c ".read docs/research/airbnb/jitter/extract.sql"
+    uvx marimo edit --sandbox docs/research/airbnb/jitter/notebook.py
     ```
 
     Simulations use fixed seeds, so the tables reproduce exactly from the same

@@ -2,7 +2,7 @@
 
 Measured 2026-09-12 on 41 Girdwood listings. Written for the `hostId` extraction
 in the former `packages/airbnb-client/src/listingPage.ts`. Airbnb's requests and parsing now live in [airbnb-dlp](https://github.com/NickCrews/airbnb-dlp). See also
-[`airbnb-pdp-location-payload.md`](airbnb-pdp-location-payload.md) for the
+[`pdp-location-payload.md`](pdp-location-payload.md) for the
 page's structure and the three parser layers.
 
 **Summary:** The listing page (PDP) names its primary host's Airbnb user id

@@ -1,6 +1,6 @@
 -- Writes the CSVs the notebook reads, from the published database.
 -- Run from the repo root:
---   duckdb anchorage_str.duckdb -c ".read docs/research/airbnb-jitter/extract.sql"
+--   duckdb anchorage_str.duckdb -c ".read docs/research/airbnb/jitter/extract.sql"
 
 -- Every active listing with a coordinate: Airbnb's pin, whether it is exact,
 -- and the registration id it prints. Coordinates are written at full
@@ -11,7 +11,7 @@ COPY (
     FROM listings_active
     WHERE location_lat IS NOT NULL AND location_is_exact IS NOT NULL
     ORDER BY listing_id
-) TO 'docs/research/airbnb-jitter/public/listings.csv' (HEADER);
+) TO 'docs/research/airbnb/jitter/public/listings.csv' (HEADER);
 
 -- Every active, geocoded registration, with the number of parcel centroids
 -- within 500 m of its point as a measure of density.
@@ -32,7 +32,7 @@ COPY (
        < 500 * 500
     GROUP BY ALL
     ORDER BY r.registration_id
-) TO 'docs/research/airbnb-jitter/public/registrations.csv' (HEADER);
+) TO 'docs/research/airbnb/jitter/public/registrations.csv' (HEADER);
 
 -- Listings that showed both an exact and a jittered coordinate over the
 -- scrape history: each distinct (coordinate, flag) with the dates it was seen.
@@ -50,4 +50,4 @@ COPY (
         SELECT listing_id FROM d GROUP BY 1 HAVING count(DISTINCT is_exact) = 2
     )
     ORDER BY listing_id, first_seen
-) TO 'docs/research/airbnb-jitter/public/flips.csv' (HEADER);
+) TO 'docs/research/airbnb/jitter/public/flips.csv' (HEADER);
