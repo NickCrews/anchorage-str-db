@@ -93,6 +93,8 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 
+import { BUILDING_TYPES, LISTING_TYPES } from './airbnbValues.ts';
+
 /** A DuckDB `DATE`, read and written as `YYYY-MM-DD`. */
 const day = (name: string) => date(name, { mode: 'string' });
 
@@ -143,9 +145,8 @@ export const airbnbListingObservations = pgTable(
     registrationId: varchar('registration_id'),
     // The primary host's Airbnb user id (airbnb.com/users/show/<host_id>).
     hostId: id('host_id'),
-    // airbnb-dlp's `roomType`: 'entire_home', 'private_room', 'shared_room',
-    // 'hotel_room'.
-    listingType: varchar('listing_type'),
+    // LISTING_TYPES: airbnb-dlp's `roomType`.
+    listingType: varchar('listing_type', { enum: LISTING_TYPES }),
     guestCapacity: integer('guest_capacity'),
     // Airbnb's bedCount; a bunk bed counts as 2.
     beds: integer('beds'),
@@ -166,10 +167,9 @@ export const airbnbListingObservations = pgTable(
     quoteTotal: doublePrecision('quote_total'),
     quoteBreakdown: varcharList('quote_breakdown'),
 
-    // From the listing page, and part of its version key: Airbnb's
-    // propertyType, e.g. 'HOUSE', 'CABIN', 'APARTMENT'. NULL on rows from
-    // before it was read.
-    buildingType: varchar('building_type'),
+    // From the listing page, and part of its version key: BUILDING_TYPES,
+    // Airbnb's propertyType. NULL on rows from before it was read.
+    buildingType: varchar('building_type', { enum: BUILDING_TYPES }),
   },
   (t) => [primaryKey({ columns: [t.listingId, t.scrapeDate] })],
 );

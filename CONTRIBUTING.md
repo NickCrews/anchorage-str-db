@@ -465,6 +465,14 @@ Every run fails with `LegacySchemaError` until someone:
   ([NickCrews/airbnb-dlp#45](https://github.com/NickCrews/airbnb-dlp/issues/45)).
   Guest capacity and beds are integers in Airbnb's data and are stored as
   such.
+- **Closed sets live in one place.** `packages/db/src/airbnbValues.ts` holds
+  `LISTING_TYPES` and `BUILDING_TYPES`. The schema types the columns from
+  them, the scraper and the UI take their values and SQL literals from them
+  (`sqlLiteral`, `sqlList`), and the `listing_type_known` and
+  `building_type_known` checks fail a run that stored anything else.
+  `airbnb.ts` fails to compile if airbnb-dlp's room types and
+  `LISTING_TYPES` differ. A building type outside the set is stored as NULL
+  with a warning; add it to `BUILDING_TYPES` to keep it.
 - **The Municipality boundary is generated from the Muni's community council
   polygons.** `utils/src/muni_geography/municipality.sql` builds
   `municipality.geojson` and explains the 1 km padding; rerun it rather than

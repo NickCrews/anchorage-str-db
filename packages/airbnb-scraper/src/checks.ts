@@ -3,6 +3,7 @@
  * check makes the run exit non-zero, which blocks publishing.
  */
 
+import { BUILDING_TYPES, LISTING_TYPES, sqlList } from '@anchorage-str-db/db/airbnbValues';
 import type { Database } from '@anchorage-str-db/db/database';
 import { percent, type CheckResult, type Severity } from '@anchorage-str-db/utils/checks';
 import type { IsoDate } from '@anchorage-str-db/utils/dates';
@@ -277,6 +278,26 @@ export async function runChecks(
           `(${percent(share)}, min ${percent(min)})`,
       );
     }
+  }
+
+  // Every stored value is in its closed set, which the UI's SQL and the
+  // policy queries filter on. The scraper stores NULL for a value outside it,
+  // so a failure means a row was written some other way.
+  for (const [column, values] of [
+    ['listing_type', LISTING_TYPES],
+    ['building_type', BUILDING_TYPES],
+  ] as const) {
+    const unknown = await db.rows<{ value: string; n: number }>(
+      `SELECT ${column} AS value, count(*)::INT AS n FROM airbnb_listing_observations ` +
+        `WHERE ${column} NOT IN ${sqlList(values)} GROUP BY ALL ORDER BY n DESC`,
+    );
+    check(
+      `${column}_known`,
+      'error',
+      unknown.length === 0,
+      `${unknown.length} ${column} values outside the closed set` +
+        (unknown.length ? `: ${unknown.slice(0, 5).map((u) => `${u.value} (${u.n})`).join(', ')}` : ''),
+    );
   }
 
   // From this run's quotes, like the page-pass checks. A quote is not part of

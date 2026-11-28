@@ -15,12 +15,14 @@ import {
   type Client,
   type Listing,
   type ListingId,
+  type RoomType,
   type Outcome,
   type PriceQuote,
   type Result,
   type SearchListing,
   type Stay,
 } from 'airbnb-dlp';
+import { isBuildingType, type BuildingType, type ListingType } from '@anchorage-str-db/db/airbnbValues';
 import { epochDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { inMunicipality, MUNICIPALITY_BOUNDING_BOX } from '@anchorage-str-db/utils/muni_geography';
 import { log } from '@anchorage-str-db/utils/log';
@@ -96,6 +98,22 @@ export async function fetchListingPages(client: Client, ids: readonly ListingId[
   const { items, outcome } = await client.listings(ids).all();
   throwIfEnded('listings', outcome);
   return { attempted: ids.length, pages: okValues(items, 'listing page') };
+}
+
+/**
+ * airbnb-dlp's room types are stored as `listing_type` unchanged, so the two
+ * sets must be the same: this fails to compile when either gains a value.
+ */
+type SameSet<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const ROOM_TYPES_ARE_LISTING_TYPES: SameSet<RoomType, ListingType> = true;
+void ROOM_TYPES_ARE_LISTING_TYPES;
+
+/** The page's building type, or null, with a warning, for one outside `BUILDING_TYPES`. */
+export function buildingType(page: Listing): BuildingType | null {
+  const value = page.propertyType;
+  if (value === null || isBuildingType(value)) return value;
+  log.warn(`listing ${page.id}: building type ${value} is not in BUILDING_TYPES; storing NULL`);
+  return null;
 }
 
 const STR_NUMBER_RE = /\bSTR[\s-]?(\d{6,})\b/i;
