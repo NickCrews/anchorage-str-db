@@ -223,8 +223,8 @@ importers:
         specifier: ^2.15.0
         version: 2.15.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       zod:
-        specifier: ^4.6.2
-        version: 4.6.2
+        specifier: ^4.6.6
+        version: 4.6.6
       zustand:
         specifier: ^5.0.15
         version: 5.0.15(@types/react@19.3.0)(immer@11.1.18)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
@@ -1287,6 +1287,11 @@ packages:
     peerDependencies:
       '@loaders.gl/core': ~4.4.0
 
+  '@loaders.gl/draco@4.5.5':
+    resolution: {integrity: sha512-7UfmSv/OUKqX0Az38O0jILxPkzxkxwXIngRVJFncUHCj2VyPKRhFfyZ4o3lslDQXxHRw7pEL5NMIEphbjay7HQ==}
+    peerDependencies:
+      '@loaders.gl/core': ~4.5.0
+
   '@loaders.gl/geoarrow@4.5.1':
     resolution: {integrity: sha512-O57gWAU6G7ZrSxCfGVaxk6SJQCRhFc6dPj96lUE8Un4AloUzIfx2kwzkCfIKz9mB3ioWVFxhWizaCf4yisJfXA==}
     peerDependencies:
@@ -1307,6 +1312,11 @@ packages:
     peerDependencies:
       '@loaders.gl/core': ~4.4.0
 
+  '@loaders.gl/gltf@4.5.5':
+    resolution: {integrity: sha512-cmkHAfPKeP10lq6Rq2n/YWx3lRX/k33m+TCdIxL2f/OClNTVSgv8oAvYSLjU5liBEsB7pCsOzZ/Yec5kMzymnA==}
+    peerDependencies:
+      '@loaders.gl/core': ~4.5.0
+
   '@loaders.gl/images@4.4.5':
     resolution: {integrity: sha512-7/odHt5n67OVLHelTm1euNNw5gCwycezQI7Wg3NBUg7q3bHWmTPY++Z4uz2egiuzJNY3GLegfg8AI1c3fD64Jw==}
     peerDependencies:
@@ -1317,11 +1327,19 @@ packages:
     peerDependencies:
       '@loaders.gl/core': ~4.4.0
 
+  '@loaders.gl/images@4.5.5':
+    resolution: {integrity: sha512-j5vIuhVTCbXWdwixEfFp51tIZkVLNmhMDpgqkT9hap+7lKrDXZnwwuoluJORABODIblLpNoQcdHhJzN+amu6pw==}
+    peerDependencies:
+      '@loaders.gl/core': ~4.5.0
+
   '@loaders.gl/loader-utils@4.4.5':
     resolution: {integrity: sha512-c4h2RUMEru+hbfvgZEIy5cLQKyQka2TPQZW/2Wy+yIPr3FU7RKwfp+vLwIfir6Xkdn2zniWyWretZwE02aY/Ug==}
 
   '@loaders.gl/loader-utils@4.5.1':
     resolution: {integrity: sha512-rHeG4Jz/qWJ3GrT3R00Y1y8menGCgqNUsAkDnWgbtQdHe3vXpC1KhDiQVEK+YZyD/MeeJyryAEhoTWImXsiSyg==}
+
+  '@loaders.gl/loader-utils@4.5.5':
+    resolution: {integrity: sha512-1h7hT3RwOvNCtJGlkk6ilvn4dracXgDiv4S2pDsbeNMQ4MxnnOjM+GqXN3mXSYsKq1xz4g3j1n43TCQ5MjxJsg==}
 
   '@loaders.gl/math@4.5.1':
     resolution: {integrity: sha512-/Am61mfRQna/YNtzQo6lE78QtStaouX/dXsf231qyIQ0nEFGn6cogocU5IPwCxpbOGGMk0QA79YVs1qBJK2kow==}
@@ -1343,11 +1361,19 @@ packages:
     peerDependencies:
       '@loaders.gl/core': ~4.4.0
 
+  '@loaders.gl/schema-utils@4.5.5':
+    resolution: {integrity: sha512-D4OHcJx6Sh0Mn9jcjwlgKIYxSHf28YbjN+POE+8VOrI27NlUcOc2bwlfb8inmDOwStuXadWh2hkxUCWW9Q1qZA==}
+    peerDependencies:
+      '@loaders.gl/core': ~4.5.0
+
   '@loaders.gl/schema@4.4.5':
     resolution: {integrity: sha512-q2XNquegw+hX+ZEshacKYL/+FKBUIS5FHA+2Ft3JWmcNiR6umGnYCdXQhDcFCqAm8Ks87fMCV+z/zTloxaIZgQ==}
 
   '@loaders.gl/schema@4.5.1':
     resolution: {integrity: sha512-qrMqcwIHQRCfAx/zkujuI8ZfiwaOXvh82y5OXVfPkGtAw5EhLBM3fQxqdNOpfVhy0m4GCC6QvlXyurJXcx++yQ==}
+
+  '@loaders.gl/schema@4.5.5':
+    resolution: {integrity: sha512-k648CEUf0lwTuYc7WxLXhA1RHYCo15S5GeWIQ2QYq5lkKQmCAWc4KJZ4lkxBoPPunVNj1PW0At5lLKkQr7vNHQ==}
 
   '@loaders.gl/terrain@4.5.1':
     resolution: {integrity: sha512-PX6IuRUcey36s2M+Oa2fbVSFhxhqQMXHQVwCtmg6xC0gbnxSM79IKh5gVnuq/XDPZrh02LPYUzzN1C2xHxYfLQ==}
@@ -1363,6 +1389,15 @@ packages:
     resolution: {integrity: sha512-MSmOx+uYHpMlwzjqX2uiubDHBxzd8nAanCnSn8CxbpdtpJCEVjLi/VN7iJTNpojj9VsNYNYljAAKKvc1Pbapcg==}
     peerDependencies:
       '@loaders.gl/core': ~4.4.0
+      texture-compressor: ^1.0.2
+    peerDependenciesMeta:
+      texture-compressor:
+        optional: true
+
+  '@loaders.gl/textures@4.5.5':
+    resolution: {integrity: sha512-k3ePmT+BXVXdfiXqtcMNAScDn0sYC3EffVJjSZb1L0JL7qhHIjHCXg84lXubh4kdPXhafgjdBL6GK5A8hLvGoQ==}
+    peerDependencies:
+      '@loaders.gl/core': ~4.5.0
       texture-compressor: ^1.0.2
     peerDependenciesMeta:
       texture-compressor:
@@ -1392,6 +1427,11 @@ packages:
     resolution: {integrity: sha512-xs6bqDMQhkU1OK9X0SKuJvx1tQCUm4GzKeNcM/cIN3HMgzPN/P6qhbkoMfIFZGKZwIOdw0sDQAOj2hSuAEoh4w==}
     peerDependencies:
       '@loaders.gl/core': ~4.4.0
+
+  '@loaders.gl/worker-utils@4.5.5':
+    resolution: {integrity: sha512-IhVpLnscy8qb96KP5MTaqK5I/5Pgofw8H5+Zszo2/hl9K1OM0nKOYaYUybe9lasEQQLNwwtSWBe8PU48RZOFUA==}
+    peerDependencies:
+      '@loaders.gl/core': ~4.5.0
 
   '@loaders.gl/xml@4.5.1':
     resolution: {integrity: sha512-qlTl9r7MCXh5fJakt+BlXeoI9Juzad95atTtw9keLWlbZ1FMBSrm9AZjDAMD0A0hUzsRjRQxa0ZV5sfy6YIpGg==}
@@ -1432,8 +1472,18 @@ packages:
     peerDependencies:
       '@luma.gl/core': ~9.4.0
 
+  '@luma.gl/shadertools@9.4.2':
+    resolution: {integrity: sha512-0/6pLZSfnQnvcWdYePKKSwVet+gFtAAnKeGXNfxpgp3I8E3WsF/SbD6oEzgU7jdnRqONwGsoACWNpQHO0zZvIQ==}
+    peerDependencies:
+      '@luma.gl/core': ~9.4.0
+
   '@luma.gl/webgl@9.4.1':
     resolution: {integrity: sha512-KZ/QfoUWNK+SGuhnBeNVP8znz/kJeju8uNj+Fpeqtc4sMWNT+89B7xH+ch+KBuRGYwE2iAzoc8dCMSCkIcj8LA==}
+    peerDependencies:
+      '@luma.gl/core': ~9.4.0
+
+  '@luma.gl/webgl@9.4.2':
+    resolution: {integrity: sha512-D3GqnxTgQI+vsyH56hX5+jwqdVUhvhbpnPurTwbQOSlSQ8mshhNKcRdrZytTy10qiodDwrcjTnndPEAP6UgCzA==}
     peerDependencies:
       '@luma.gl/core': ~9.4.0
 
@@ -1506,6 +1556,9 @@ packages:
   '@math.gl/core@4.1.0':
     resolution: {integrity: sha512-FrdHBCVG3QdrworwrUSzXIaK+/9OCRLscxI2OUy6sLOHyHgBMyfnEGs99/m3KNvs+95BsnQLWklVfpKfQzfwKA==}
 
+  '@math.gl/core@4.1.1':
+    resolution: {integrity: sha512-8n6D+qHxydIfwS9+4d6vib70KfzjBjbh5XtkCu/NTF1s4tAoMz+WNNbExpcLhT56NzQbvqvKb54ud3w2+oQ+mA==}
+
   '@math.gl/culling@4.1.0':
     resolution: {integrity: sha512-jFmjFEACnP9kVl8qhZxFNhCyd47qPfSVmSvvjR0/dIL6R9oD5zhR1ub2gN16eKDO/UM7JF9OHKU3EBIfeR7gtg==}
 
@@ -1520,6 +1573,9 @@ packages:
 
   '@math.gl/types@4.1.0':
     resolution: {integrity: sha512-clYZdHcmRvMzVK5fjeDkQlHUzXQSNdZ7s4xOqC3nJPgz4C/TZkUecTo9YS4PruZqtDda/ag4erndP0MIn40dGA==}
+
+  '@math.gl/types@4.1.1':
+    resolution: {integrity: sha512-0hmpCha+a5KX69U642L5NxNgw1CnetfvhzMiktIX4BJpM9unesbU8v2TWvEa9GMrhuMduHWw9JoPWvjyQ4T/dQ==}
 
   '@math.gl/web-mercator@4.1.0':
     resolution: {integrity: sha512-HZo3vO5GCMkXJThxRJ5/QYUYRr3XumfT8CzNNCwoJfinxy5NtKUd7dusNTXn7yJ40UoB8FMIwkVwNlqaiRZZAw==}
@@ -2974,8 +3030,8 @@ packages:
   '@vscode/l10n@0.0.18':
     resolution: {integrity: sha512-KYSIHVmslkaCDyw013pphY+d7x1qV8IZupYfeIfzNA+nsaWHbn5uPuQRvdRFsa9zFzGeudPuoGoZ1Op4jrJXIQ==}
 
-  '@webgpu/types@0.1.72':
-    resolution: {integrity: sha512-0cF7RFM2edNoiIS1ODJp0/Gzv4/xSXhwoR0YCza+OWpJWtn4wmo9DvK91aLlH9+uUnwIriP7ZiC3WitmyhuzBw==}
+  '@webgpu/types@0.1.74':
+    resolution: {integrity: sha512-lgiI4hbuLcI9unnm2cL/tvCaQU45dp0xcLWJh5uB/9MBGvIA4F8XIk7nSiBeg+K4xWGYwgZKn80LmERI5CxoTA==}
 
   a5-js@0.10.0:
     resolution: {integrity: sha512-DB0OG4SHbaDK6ML4LTsNaxpxdXxtIynpRDKdSAm5q6s7r+AI81+PwjEaA+q0jKZ0bOpCOAiVe/81vodvBoEVZA==}
@@ -3862,6 +3918,7 @@ packages:
   image-size@0.7.5:
     resolution: {integrity: sha512-Hiyv+mXHfFEP7LzUL/llg9RwFxxY+o9N3JVLIeG5E7iFIFAalxvRU9UZthBdYDEVnzHMgjnKJPPpay5BWf1g9g==}
     engines: {node: '>=6.9.0'}
+    deprecated: Please migrate to image-size@2.x
     hasBin: true
 
   immediate@3.0.6:
@@ -4363,6 +4420,9 @@ packages:
 
   meshoptimizer@1.2.0:
     resolution: {integrity: sha512-davRZeIJbxJrE24cwQle7ZDsxjdk/OphNOV83oX+efQinyoHY9Jcyz3MHbaoG0qySZajldGztNZ1RN/T19PZsg==}
+
+  meshoptimizer@1.3.0:
+    resolution: {integrity: sha512-2oZqMAcEEiCtXWUjIGtZ71oPx1B0ZxYGTqIKsXB1wzWFhleNsCFxQuUJzgCV706bRcwPWtMGf1odmQvAcqKkIw==}
 
   mgrs@1.0.0:
     resolution: {integrity: sha512-awNbTOqCxK1DBGjalK3xqWIstBZgN6fxsMSiXLs9/spqWkF2pAhb2rrYCFSsr1/tT7PhcDGjZndG8SWYn0byYA==}
@@ -5301,8 +5361,8 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
-  zod@4.6.2:
-    resolution: {integrity: sha512-lh5RCAGFa1Cm2hjtNwLQhSs/AsqdWnTQaBER9fEwN/88pSh7KOtJavtBx/0VlkN/uFd61SwYmljLMDAsHlvzBQ==}
+  zod@4.6.6:
+    resolution: {integrity: sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==}
 
   zstd-codec@0.1.5:
     resolution: {integrity: sha512-v3fyjpK8S/dpY/X5WxqTK3IoCnp/ZOLxn144GZVlNUjtwAchzrVo03h+oMATFhCIiJ5KTr4V3vDQQYz4RU684g==}
@@ -5330,20 +5390,20 @@ packages:
 
 snapshots:
 
-  '@ai-sdk/gateway@3.0.193(zod@4.6.2)':
+  '@ai-sdk/gateway@3.0.193(zod@4.6.6)':
     dependencies:
       '@ai-sdk/provider': 3.0.16
-      '@ai-sdk/provider-utils': 4.0.51(zod@4.6.2)
+      '@ai-sdk/provider-utils': 4.0.51(zod@4.6.6)
       '@vercel/oidc': 3.2.0
-      zod: 4.6.2
+      zod: 4.6.6
 
-  '@ai-sdk/provider-utils@4.0.51(zod@4.6.2)':
+  '@ai-sdk/provider-utils@4.0.51(zod@4.6.6)':
     dependencies:
       '@ai-sdk/provider': 3.0.16
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.1.1
       undici: 6.28.1
-      zod: 4.6.2
+      zod: 4.6.6
 
   '@ai-sdk/provider@3.0.16':
     dependencies:
@@ -5569,8 +5629,8 @@ snapshots:
       '@deck.gl/layers': 9.4.0(@deck.gl/core@9.4.0(@luma.gl/webgpu@9.4.1(@luma.gl/core@9.4.1)(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1))))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.1)(@luma.gl/engine@9.4.1(@luma.gl/core@9.4.1)(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1)))
       '@luma.gl/core': 9.4.1
       '@luma.gl/engine': 9.4.1(@luma.gl/core@9.4.1)(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1))
-      '@luma.gl/shadertools': 9.4.1(@luma.gl/core@9.4.1)
-      '@math.gl/core': 4.1.0
+      '@luma.gl/shadertools': 9.4.2(@luma.gl/core@9.4.1)
+      '@math.gl/core': 4.1.1
       '@math.gl/web-mercator': 4.1.0
       d3-hexbin: 0.2.2
 
@@ -5601,9 +5661,9 @@ snapshots:
       '@deck.gl/core': 9.4.0(@luma.gl/webgpu@9.4.1(@luma.gl/core@9.4.1)(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1)))
       '@luma.gl/core': 9.4.1
       '@luma.gl/engine': 9.4.1(@luma.gl/core@9.4.1)(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1))
-      '@luma.gl/shadertools': 9.4.1(@luma.gl/core@9.4.1)
-      '@luma.gl/webgl': 9.4.1(@luma.gl/core@9.4.1)
-      '@math.gl/core': 4.1.0
+      '@luma.gl/shadertools': 9.4.2(@luma.gl/core@9.4.1)
+      '@luma.gl/webgl': 9.4.2(@luma.gl/core@9.4.1)
+      '@math.gl/core': 4.1.1
 
   '@deck.gl/geo-layers@9.4.0(982eb5f580c6210aa491386b0db53187)':
     dependencies:
@@ -5664,8 +5724,8 @@ snapshots:
   '@deck.gl/mesh-layers@9.4.0(@deck.gl/core@9.4.0(@luma.gl/webgpu@9.4.1(@luma.gl/core@9.4.1)(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1))))(@loaders.gl/core@4.5.1)(@luma.gl/core@9.4.1)(@luma.gl/engine@9.4.1(@luma.gl/core@9.4.1)(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1)))(@luma.gl/gltf@9.4.1(@luma.gl/core@9.4.1)(@luma.gl/engine@9.4.1(@luma.gl/core@9.4.1)(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1)))(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1)))(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1))(texture-compressor@1.0.2)':
     dependencies:
       '@deck.gl/core': 9.4.0(@luma.gl/webgpu@9.4.1(@luma.gl/core@9.4.1)(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1)))
-      '@loaders.gl/gltf': 4.5.1(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)
-      '@loaders.gl/schema': 4.5.1
+      '@loaders.gl/gltf': 4.5.5(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)
+      '@loaders.gl/schema': 4.5.5
       '@luma.gl/core': 9.4.1
       '@luma.gl/engine': 9.4.1(@luma.gl/core@9.4.1)(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1))
       '@luma.gl/gltf': 9.4.1(@luma.gl/core@9.4.1)(@luma.gl/engine@9.4.1(@luma.gl/core@9.4.1)(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1)))(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1))
@@ -6099,13 +6159,13 @@ snapshots:
       - geotiff
       - supports-color
 
-  '@hookform/resolvers@5.9.1(@standard-schema/spec@1.1.0)(react-hook-form@7.88.0(react@19.3.0))(zod@4.6.2)':
+  '@hookform/resolvers@5.9.1(@standard-schema/spec@1.1.0)(react-hook-form@7.88.0(react@19.3.0))(zod@4.6.6)':
     dependencies:
       '@standard-schema/utils': 0.3.0
       react-hook-form: 7.88.0(react@19.3.0)
     optionalDependencies:
       '@standard-schema/spec': 1.1.0
-      zod: 4.6.2
+      zod: 4.6.6
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -6257,6 +6317,15 @@ snapshots:
       '@loaders.gl/worker-utils': 4.5.1(@loaders.gl/core@4.5.1)
       draco3d: 1.5.7
 
+  '@loaders.gl/draco@4.5.5(@loaders.gl/core@4.5.1)':
+    dependencies:
+      '@loaders.gl/core': 4.5.1
+      '@loaders.gl/loader-utils': 4.5.5(@loaders.gl/core@4.5.1)
+      '@loaders.gl/schema': 4.5.5
+      '@loaders.gl/schema-utils': 4.5.5(@loaders.gl/core@4.5.1)
+      '@loaders.gl/worker-utils': 4.5.5(@loaders.gl/core@4.5.1)
+      draco3d: 1.5.7
+
   '@loaders.gl/geoarrow@4.5.1(@loaders.gl/core@4.5.1)':
     dependencies:
       '@loaders.gl/core': 4.5.1
@@ -6298,6 +6367,19 @@ snapshots:
     transitivePeerDependencies:
       - texture-compressor
 
+  '@loaders.gl/gltf@4.5.5(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)':
+    dependencies:
+      '@loaders.gl/core': 4.5.1
+      '@loaders.gl/draco': 4.5.5(@loaders.gl/core@4.5.1)
+      '@loaders.gl/images': 4.5.5(@loaders.gl/core@4.5.1)
+      '@loaders.gl/loader-utils': 4.5.5(@loaders.gl/core@4.5.1)
+      '@loaders.gl/schema': 4.5.5
+      '@loaders.gl/textures': 4.5.5(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)
+      '@math.gl/core': 4.1.1
+      meshoptimizer: 1.3.0
+    transitivePeerDependencies:
+      - texture-compressor
+
   '@loaders.gl/images@4.4.5(@loaders.gl/core@4.4.5)':
     dependencies:
       '@loaders.gl/core': 4.4.5
@@ -6307,6 +6389,11 @@ snapshots:
     dependencies:
       '@loaders.gl/core': 4.5.1
       '@loaders.gl/loader-utils': 4.5.1(@loaders.gl/core@4.5.1)
+
+  '@loaders.gl/images@4.5.5(@loaders.gl/core@4.5.1)':
+    dependencies:
+      '@loaders.gl/core': 4.5.1
+      '@loaders.gl/loader-utils': 4.5.5(@loaders.gl/core@4.5.1)
 
   '@loaders.gl/loader-utils@4.4.5(@loaders.gl/core@4.4.5)':
     dependencies:
@@ -6321,6 +6408,15 @@ snapshots:
     dependencies:
       '@loaders.gl/schema': 4.5.1
       '@loaders.gl/worker-utils': 4.5.1(@loaders.gl/core@4.5.1)
+      '@probe.gl/log': 4.1.2
+      '@probe.gl/stats': 4.1.2
+    transitivePeerDependencies:
+      - '@loaders.gl/core'
+
+  '@loaders.gl/loader-utils@4.5.5(@loaders.gl/core@4.5.1)':
+    dependencies:
+      '@loaders.gl/schema': 4.5.5
+      '@loaders.gl/worker-utils': 4.5.5(@loaders.gl/core@4.5.1)
       '@probe.gl/log': 4.1.2
       '@probe.gl/stats': 4.1.2
     transitivePeerDependencies:
@@ -6342,7 +6438,7 @@ snapshots:
       '@math.gl/polygon': 4.1.0
       '@probe.gl/stats': 4.1.2
       pbf: 3.3.0
-      zod: 4.6.2
+      zod: 4.6.6
 
   '@loaders.gl/schema-utils@4.4.5(@loaders.gl/core@4.4.5)':
     dependencies:
@@ -6360,6 +6456,14 @@ snapshots:
       '@types/geojson': 7946.0.16
       apache-arrow: 21.2.0
 
+  '@loaders.gl/schema-utils@4.5.5(@loaders.gl/core@4.5.1)':
+    dependencies:
+      '@loaders.gl/core': 4.5.1
+      '@loaders.gl/schema': 4.5.5
+      '@math.gl/types': 4.1.1
+      '@types/geojson': 7946.0.16
+      apache-arrow: 17.0.0
+
   '@loaders.gl/schema@4.4.5':
     dependencies:
       '@types/geojson': 7946.0.16
@@ -6369,6 +6473,11 @@ snapshots:
     dependencies:
       '@types/geojson': 7946.0.16
       apache-arrow: 21.2.0
+
+  '@loaders.gl/schema@4.5.5':
+    dependencies:
+      '@types/geojson': 7946.0.16
+      apache-arrow: 17.0.0
 
   '@loaders.gl/terrain@4.5.1(@loaders.gl/core@4.5.1)':
     dependencies:
@@ -6397,6 +6506,18 @@ snapshots:
       '@loaders.gl/schema': 4.5.1
       '@loaders.gl/worker-utils': 4.5.1(@loaders.gl/core@4.5.1)
       '@math.gl/types': 4.1.0
+      ktx-parse: 0.7.1
+    optionalDependencies:
+      texture-compressor: 1.0.2
+
+  '@loaders.gl/textures@4.5.5(@loaders.gl/core@4.5.1)(texture-compressor@1.0.2)':
+    dependencies:
+      '@loaders.gl/core': 4.5.1
+      '@loaders.gl/images': 4.5.5(@loaders.gl/core@4.5.1)
+      '@loaders.gl/loader-utils': 4.5.5(@loaders.gl/core@4.5.1)
+      '@loaders.gl/schema': 4.5.5
+      '@loaders.gl/worker-utils': 4.5.5(@loaders.gl/core@4.5.1)
+      '@math.gl/types': 4.1.1
       ktx-parse: 0.7.1
     optionalDependencies:
       texture-compressor: 1.0.2
@@ -6434,6 +6555,10 @@ snapshots:
       '@loaders.gl/core': 4.4.5
 
   '@loaders.gl/worker-utils@4.5.1(@loaders.gl/core@4.5.1)':
+    dependencies:
+      '@loaders.gl/core': 4.5.1
+
+  '@loaders.gl/worker-utils@4.5.5(@loaders.gl/core@4.5.1)':
     dependencies:
       '@loaders.gl/core': 4.5.1
 
@@ -6497,10 +6622,22 @@ snapshots:
       '@math.gl/core': 4.1.0
       '@math.gl/types': 4.1.0
 
+  '@luma.gl/shadertools@9.4.2(@luma.gl/core@9.4.1)':
+    dependencies:
+      '@luma.gl/core': 9.4.1
+      '@math.gl/core': 4.1.1
+      '@math.gl/types': 4.1.1
+
   '@luma.gl/webgl@9.4.1(@luma.gl/core@9.4.1)':
     dependencies:
       '@luma.gl/core': 9.4.1
       '@math.gl/types': 4.1.0
+      '@probe.gl/env': 4.1.2
+
+  '@luma.gl/webgl@9.4.2(@luma.gl/core@9.4.1)':
+    dependencies:
+      '@luma.gl/core': 9.4.1
+      '@math.gl/types': 4.1.1
       '@probe.gl/env': 4.1.2
 
   '@luma.gl/webgpu@9.4.1(@luma.gl/core@9.4.1)(@luma.gl/shadertools@9.4.1(@luma.gl/core@9.4.1))':
@@ -6508,7 +6645,7 @@ snapshots:
       '@luma.gl/core': 9.4.1
       '@luma.gl/shadertools': 9.4.1(@luma.gl/core@9.4.1)
       '@probe.gl/env': 4.1.2
-      '@webgpu/types': 0.1.72
+      '@webgpu/types': 0.1.74
 
   '@mapbox/jsonlint-lines-primitives@2.0.3': {}
 
@@ -6582,6 +6719,10 @@ snapshots:
     dependencies:
       '@math.gl/types': 4.1.0
 
+  '@math.gl/core@4.1.1':
+    dependencies:
+      '@math.gl/types': 4.1.1
+
   '@math.gl/culling@4.1.0':
     dependencies:
       '@math.gl/core': 4.1.0
@@ -6599,6 +6740,8 @@ snapshots:
   '@math.gl/sun@4.1.0': {}
 
   '@math.gl/types@4.1.0': {}
+
+  '@math.gl/types@4.1.1': {}
 
   '@math.gl/web-mercator@4.1.0':
     dependencies:
@@ -7292,7 +7435,7 @@ snapshots:
   '@sqlrooms/ai-config@0.29.0-rc.10':
     dependencies:
       '@paralleldrive/cuid2': 3.3.0
-      zod: 4.6.2
+      zod: 4.6.6
 
   '@sqlrooms/artifacts@0.29.0-rc.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)(use-sync-external-store@1.7.0(react@19.3.0))':
     dependencies:
@@ -7302,12 +7445,12 @@ snapshots:
       '@sqlrooms/layout': 0.29.0-rc.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)(use-sync-external-store@1.7.0(react@19.3.0))
       '@sqlrooms/room-store': 0.29.0-rc.10(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
       '@sqlrooms/ui': 0.29.0-rc.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)
-      ai: 6.0.282(zod@4.6.2)
+      ai: 6.0.282(zod@4.6.6)
       immer: 11.1.18
       lucide-react: 0.556.0(react@19.3.0)
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
-      zod: 4.6.2
+      zod: 4.6.6
     transitivePeerDependencies:
       - '@types/react'
       - '@types/react-dom'
@@ -7353,7 +7496,7 @@ snapshots:
       d3-scale-chromatic: 3.1.0
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
-      zod: 4.6.2
+      zod: 4.6.6
     transitivePeerDependencies:
       - '@types/react'
       - '@types/react-dom'
@@ -7396,7 +7539,7 @@ snapshots:
       '@sqlrooms/room-store': 0.29.0-rc.10(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
       apache-arrow: 17.0.0
       immer: 11.1.18
-      zod: 4.6.2
+      zod: 4.6.6
     transitivePeerDependencies:
       - '@types/react'
       - react
@@ -7421,7 +7564,7 @@ snapshots:
       '@sqlrooms/duckdb': 0.29.0-rc.10(@types/react@19.3.0)(apache-arrow@17.0.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
       '@sqlrooms/room-store': 0.29.0-rc.10(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
       '@sqlrooms/ui': 0.29.0-rc.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)
-      ai: 6.0.282(zod@4.6.2)
+      ai: 6.0.282(zod@4.6.6)
       apache-arrow: 17.0.0
       immer: 11.1.18
       lucide-react: 0.555.0(react@19.3.0)
@@ -7429,7 +7572,7 @@ snapshots:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
       react-map-gl: 8.1.3(maplibre-gl@5.24.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      zod: 4.6.2
+      zod: 4.6.6
       zustand: 5.0.15(@types/react@19.3.0)(immer@11.1.18)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
     optionalDependencies:
       '@sqlrooms/mosaic': 0.29.0-rc.10(@floating-ui/dom@1.8.0)(@tiptap/extension-list@3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(loro-crdt@1.16.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)(use-sync-external-store@1.7.0(react@19.3.0))
@@ -7480,14 +7623,14 @@ snapshots:
       '@tiptap/pm': 3.31.3
       '@tiptap/react': 3.31.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@tiptap/starter-kit': 3.31.3
-      ai: 6.0.282(zod@4.6.2)
+      ai: 6.0.282(zod@4.6.6)
       immer: 11.1.18
       loro-mirror: 1.2.1(loro-crdt@1.16.1)
       lucide-react: 0.555.0(react@19.3.0)
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
       yaml: 2.9.1
-      zod: 4.6.2
+      zod: 4.6.6
       zustand: 5.0.15(@types/react@19.3.0)(immer@11.1.18)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
     transitivePeerDependencies:
       - '@floating-ui/dom'
@@ -7529,7 +7672,7 @@ snapshots:
       apache-arrow: 17.0.0
       fast-deep-equal: 3.1.3
       immer: 11.1.18
-      zod: 4.6.2
+      zod: 4.6.6
       zustand: 5.0.15(@types/react@19.3.0)(immer@11.1.18)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
     transitivePeerDependencies:
       - '@types/react'
@@ -7539,7 +7682,7 @@ snapshots:
 
   '@sqlrooms/layout-config@0.29.0-rc.10':
     dependencies:
-      zod: 4.6.2
+      zod: 4.6.6
 
   '@sqlrooms/layout@0.29.0-rc.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)(use-sync-external-store@1.7.0(react@19.3.0))':
     dependencies:
@@ -7554,7 +7697,7 @@ snapshots:
       react-grid-layout: 1.5.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react-resizable: 3.2.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react-resizable-panels: 4.12.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      zod: 4.6.2
+      zod: 4.6.6
       zustand: 5.0.15(@types/react@19.3.0)(immer@11.1.18)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
     transitivePeerDependencies:
       - '@types/react'
@@ -7597,13 +7740,13 @@ snapshots:
       '@uwdata/mosaic-spec': 0.21.1
       '@uwdata/mosaic-sql': 0.21.1
       '@uwdata/vgplot': 0.21.1
-      ai: 6.0.282(zod@4.6.2)
+      ai: 6.0.282(zod@4.6.6)
       apache-arrow: 17.0.0
       immer: 11.1.18
       lucide-react: 0.556.0(react@19.3.0)
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
-      zod: 4.6.2
+      zod: 4.6.6
       zustand: 5.0.15(@types/react@19.3.0)(immer@11.1.18)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
     transitivePeerDependencies:
       - '@floating-ui/dom'
@@ -7631,7 +7774,7 @@ snapshots:
       '@sqlrooms/layout-config': 0.29.0-rc.10
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
-      zod: 4.6.2
+      zod: 4.6.6
 
   '@sqlrooms/room-shell@0.29.0-rc.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)(use-sync-external-store@1.7.0(react@19.3.0))':
     dependencies:
@@ -7650,7 +7793,7 @@ snapshots:
       lucide-react: 0.556.0(react@19.3.0)
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
-      zod: 4.6.2
+      zod: 4.6.6
       zustand: 5.0.15(@types/react@19.3.0)(immer@11.1.18)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
     transitivePeerDependencies:
       - '@types/react'
@@ -7664,7 +7807,7 @@ snapshots:
       '@sqlrooms/room-config': 0.29.0-rc.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       immer: 11.1.18
       react: 19.3.0
-      zod: 4.6.2
+      zod: 4.6.6
       zustand: 5.0.15(@types/react@19.3.0)(immer@11.1.18)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
     transitivePeerDependencies:
       - '@types/react'
@@ -7690,7 +7833,7 @@ snapshots:
 
   '@sqlrooms/sql-editor-config@0.29.0-rc.10':
     dependencies:
-      zod: 4.6.2
+      zod: 4.6.6
 
   '@sqlrooms/sql-editor@0.29.0-rc.10(@codemirror/lint@6.9.7)(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(apache-arrow@17.0.0)(react-dom@19.3.0(react@19.3.0))(react-hook-form@7.88.0(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.3)(use-sync-external-store@1.7.0(react@19.3.0))':
     dependencies:
@@ -7699,7 +7842,7 @@ snapshots:
       '@codemirror/language': 6.12.4
       '@codemirror/state': 6.7.4
       '@codemirror/view': 6.43.11
-      '@hookform/resolvers': 5.9.1(@standard-schema/spec@1.1.0)(react-hook-form@7.88.0(react@19.3.0))(zod@4.6.2)
+      '@hookform/resolvers': 5.9.1(@standard-schema/spec@1.1.0)(react-hook-form@7.88.0(react@19.3.0))(zod@4.6.6)
       '@lezer/highlight': 1.2.3
       '@marimo-team/codemirror-sql': 0.2.8(@codemirror/autocomplete@6.20.3)(@codemirror/lint@6.9.7)(@codemirror/state@6.7.4)(@codemirror/view@6.43.11)
       '@monaco-editor/react': 4.7.0(monaco-editor@0.55.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -7728,7 +7871,7 @@ snapshots:
       react-hook-form: 7.88.0(react@19.3.0)
       react-markdown: 10.1.0(@types/react@19.3.0)(react@19.3.0)
       remark-gfm: 4.0.1
-      zod: 4.6.2
+      zod: 4.6.6
     transitivePeerDependencies:
       - '@codemirror/lint'
       - '@sinclair/typebox'
@@ -8463,7 +8606,7 @@ snapshots:
 
   '@vscode/l10n@0.0.18': {}
 
-  '@webgpu/types@0.1.72': {}
+  '@webgpu/types@0.1.74': {}
 
   a5-js@0.10.0: {}
 
@@ -8473,13 +8616,13 @@ snapshots:
 
   acorn@8.18.0: {}
 
-  ai@6.0.282(zod@4.6.2):
+  ai@6.0.282(zod@4.6.6):
     dependencies:
-      '@ai-sdk/gateway': 3.0.193(zod@4.6.2)
+      '@ai-sdk/gateway': 3.0.193(zod@4.6.6)
       '@ai-sdk/provider': 3.0.16
-      '@ai-sdk/provider-utils': 4.0.51(zod@4.6.2)
+      '@ai-sdk/provider-utils': 4.0.51(zod@4.6.6)
       '@opentelemetry/api': 1.9.1
-      zod: 4.6.2
+      zod: 4.6.6
 
   airbnb-dlp@1.0.1:
     dependencies:
@@ -9822,6 +9965,8 @@ snapshots:
 
   meshoptimizer@1.2.0: {}
 
+  meshoptimizer@1.3.0: {}
+
   mgrs@1.0.0: {}
 
   micromark-core-commonmark@2.0.3:
@@ -10883,7 +11028,7 @@ snapshots:
 
   yocto-queue@0.1.0: {}
 
-  zod@4.6.2: {}
+  zod@4.6.6: {}
 
   zstd-codec@0.1.5:
     optional: true
