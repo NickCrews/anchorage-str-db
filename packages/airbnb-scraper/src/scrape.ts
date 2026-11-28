@@ -32,6 +32,17 @@ import {
   type RunRow,
 } from './store.ts';
 
+/**
+ * The live client's ceiling on requests per second, shared by every pass.
+ * Airbnb allows about 130 requests per IP in a rolling minute (see
+ * docs/research/airbnb/rate-limits.md). Past that, from GitHub's runners, it
+ * answers every API request with HTTP 401, which airbnb-dlp counts as a
+ * per-listing failure rather than a rate limit, so the client never slows
+ * down by itself. 1.8/s stays under the limit; a full run, about 7,000 requests plus the
+ * first-review budget, takes 65-80 minutes, within airbnb.yml's timeout.
+ */
+export const REQUESTS_PER_SECOND = 1.8;
+
 export interface ScrapeAirbnbOptions {
   dbPath: string;
   scrapeDate?: IsoDate;
@@ -68,7 +79,7 @@ export async function scrapeAndCheck(options: ScrapeAirbnbOptions): Promise<Chec
   const startedAt = toSqlTimestamp(new Date());
   log.info(`=== anchorage-str-db Airbnb scrape: ${scrapeDate} ===`);
 
-  const client = options.client ?? createClient();
+  const client = options.client ?? createClient({ limits: { requestsPerSecond: REQUESTS_PER_SECOND } });
   const db = await connect(options.dbPath);
   try {
     // ---- network phase ---------------------------------------------------
