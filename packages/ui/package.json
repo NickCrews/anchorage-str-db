@@ -11,7 +11,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@anchorage-str-db/db": "workspace:*",
+    "@anchorage-str-db/utils": "workspace:*",
     "@sqlrooms/color-scales": "0.29.0-rc.10",
     "@sqlrooms/data-table": "0.29.0-rc.10",
     "@sqlrooms/deck": "0.29.0-rc.10",

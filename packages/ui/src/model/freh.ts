@@ -5,7 +5,7 @@
  * database loads. `docs/TERMINOLOGY.md` defines both terms.
  */
 
-import { sqlLiteral, type ListingType } from '@anchorage-str-db/db/airbnbValues';
+import { sqlLiteral, type ListingType } from '@anchorage-str-db/utils/airbnbValues';
 
 /**
  * FREH, a Frequently Rented Entire-Home listing: over 365 nights, an

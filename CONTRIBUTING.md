@@ -465,7 +465,7 @@ Every run fails with `LegacySchemaError` until someone:
   ([NickCrews/airbnb-dlp#45](https://github.com/NickCrews/airbnb-dlp/issues/45)).
   Guest capacity and beds are integers in Airbnb's data and are stored as
   such.
-- **Closed sets live in one place.** `packages/db/src/airbnbValues.ts` holds
+- **Closed sets live in one place.** `packages/utils/src/airbnbValues.ts` holds
   `LISTING_TYPES` and `BUILDING_TYPES`. The schema types the columns from
   them, the scraper and the UI take their values and SQL literals from them
   (`sqlLiteral`, `sqlList`), and the `listing_type_known` and

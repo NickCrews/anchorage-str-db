@@ -22,7 +22,7 @@ import {
   type SearchListing,
   type Stay,
 } from 'airbnb-dlp';
-import { isBuildingType, type BuildingType, type ListingType } from '@anchorage-str-db/db/airbnbValues';
+import { isBuildingType, type BuildingType, type ListingType } from '@anchorage-str-db/utils/airbnbValues';
 import { epochDays, type IsoDate } from '@anchorage-str-db/utils/dates';
 import { inMunicipality, MUNICIPALITY_BOUNDING_BOX } from '@anchorage-str-db/utils/muni_geography';
 import { log } from '@anchorage-str-db/utils/log';

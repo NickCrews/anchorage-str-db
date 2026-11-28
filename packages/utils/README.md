@@ -1,6 +1,6 @@
 # `@anchorage-str-db/utils`
 
-Helpers shared by the scraper packages.
+Helpers shared by the scraper packages and the UI.
 
 **This package has no runtime dependencies, and must keep it that way.** It
 uses only Node built-ins (`fetch`, `AbortSignal`, `performance`, `fs`), so every
@@ -16,6 +16,7 @@ third-party library belongs in the package that uses it.
 | `pace` | `TokenBucket` and `Pacer`: a request rate per remote service, with the service's failure policy: what counts as a rate limit and a timeout (`classify`), whether a rate limit slows down and waits or pauses every request (`rateLimit`), and whether a lowered rate recovers (`recoverAfter`) |
 | `retry` | `withRetries`: the paced attempt loop; each failure goes to the pacer, which applies its policy |
 | `http` | `fetchText`: a GET with a timeout that throws `HttpStatusError` (with any `Retry-After`) on a non-2xx response; `fetchCookies`: the cookies a page sets, for a `Cookie` header |
+| `airbnbValues` | `LISTING_TYPES` and `BUILDING_TYPES`, the closed sets the Airbnb columns hold, with their types, and `sqlLiteral` and `sqlList` for SQL built from them. Imports nothing, so the browser UI uses it too |
 | `muni_geography` | `MUNICIPALITY_BOUNDARY`: the Municipality's boundary as GeoJSON, which `municipality.sql` builds; `MUNICIPALITY_BOUNDING_BOX` is its extent; `inMunicipality` tests a coordinate against it, `inRings` tests one against any rings (the community councils use it), and `boundingBox` finds any collection's extent. A folder, imported as `@anchorage-str-db/utils/muni_geography` |
 
 Import by module path:
