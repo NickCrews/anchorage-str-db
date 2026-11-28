@@ -21,7 +21,7 @@ the relationships do not.
 
 **Airbnb.** Each run searches the Muni's bounding box, split into price
 bands so no query paginates
-([why](research/airbnb-search-pagination.md)), and keeps the listings whose
+([why](research/airbnb/search-pagination.md)), and keeps the listings whose
 coordinate falls inside the Muni's boundary. It then reads every listing's
 page (exact-location flag, registration id, host and host card, listing
 type, guest, bed, bedroom and bathroom counts, photos), its twelve-month
@@ -89,10 +89,10 @@ So 93% of active listings have a street address and 87% an owner of record.
 For the other 152, the coordinate is all there is. Where it is exact, a
 nearest-parcel match is usually right
 ([`policy_questions.sql`](policy_questions.sql) has one); otherwise the
-address is unknown ([research](research/airbnb-address-deanonymization.md)).
+address is unknown ([research](research/airbnb/address-deanonymization.md)).
 A jittered coordinate is offset by 0.0002° to 0.0012° on each axis, so the
 true location is in a box around it, where every point is equally likely
-([research](research/airbnb-jitter/README.md)).
+([research](research/airbnb/jitter/README.md)).
 
 An "id not in the registry" may be a typo, an id on a license whose page is
 hidden, or one issued since the license scrape last read new ids, so it is
@@ -217,10 +217,10 @@ browser, from the published tables:
 - **Prices are quotes for available stays.** Airbnb prices a stay only while
   it can be booked, so the nights that make revenue have no price. Each day
   records the price of one listing's earliest bookable stay
-  ([research](research/airbnb-calendar-price.md)).
+  ([research](research/airbnb/calendar-price.md)).
 - **About two thirds of coordinates are jittered.** Filter
   `location_is_exact` before any spatial join, or match jittered ones within
-  the box described in [research](research/airbnb-jitter/README.md).
+  the box described in [research](research/airbnb/jitter/README.md).
 - **Unregistered listings have no address** (152 of 2,270 above), and a
   registered listing's address is only as good as the id the host typed.
 - **No dwelling counts.** Listings and registrations are both many-to-many

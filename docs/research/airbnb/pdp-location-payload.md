@@ -2,7 +2,7 @@
 
 Measured 2026-08-26 on Girdwood listings. Written for the former
 `packages/airbnb-client/src/listingPage.ts`. Airbnb's requests and parsing now live in [airbnb-dlp](https://github.com/NickCrews/airbnb-dlp). See also
-[`airbnb-address-deanonymization.md`](airbnb-address-deanonymization.md).
+[`address-deanonymization.md`](address-deanonymization.md).
 
 **Summary:** The listing page (PDP) says whether each listing's coordinate is
 exact, via an `isExactLocation` boolean. It is `true` for roughly half of
@@ -136,7 +136,7 @@ public, so it can't be verified.
 
 At ~92% coverage a month after the 2026-07-31 display deadline, listings
 without a number are the notable ones; see
-[`docs/policy_questions.sql`](../policy_questions.sql).
+[`docs/policy_questions.sql`](../../policy_questions.sql).
 
 ## How the project uses this
 
