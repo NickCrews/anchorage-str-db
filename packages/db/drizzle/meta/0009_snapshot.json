@@ -325,8 +325,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "property_type": {
-          "name": "property_type",
+        "building_type": {
+          "name": "building_type",
           "type": "varchar",
           "primaryKey": false,
           "notNull": false

@@ -52,7 +52,7 @@ const IMPLIED_HOSTING_START_SQL =
  * derived from `listing_id`. Coordinates are rounded to 6dp so float noise
  * doesn't open a version. `page` holds the listing-page fields, so a listing
  * changing hands, converting from a whole home to a private room, changing
- * its property type, or changing its guest, bed, bedroom or bathroom count
+ * its building type, or changing its guest, bed, bedroom or bathroom count
  * opens a version. The price quote
  * changes most days and is not part of it. Photos are stored separately
  * and never open one: hosts reorder and replace photos far more often than
@@ -74,7 +74,7 @@ const PAGE_ATTRS_SQL = `{
     'registration_id': registration_id,
     'host_id': host_id,
     'listing_type': listing_type,
-    'property_type': property_type,
+    'building_type': building_type,
     'guest_capacity': guest_capacity,
     'beds': beds,
     'bedrooms': bedrooms,
@@ -119,7 +119,7 @@ WITH observed AS (
         * EXCLUDE (
             location_is_exact, location_exact_address, location_subtitle,
             location_verified, registration_id, host_id,
-            listing_type, property_type, guest_capacity, beds, bedrooms, bathrooms
+            listing_type, building_type, guest_capacity, beds, bedrooms, bathrooms
         ),
         -- NULL when the page fetch failed, so the carry-forward skips it.
         -- Carrying the whole struct keeps "read the page, no registration
@@ -177,7 +177,7 @@ SELECT
     page_attrs.registration_id AS registration_id,
     page_attrs.host_id AS host_id,
     page_attrs.listing_type AS listing_type,
-    page_attrs.property_type AS property_type,
+    page_attrs.building_type AS building_type,
     page_attrs.guest_capacity AS guest_capacity,
     page_attrs.beds AS beds,
     page_attrs.bedrooms AS bedrooms,
@@ -191,7 +191,7 @@ SELECT
     v.listing_id,
     v.name,
     v.listing_type,
-    v.property_type,
+    v.building_type,
     v.guest_capacity,
     v.beds,
     v.bedrooms,

@@ -459,7 +459,7 @@ describe('listing-page fields', () => {
 describe('listing type and counts', () => {
   const entireHome = {
     listingType: 'entire_home',
-    propertyType: 'CABIN',
+    buildingType: 'CABIN',
     guestCapacity: 6,
     beds: 3,
     bedrooms: '2 bedrooms',
@@ -472,13 +472,13 @@ describe('listing type and counts', () => {
 
     expect(
       await db.rows(
-        'SELECT listing_type, property_type, guest_capacity, beds, bedrooms, bathrooms ' +
+        'SELECT listing_type, building_type, guest_capacity, beds, bedrooms, bathrooms ' +
           'FROM listings WHERE is_active',
       ),
     ).toEqual([
       {
         listing_type: 'entire_home',
-        property_type: 'CABIN',
+        building_type: 'CABIN',
         guest_capacity: 6,
         beds: 3,
         bedrooms: '2 bedrooms',
@@ -504,7 +504,7 @@ describe('listing type and counts', () => {
 
   it.each([
     ['a whole home converting to a rented room', { listingType: 'private_room' }],
-    ['a change of property type', { propertyType: 'HOUSE' }],
+    ['a change of building type', { buildingType: 'HOUSE' }],
     ['a change of guest capacity', { guestCapacity: 8 }],
     ['a change of bed count', { beds: 4 }],
     ['a change of bedrooms', { bedrooms: '3 bedrooms' }],

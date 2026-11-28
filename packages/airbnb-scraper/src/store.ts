@@ -100,7 +100,7 @@ export async function recordObservations(
         quoteNights: quoted ? stayNights(quoted.stay) : null,
         quoteTotal: quoted?.quote?.total.amount ?? null,
         quoteBreakdown: quoted?.quote ? [...quoted.quote.breakdown] : null,
-        propertyType: page?.propertyType ?? null,
+        buildingType: page?.propertyType ?? null,
       };
     }),
   );

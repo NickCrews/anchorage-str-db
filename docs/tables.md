@@ -39,7 +39,7 @@ For how the sources fit together, see [methodology.md](methodology.md).
   before `first_seen_date` looks as new as the day it was first scraped.
   - `listing_type`: how much of a dwelling the listing covers: `entire_home`,
     `private_room`, `shared_room`, `hotel_room` (Airbnb's `Entire home/apt`,
-    `Private room`, `Shared room`, `Hotel room`). `property_type`
+    `Private room`, `Shared room`, `Hotel room`). `building_type`
     (`HOUSE`, `CABIN`, `APARTMENT`, …) describes the place instead; it is
     NULL on observations from before it was read.
   - `guest_capacity` and `beds`: Airbnb's integers. A bunk bed counts as 2.

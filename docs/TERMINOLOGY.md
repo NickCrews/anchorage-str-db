@@ -96,14 +96,15 @@ a combo over several dwellings, and Airbnb labels some apartments
 `Private room`.
 _Avoid_: room type, property type, rental type
 
-**Property type**:
-What kind of place a listing is in, `property_type`: Airbnb's `propertyType`
-enum as airbnb-dlp returns it, e.g. `HOUSE`, `APARTMENT`, `CABIN`,
-`TOWNHOUSE`, `GUESTHOUSE`, `TENT`. A listing's, not a parcel's: a parcel's
-appraisal grouping is its parcel type. It says nothing about how much of the
-place the listing covers, which is its listing type: a `GUESTHOUSE` can be
-listed as a private room.
-_Avoid_: building type, property title
+**Building type**:
+What a listing is in, `building_type`: Airbnb's `propertyType` enum as
+airbnb-dlp returns it. In Anchorage mostly `HOUSE`, `APARTMENT`, `TOWNHOUSE`,
+`PRIVATE_SUITE`, `CONDOMINIUM` and `HOTEL`, with a few that are not buildings
+(`RV`, `TENT`) or name a business (`HOSTEL`, `FARMSTAY`). It says nothing
+about how much of the building the listing covers, which is its listing
+type: a `HOUSE` can be listed as a private room. No value marks a listing
+that covers a whole lot or several dwellings; see combo listing.
+_Avoid_: property type, structure, property title
 
 **Night**:
 One date on a listing's calendar, `night_date`. The grain of
@@ -250,8 +251,8 @@ license's parcel is not in `property_parcels` takes the archived
 registration layer's `ParcelType` instead (`Residential`, `Commercial`),
 which the Muni derived from the registered address. The two vocabularies
 differ, so compare values within one. A registration with neither has none.
-_Avoid_: property type (except quoting anchorage-property's column; a
-listing's property type is Airbnb's), land use, zoning, class
+_Avoid_: property type (except quoting anchorage-property's column), land
+use, zoning, class
 
 **anchorage-property**:
 A separate project,

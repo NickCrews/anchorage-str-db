@@ -159,12 +159,12 @@ describe('connect', () => {
     ).toEqual([{ cityview_license_id: 13923, license_id: 'LC260500349' }]);
     // 0003: Airbnb's word for it was room_type. 0009: airbnb-dlp's values,
     // with price_qualifier's text read as a number of nights, quote_label and
-    // property_title dropped, and property_type added.
+    // property_title dropped, and building_type added.
     expect(
       await db.rows(
-        'SELECT listing_type, price_nights, property_type FROM airbnb_listing_observations',
+        'SELECT listing_type, price_nights, building_type FROM airbnb_listing_observations',
       ),
-    ).toEqual([{ listing_type: 'entire_home', price_nights: 5, property_type: null }]);
+    ).toEqual([{ listing_type: 'entire_home', price_nights: 5, building_type: null }]);
     expect(
       await db.count(
         'SELECT count(*) FROM information_schema.columns ' +

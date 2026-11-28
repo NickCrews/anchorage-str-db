@@ -169,7 +169,7 @@ export const airbnbListingObservations = pgTable(
     // From the listing page, and part of its version key: Airbnb's
     // propertyType, e.g. 'HOUSE', 'CABIN', 'APARTMENT'. NULL on rows from
     // before it was read.
-    propertyType: varchar('property_type'),
+    buildingType: varchar('building_type'),
   },
   (t) => [primaryKey({ columns: [t.listingId, t.scrapeDate] })],
 );
