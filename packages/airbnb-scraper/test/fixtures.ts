@@ -45,7 +45,8 @@ export interface TestPage {
   /** Null: the page names its host but shows no card. */
   hostCard?: HostCard | null;
   listingType?: RoomType | null;
-  propertyType?: string | null;
+  /** Airbnb's propertyType. */
+  buildingType?: string | null;
   guestCapacity?: number | null;
   beds?: number | null;
   bedrooms?: string | null;
@@ -75,7 +76,7 @@ function toListing(p: TestPage): Listing {
     address: p.locationExactAddress ?? null,
     roomType: p.listingType ?? null,
     roomTypeText: null,
-    propertyType: p.propertyType ?? null,
+    propertyType: p.buildingType ?? null,
     guestCapacity: p.guestCapacity ?? null,
     beds: p.beds ?? null,
     bedrooms: p.bedrooms == null ? null : { count: null, text: p.bedrooms },

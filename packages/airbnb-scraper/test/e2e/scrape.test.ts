@@ -63,12 +63,12 @@ it('stores every listing search found, with its page', async () => {
   const rows = await db.rows(
     'SELECT count(*)::INT AS n, count(*) FILTER (WHERE page_fetch_ok)::INT AS pages, ' +
       "count(*) FILTER (WHERE listing_type IN ('entire_home', 'private_room', 'shared_room', 'hotel_room'))::INT AS typed, " +
-      'count(property_type)::INT AS property_typed, count(location_subtitle)::INT AS subtitled, ' +
+      'count(building_type)::INT AS building_typed, count(location_subtitle)::INT AS subtitled, ' +
       "count(*) FILTER (WHERE registration_id SIMILAR TO 'STR[0-9]{6,}')::INT AS registered " +
       'FROM airbnb_listing_observations',
   );
   expect(rows).toEqual([
-    { n: 12, pages: 12, typed: 12, property_typed: 12, subtitled: 12, registered: 12 },
+    { n: 12, pages: 12, typed: 12, building_typed: 12, subtitled: 12, registered: 12 },
   ]);
 });
 

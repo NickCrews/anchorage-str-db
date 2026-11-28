@@ -11,7 +11,8 @@
 -- NULL total, and discounts are lines in `quote_breakdown`.
 --
 -- `property_title`, search's display line ('Cabin in Anchorage'), is dropped
--- for the listing page's `property_type` ('CABIN'), which existing rows lack.
+-- for the listing page's `building_type` (Airbnb's propertyType, 'CABIN'),
+-- which existing rows lack.
 ALTER TABLE "airbnb_listing_observations" RENAME COLUMN "price_qualifier" TO "price_nights";--> statement-breakpoint
 ALTER TABLE "airbnb_listing_observations" ALTER COLUMN "price_nights" SET DATA TYPE integer USING CASE "price_nights"
     WHEN 'for 1 night' THEN 1
@@ -54,4 +55,4 @@ ALTER TABLE "airbnb_listing_observations" ALTER COLUMN "listing_type" SET DATA T
 END;--> statement-breakpoint
 ALTER TABLE "airbnb_listing_observations" DROP COLUMN "quote_label";--> statement-breakpoint
 ALTER TABLE "airbnb_listing_observations" DROP COLUMN "property_title";--> statement-breakpoint
-ALTER TABLE "airbnb_listing_observations" ADD COLUMN "property_type" varchar;
+ALTER TABLE "airbnb_listing_observations" ADD COLUMN "building_type" varchar;
