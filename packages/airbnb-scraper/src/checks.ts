@@ -26,9 +26,9 @@ const MAX_PAGE_FAILURE_RATE = 0.25;
 /**
  * The share of active, page-read listings with a value below which the run
  * fails, for each page field every listing has: `host_id`, `listing_type`,
- * `guest_capacity`, `beds`, `bathrooms`, and photos. Every real page sampled
- * (41 for the host, 44 for the rest) yielded each one, so a shortfall means
- * the extraction broke.
+ * `property_type`, `guest_capacity`, `beds`, `bathrooms`, and photos. Every
+ * real page sampled (41 for the host, 34 for `property_type`, 44 for the rest)
+ * yielded each one, so a shortfall means the extraction broke.
  */
 export const MIN_PAGE_FIELD_SHARE = 0.95;
 
@@ -257,6 +257,7 @@ export async function runChecks(
     const minimums = [
       ['host_id', minShare],
       ['listing_type', minShare],
+      ['property_type', minShare],
       ['guest_capacity', minShare],
       ['beds', minShare],
       ['bedrooms', MIN_BEDROOMS_SHARE],

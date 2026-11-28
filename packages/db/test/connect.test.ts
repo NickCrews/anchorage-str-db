@@ -113,10 +113,10 @@ describe('connect', () => {
     );
     await seed.run(
       "INSERT INTO airbnb_listing_observations " +
-        "(listing_id, scrape_date, name, location_lat, location_lng, price_qualifier, " +
-        "page_fetch_ok, str_registration_id, room_type, quote_label) " +
-        "VALUES (1, '2026-09-14', 'Cabin A', 61.1, -149.9, 'for 5 nights', true, 'STR20260309', " +
-        "'Entire home/apt', '$241 for 2 nights')",
+        "(listing_id, scrape_date, name, property_title, location_lat, location_lng, " +
+        "price_qualifier, page_fetch_ok, str_registration_id, room_type, quote_label) " +
+        "VALUES (1, '2026-09-14', 'Cabin A', 'Cabin in Girdwood', 61.1, -149.9, 'for 5 nights', " +
+        "true, 'STR20260309', 'Entire home/apt', '$241 for 2 nights')",
     );
     await seed.run(
       "INSERT INTO muni_str_registry_runs " +
@@ -158,14 +158,17 @@ describe('connect', () => {
       ),
     ).toEqual([{ cityview_license_id: 13923, license_id: 'LC260500349' }]);
     // 0003: Airbnb's word for it was room_type. 0009: airbnb-dlp's values,
-    // with price_qualifier's text read as a number of nights, and quote_label
-    // dropped.
+    // with price_qualifier's text read as a number of nights, quote_label and
+    // property_title dropped, and property_type added.
     expect(
-      await db.rows('SELECT listing_type, price_nights FROM airbnb_listing_observations'),
-    ).toEqual([{ listing_type: 'entire_home', price_nights: 5 }]);
+      await db.rows(
+        'SELECT listing_type, price_nights, property_type FROM airbnb_listing_observations',
+      ),
+    ).toEqual([{ listing_type: 'entire_home', price_nights: 5, property_type: null }]);
     expect(
       await db.count(
-        "SELECT count(*) FROM information_schema.columns WHERE column_name = 'quote_label'",
+        'SELECT count(*) FROM information_schema.columns ' +
+          "WHERE column_name IN ('quote_label', 'property_title')",
       ),
     ).toBe(0);
     // 0004: a read stored before submittals were has none recorded.

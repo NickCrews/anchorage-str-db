@@ -76,7 +76,6 @@ export async function recordObservations(
         listingId: BigInt(listing.id),
         scrapeDate,
         name: listing.name,
-        propertyTitle: listing.title,
         locationLat: listing.location?.lat ?? null,
         locationLng: listing.location?.lng ?? null,
         url: listingUrl(listing.id),
@@ -88,8 +87,8 @@ export async function recordObservations(
         pageFetchOk: page !== undefined,
         locationIsExact: page?.location?.exact ?? null,
         locationExactAddress: page?.address ?? null,
-        locationSubtitle: null,
-        locationVerified: null,
+        locationSubtitle: page?.location?.subtitle ?? null,
+        locationVerified: page?.location?.verified ?? null,
         registrationId: page ? registrationId(page.registration) : null,
         hostId: page?.host ? BigInt(page.host.id) : null,
         listingType: page?.roomType ?? null,
@@ -101,6 +100,7 @@ export async function recordObservations(
         quoteNights: quoted ? stayNights(quoted.stay) : null,
         quoteTotal: quoted?.quote?.total.amount ?? null,
         quoteBreakdown: quoted?.quote ? [...quoted.quote.breakdown] : null,
+        propertyType: page?.propertyType ?? null,
       };
     }),
   );

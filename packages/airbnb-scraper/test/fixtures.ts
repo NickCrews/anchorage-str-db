@@ -18,7 +18,7 @@ export function makeListing(
   return {
     id: String(id),
     name,
-    title: 'Tiny home',
+    title: null,
     location: { lat: options.lat ?? 60.95, lng: -149.1 },
     rating: 4.9,
     reviewCount: 10,
@@ -36,6 +36,8 @@ export interface TestPage {
   listingId: string;
   error?: string;
   locationIsExact?: boolean | null;
+  locationSubtitle?: string | null;
+  locationVerified?: boolean | null;
   locationExactAddress?: string | null;
   /** The "Registration Details" text. */
   registration?: string | null;
@@ -43,6 +45,7 @@ export interface TestPage {
   /** Null: the page names its host but shows no card. */
   hostCard?: HostCard | null;
   listingType?: RoomType | null;
+  propertyType?: string | null;
   guestCapacity?: number | null;
   beds?: number | null;
   bedrooms?: string | null;
@@ -60,10 +63,19 @@ function toListing(p: TestPage): Listing {
   return {
     id: p.listingId,
     location:
-      p.locationIsExact === undefined ? null : { lat: 61.2, lng: -149.9, exact: p.locationIsExact },
+      p.locationIsExact === undefined && p.locationSubtitle === undefined && p.locationVerified === undefined
+        ? null
+        : {
+            lat: 61.2,
+            lng: -149.9,
+            exact: p.locationIsExact ?? null,
+            subtitle: p.locationSubtitle ?? null,
+            verified: p.locationVerified ?? null,
+          },
     address: p.locationExactAddress ?? null,
     roomType: p.listingType ?? null,
-    propertyType: null,
+    roomTypeText: null,
+    propertyType: p.propertyType ?? null,
     guestCapacity: p.guestCapacity ?? null,
     beds: p.beds ?? null,
     bedrooms: p.bedrooms == null ? null : { count: null, text: p.bedrooms },

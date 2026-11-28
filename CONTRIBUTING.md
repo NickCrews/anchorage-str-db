@@ -143,18 +143,22 @@ aggregate.
 
 Every run fetches each listing's own page for fields the search response
 lacks or reports unreliably: whether `location_lat`/`location_lng` is the
-real position or jittered, the municipal STR registration id, the primary
-host's user id, listing type, guest, bed, bedroom and bathroom counts, and
-photos. All but photos are stored on the same `airbnb_listing_observations`
+real position or jittered, the text under the map and whether Airbnb marks
+the location verified, the municipal STR registration id, the primary host's
+user id, listing type, property type, guest, bed, bedroom and bathroom
+counts, and photos. All but photos are stored on the same `airbnb_listing_observations`
 row as the search fields. When a page fetch fails, the `listings` view
 carries the previous values forward.
 
 The registration id is Anchorage's: `registrationId` in `airbnb.ts` reads
 `STR` and its digits out of the host's "Registration Details" text, which
-airbnb-dlp returns as written. airbnb-dlp does not yet return the location
-subtitle or the location-verified flag
-([NickCrews/airbnb-dlp#44](https://github.com/NickCrews/airbnb-dlp/issues/44)),
-so `location_subtitle` and `location_verified` are written NULL.
+airbnb-dlp returns as written.
+
+Search's card title (`Cabin in Anchorage`) is not stored: it is a display
+string Airbnb builds from the property type and a town it picks, and whether
+search sends it depends on the request
+([NickCrews/airbnb-dlp#48](https://github.com/NickCrews/airbnb-dlp/issues/48)).
+`property_type` and `location_subtitle` carry what it did.
 
 The pass has no flag to skip it. A skipped pass would write rows whose page
 fields are carried forward from an earlier day, and nothing in the database
