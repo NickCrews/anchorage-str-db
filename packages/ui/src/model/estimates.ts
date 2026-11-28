@@ -1,4 +1,4 @@
-import { sqlList, sqlLiteral, type ListingType } from '@anchorage-str-db/db/airbnbValues';
+import { sqlList, sqlLiteral, type ListingType } from '@anchorage-str-db/utils/airbnbValues';
 
 import { FREHM_STATEMENT } from './freh';
 

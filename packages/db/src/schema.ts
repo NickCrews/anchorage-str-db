@@ -93,7 +93,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 
-import { BUILDING_TYPES, LISTING_TYPES } from './airbnbValues.ts';
+import { BUILDING_TYPES, LISTING_TYPES } from '@anchorage-str-db/utils/airbnbValues';
 
 /** A DuckDB `DATE`, read and written as `YYYY-MM-DD`. */
 const day = (name: string) => date(name, { mode: 'string' });
