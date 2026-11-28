@@ -55,12 +55,15 @@ export function isBuildingType(value: string): value is BuildingType {
   return (BUILDING_TYPES as readonly string[]).includes(value);
 }
 
-/** A SQL string literal: `'entire_home'`. Call it as `sqlLiteral<ListingType>('entire_home')`. */
-export function sqlLiteral<T extends string>(value: T): string {
+/** A value of one of the closed sets above. */
+export type AirbnbValue = ListingType | BuildingType;
+
+/** A SQL string literal: `sqlLiteral('entire_home')` is `'entire_home'`. Only a known value compiles. */
+export function sqlLiteral(value: AirbnbValue): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-/** A parenthesized SQL list of string literals, for `IN`: `('a', 'b')`. */
-export function sqlList(values: readonly string[]): string {
+/** A parenthesized SQL list of string literals, for `IN`: `('private_room', 'shared_room')`. */
+export function sqlList(values: readonly AirbnbValue[]): string {
   return `(${values.map(sqlLiteral).join(', ')})`;
 }
