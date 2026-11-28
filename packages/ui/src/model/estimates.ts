@@ -1,4 +1,4 @@
-import { sqlList, sqlLiteral, type ListingType } from '@anchorage-str-db/utils/airbnbValues';
+import { sqlList, sqlLiteral } from '@anchorage-str-db/utils/airbnbValues';
 
 import { FREHM_STATEMENT } from './freh';
 
@@ -201,9 +201,9 @@ export const ESTIMATE_STATEMENTS: [table: string, sql: string][] = [
        coalesce(geocoded_lng, location_lng) AS lng,
        ${COUNCIL_AREA} AS area,
        CASE
-         WHEN listing_type = ${sqlLiteral<ListingType>('entire_home')} THEN 'Entire home'
-         WHEN listing_type IN ${sqlList(['private_room', 'shared_room'] satisfies ListingType[])} THEN 'Room'
-         WHEN listing_type = ${sqlLiteral<ListingType>('hotel_room')} THEN 'Hotel room'
+         WHEN listing_type = ${sqlLiteral('entire_home')} THEN 'Entire home'
+         WHEN listing_type IN ${sqlList(['private_room', 'shared_room'])} THEN 'Room'
+         WHEN listing_type = ${sqlLiteral('hotel_room')} THEN 'Hotel room'
          ELSE 'Unknown'
        END AS listing_kind,
        try_cast(regexp_extract(bedrooms, '^(\\d+)', 1) AS INTEGER) AS bedroom_count,
