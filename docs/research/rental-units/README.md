@@ -238,6 +238,8 @@ So:
   registration number on the short-term rental's listing". So a listing
   with no id is non-compliant on its face. A listing with the wrong id is
   not detectable by the platform.
+  Airbnb removed 257 listings on 2026-10-01, 94% of them showing no id
+  ([research](../registration-enforcement/README.md)).
 
 The introduced version ([AO 2025-115][ao-2025-115]) had the same definition
 without "accessory structure". It also struck, from AMC 12.20.031, a

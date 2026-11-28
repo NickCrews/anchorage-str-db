@@ -232,6 +232,10 @@ browser, from the published tables:
 - **Host portfolios count Anchorage only.** A host with 2 listings here and
   40 elsewhere reads as 2
   ([#34](https://github.com/NickCrews/anchorage-str-db/issues/34)).
+- **Inactive is not closed.** A listing goes inactive when search stops
+  showing it, whether the host stopped renting or Airbnb removed it. On
+  2026-10-01 Airbnb removed 257 listings, 94% of them showing no
+  registration id ([research](research/registration-enforcement/README.md)).
 - **Relisting is not detected.** A host who deletes a listing and relists it
   gets a new `listing_id`.
 - **`first_available_date_est` can only be late.** It is the earlier of the
