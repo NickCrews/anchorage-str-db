@@ -265,7 +265,9 @@ describe('listing-page fields', () => {
       [
         page('1', {
           locationIsExact: true,
-          registration: 'STR20260001',
+          locationSubtitle: 'Girdwood, Alaska, United States',
+          locationVerified: true,
+          registration: 'Registration Details: STR 20260001',
         }),
         page('2', { locationIsExact: false }),
       ],
@@ -273,19 +275,23 @@ describe('listing-page fields', () => {
 
     expect(
       await db.rows(
-        'SELECT listing_id, location_is_exact, registration_id, page_seen_date ' +
-          'FROM listings WHERE is_active ORDER BY listing_id',
+        'SELECT listing_id, location_is_exact, location_subtitle, location_verified, ' +
+          'registration_id, page_seen_date FROM listings WHERE is_active ORDER BY listing_id',
       ),
     ).toEqual([
       {
         listing_id: '1',
         location_is_exact: true,
+        location_subtitle: 'Girdwood, Alaska, United States',
+        location_verified: true,
         registration_id: 'STR20260001',
         page_seen_date: '2026-08-26',
       },
       {
         listing_id: '2',
         location_is_exact: false,
+        location_subtitle: null,
+        location_verified: null,
         registration_id: null,
         page_seen_date: '2026-08-26',
       },
@@ -453,6 +459,7 @@ describe('listing-page fields', () => {
 describe('listing type and counts', () => {
   const entireHome = {
     listingType: 'entire_home',
+    propertyType: 'CABIN',
     guestCapacity: 6,
     beds: 3,
     bedrooms: '2 bedrooms',
@@ -465,11 +472,13 @@ describe('listing type and counts', () => {
 
     expect(
       await db.rows(
-        'SELECT listing_type, guest_capacity, beds, bedrooms, bathrooms FROM listings WHERE is_active',
+        'SELECT listing_type, property_type, guest_capacity, beds, bedrooms, bathrooms ' +
+          'FROM listings WHERE is_active',
       ),
     ).toEqual([
       {
         listing_type: 'entire_home',
+        property_type: 'CABIN',
         guest_capacity: 6,
         beds: 3,
         bedrooms: '2 bedrooms',
@@ -495,6 +504,7 @@ describe('listing type and counts', () => {
 
   it.each([
     ['a whole home converting to a rented room', { listingType: 'private_room' }],
+    ['a change of property type', { propertyType: 'HOUSE' }],
     ['a change of guest capacity', { guestCapacity: 8 }],
     ['a change of bed count', { beds: 4 }],
     ['a change of bedrooms', { bedrooms: '3 bedrooms' }],

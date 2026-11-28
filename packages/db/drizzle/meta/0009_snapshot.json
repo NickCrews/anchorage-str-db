@@ -181,12 +181,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "property_title": {
-          "name": "property_title",
-          "type": "varchar",
-          "primaryKey": false,
-          "notNull": false
-        },
         "location_lat": {
           "name": "location_lat",
           "type": "double precision",
@@ -328,6 +322,12 @@
         "quote_breakdown": {
           "name": "quote_breakdown",
           "type": "VARCHAR[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "property_type": {
+          "name": "property_type",
+          "type": "varchar",
           "primaryKey": false,
           "notNull": false
         }

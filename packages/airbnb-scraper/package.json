@@ -16,7 +16,7 @@
   "dependencies": {
     "@anchorage-str-db/db": "workspace:*",
     "@anchorage-str-db/utils": "workspace:*",
-    "airbnb-dlp": "^1.0.0"
+    "airbnb-dlp": "^1.0.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

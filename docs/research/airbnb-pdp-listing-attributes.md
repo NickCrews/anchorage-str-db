@@ -63,7 +63,8 @@ The page has three other photo lists, none of them the gallery:
   `propertyRooms`, each with its own `contextualizedMedia`.
 
 `propertyType` is also present, twice: an enum (`HOUSE`, `TENT`, `HOSTEL`) and
-a display string (`Private room in hostel`, `Entire cabin`). It is not stored.
+a display string (`Private room in hostel`, `Entire cabin`). The enum is now
+stored as `property_type`, and the card `title` is no longer stored.
 
 `Hotel room` did not occur in the sample. It is Airbnb's fourth room type and
 appears in Airbnb's public listing exports, so it is in the vocabulary.

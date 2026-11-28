@@ -51,15 +51,15 @@ const IMPLIED_HOSTING_START_SQL =
  * change most days (rating, review count, price hint) and `url`, which is
  * derived from `listing_id`. Coordinates are rounded to 6dp so float noise
  * doesn't open a version. `page` holds the listing-page fields, so a listing
- * changing hands, converting from a whole home to a private room, or changing
- * its guest, bed, bedroom or bathroom count opens a version. The price quote
+ * changing hands, converting from a whole home to a private room, changing
+ * its property type, or changing its guest, bed, bedroom or bathroom count
+ * opens a version. The price quote
  * changes most days and is not part of it. Photos are stored separately
  * and never open one: hosts reorder and replace photos far more often than
  * the listing itself changes.
  */
 const VERSION_KEY_SQL = `{
     'name': name,
-    'property_title': property_title,
     'lat': round(location_lat, 6),
     'lng': round(location_lng, 6),
     'badges': list_sort(badges),
@@ -74,6 +74,7 @@ const PAGE_ATTRS_SQL = `{
     'registration_id': registration_id,
     'host_id': host_id,
     'listing_type': listing_type,
+    'property_type': property_type,
     'guest_capacity': guest_capacity,
     'beds': beds,
     'bedrooms': bedrooms,
@@ -118,7 +119,7 @@ WITH observed AS (
         * EXCLUDE (
             location_is_exact, location_exact_address, location_subtitle,
             location_verified, registration_id, host_id,
-            listing_type, guest_capacity, beds, bedrooms, bathrooms
+            listing_type, property_type, guest_capacity, beds, bedrooms, bathrooms
         ),
         -- NULL when the page fetch failed, so the carry-forward skips it.
         -- Carrying the whole struct keeps "read the page, no registration
@@ -159,7 +160,6 @@ aggregated AS (
         min(scrape_date) AS valid_from,
         max(scrape_date) AS version_last_seen_date,
         any_value(name) AS name,
-        any_value(property_title) AS property_title,
         any_value(location_lat) AS location_lat,
         any_value(location_lng) AS location_lng,
         any_value(url) AS url,
@@ -177,6 +177,7 @@ SELECT
     page_attrs.registration_id AS registration_id,
     page_attrs.host_id AS host_id,
     page_attrs.listing_type AS listing_type,
+    page_attrs.property_type AS property_type,
     page_attrs.guest_capacity AS guest_capacity,
     page_attrs.beds AS beds,
     page_attrs.bedrooms AS bedrooms,
@@ -189,8 +190,8 @@ CREATE OR REPLACE VIEW listings AS
 SELECT
     v.listing_id,
     v.name,
-    v.property_title,
     v.listing_type,
+    v.property_type,
     v.guest_capacity,
     v.beds,
     v.bedrooms,

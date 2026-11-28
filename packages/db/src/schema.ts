@@ -119,7 +119,6 @@ export const airbnbListingObservations = pgTable(
 
     // From the search response; present for every observed listing.
     name: varchar('name'),
-    propertyTitle: varchar('property_title'),
     locationLat: doublePrecision('location_lat'),
     locationLng: doublePrecision('location_lng'),
     url: varchar('url'),
@@ -166,6 +165,11 @@ export const airbnbListingObservations = pgTable(
     quoteNights: integer('quote_nights'),
     quoteTotal: doublePrecision('quote_total'),
     quoteBreakdown: varcharList('quote_breakdown'),
+
+    // From the listing page, and part of its version key: Airbnb's
+    // propertyType, e.g. 'HOUSE', 'CABIN', 'APARTMENT'. NULL on rows from
+    // before it was read.
+    propertyType: varchar('property_type'),
   },
   (t) => [primaryKey({ columns: [t.listingId, t.scrapeDate] })],
 );
