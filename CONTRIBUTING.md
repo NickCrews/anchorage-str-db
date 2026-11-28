@@ -154,12 +154,6 @@ The registration id is Anchorage's: `registrationId` in `airbnb.ts` reads
 `STR` and its digits out of the host's "Registration Details" text, which
 airbnb-dlp returns as written.
 
-Search's card title (`Cabin in Anchorage`) is not stored: it is a display
-string Airbnb builds from the building type and a town it picks, and whether
-search sends it depends on the request
-([NickCrews/airbnb-dlp#48](https://github.com/NickCrews/airbnb-dlp/issues/48)).
-`building_type` and `location_subtitle` carry what it did.
-
 The pass has no flag to skip it. A skipped pass would write rows whose page
 fields are carried forward from an earlier day, and nothing in the database
 could tell those rows from freshly read ones. See
